@@ -96,7 +96,10 @@ export async function checkApiKey(apiKey, model = "gemini-3.5-flash") {
       })
     });
     clearTimeout(timeoutId);
-    return res.status === 200;
+    // 200 OK means everything is good
+    // 503 Service Unavailable means model is overloaded but API key is VALID
+    // 429 Too Many Requests means rate limits hit but API key is VALID
+    return res.status === 200 || res.status === 503 || res.status === 429;
   } catch (e) {
     clearTimeout(timeoutId);
     console.error("API Key check error:", e);

@@ -190,6 +190,7 @@ export default function App() {
 
   // Load state from localStorage on init
   useEffect(() => {
+    let activeSyncCode = null;
     try {
       const savedSettings = localStorage.getItem('simanki_settings');
       if (savedSettings) {
@@ -205,6 +206,9 @@ export default function App() {
           localStorage.setItem('simanki_settings', JSON.stringify(parsed));
         }
         setSettings(parsed);
+        if (parsed.syncCode) {
+          activeSyncCode = parsed.syncCode;
+        }
       }
     } catch (e) {
       console.error("Error loading settings from localStorage:", e);
@@ -227,17 +231,79 @@ export default function App() {
       console.error("Error loading cards from localStorage:", e);
       setCards(initialCards);
     }
+
+    // Auto-sync pull on startup if syncCode is configured
+    if (activeSyncCode) {
+      console.log("Auto-sync: Found active sync code, pulling latest cloud data...");
+      const silentPull = async () => {
+        try {
+          const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${activeSyncCode}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.decks && data.cards) {
+              setDecks(data.decks);
+              localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
+              setCards(data.cards);
+              localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
+              if (data.settings) {
+                const savedSettings = localStorage.getItem('simanki_settings');
+                const parsed = savedSettings ? JSON.parse(savedSettings) : {};
+                const merged = { ...parsed, ...data.settings, syncCode: activeSyncCode };
+                setSettings(merged);
+                localStorage.setItem('simanki_settings', JSON.stringify(merged));
+              }
+              console.log("Auto-sync: Silently updated state from cloud on startup!");
+            }
+          }
+        } catch (e) {
+          console.error("Auto-sync silent startup pull failed:", e);
+        }
+      };
+      silentPull();
+    }
   }, []);
 
-  // Save changes to localStorage helper
-  const saveDecks = (newDecks) => {
-    setDecks(newDecks);
-    localStorage.setItem('simanki_decks', JSON.stringify(newDecks));
+  const triggerAutoPush = async (newDecks, newCards, customSettings = null) => {
+    const activeSettings = customSettings || settings;
+    if (!activeSettings.syncCode) return;
+    try {
+      const payload = {
+        decks: newDecks,
+        cards: newCards,
+        settings: {
+          apiKey: activeSettings.apiKey,
+          model: activeSettings.model,
+          targetRetention: activeSettings.targetRetention,
+          customInstructions: activeSettings.customInstructions,
+          voiceURI: activeSettings.voiceURI
+        }
+      };
+      await fetch(`https://extendsclass.com/api/json-storage/bin/${activeSettings.syncCode}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      console.log("Auto-sync background push success:", activeSettings.syncCode);
+    } catch (e) {
+      console.error("Auto-sync background push failed:", e);
+    }
   };
 
-  const saveCards = (newCards) => {
+  // Save changes to localStorage helper
+  const saveDecks = (newDecks, skipAutoPush = false) => {
+    setDecks(newDecks);
+    localStorage.setItem('simanki_decks', JSON.stringify(newDecks));
+    if (!skipAutoPush) {
+      triggerAutoPush(newDecks, cards);
+    }
+  };
+
+  const saveCards = (newCards, skipAutoPush = false) => {
     setCards(newCards);
     localStorage.setItem('simanki_cards', JSON.stringify(newCards));
+    if (!skipAutoPush) {
+      triggerAutoPush(decks, newCards);
+    }
   };
 
   // --- SETTINGS CONTROL HANDLERS ---
@@ -249,6 +315,9 @@ export default function App() {
     };
     setSettings(cleaned);
     localStorage.setItem('simanki_settings', JSON.stringify(cleaned));
+    if (cleaned.syncCode) {
+      triggerAutoPush(decks, cards, cleaned);
+    }
   };
 
   const handleExportData = () => {
@@ -375,8 +444,8 @@ export default function App() {
       const data = await res.json();
       
       if (data.decks && data.cards) {
-        saveDecks(data.decks);
-        saveCards(data.cards);
+        saveDecks(data.decks, true);
+        saveCards(data.cards, true);
         
         if (data.settings) {
           const mergedSettings = {

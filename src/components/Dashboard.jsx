@@ -13,6 +13,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [newCardQuestion, setNewCardQuestion] = useState('');
   const [newCardConcept, setNewCardConcept] = useState('');
   const [activeCardDetails, setActiveCardDetails] = useState(null); // To open stats/progress details modal
+  const [showAddCardModal, setShowAddCardModal] = useState(false);
 
 
   const handleCreateDeckSubmit = (e) => {
@@ -165,50 +166,22 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
             </button>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem', alignItems: 'start' }}>
-            {/* Create Card Form */}
-            <form onSubmit={handleAddCardSubmit} className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(9, 9, 11, 0.4)', display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'left' }}>
-              <h3 style={{ fontSize: '1.2rem', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                <Plus size={18} /> Add New Card
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', alignItems: 'stretch' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.2rem', textAlign: 'left', margin: 0 }}>
+                Existing Cards ({Cards.filter(c => c.deckId === activeDeckId).length})
               </h3>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Card Question</label>
-                <textarea 
-                  placeholder="e.g. What is the difference between Working Stress Method (WSM) and Limit State Method (LSM) in structural engineering?"
-                  value={newCardQuestion}
-                  onChange={(e) => setNewCardQuestion(e.target.value)}
-                  style={{ fontSize: '0.9rem', minHeight: '120px' }}
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Core Concept Keywords</label>
-                <input 
-                  type="text"
-                  placeholder="e.g. WSM vs LSM safety factors, stress distributions"
-                  value={newCardConcept}
-                  onChange={(e) => setNewCardConcept(e.target.value)}
-                  style={{ fontSize: '0.9rem' }}
-                  required
-                />
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                  Keywords help Gemini grade your answers and design suitable simulations.
-                </p>
-              </div>
-
-              <button className="btn btn-primary" type="submit">
-                Add Card to Deck
+              <button 
+                className="btn btn-primary" 
+                onClick={() => setShowAddCardModal(true)}
+                style={{ fontSize: '0.85rem', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+              >
+                <Plus size={16} /> Add New Card
               </button>
-            </form>
+            </div>
 
             {/* Cards List */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '550px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-              <h3 style={{ fontSize: '1.2rem', textAlign: 'left', marginBottom: '0.25rem' }}>
-                Existing Cards ({Cards.filter(c => c.deckId === activeDeckId).length})
-              </h3>
-
               {Cards.filter(c => c.deckId === activeDeckId).map((card, idx) => {
                 const dueStatus = isDue(card);
                 return (
@@ -339,6 +312,89 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 </button>
                 <button className="btn btn-primary" type="submit">
                   Create Deck
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {showAddCardModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '1.5rem'
+        }} className="animate-fade-in">
+          <div 
+            className="glass-panel" 
+            style={{ 
+              width: '100%', 
+              maxWidth: '500px', 
+              padding: '2rem', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              gap: '1.5rem', 
+              position: 'relative',
+              border: '1px solid var(--border-light)',
+              background: 'rgba(15, 15, 20, 0.9)'
+            }}
+          >
+            <button 
+              className="btn-text" 
+              onClick={() => setShowAddCardModal(false)}
+              style={{ position: 'absolute', right: '1.5rem', top: '1.5rem', color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              <X size={20} />
+            </button>
+
+            <h3 style={{ fontSize: '1.35rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700 }}>
+              <Plus size={22} style={{ color: 'var(--accent-primary)' }} /> Add New Flashcard
+            </h3>
+
+            <form onSubmit={(e) => {
+              handleAddCardSubmit(e);
+              setShowAddCardModal(false);
+            }} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'left' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>Card Question</label>
+                <textarea 
+                  placeholder="e.g. What is the minimum grade of concrete allowed for RCC per IS 456?"
+                  value={newCardQuestion}
+                  onChange={(e) => setNewCardQuestion(e.target.value)}
+                  style={{ fontSize: '0.9rem', minHeight: '120px', resize: 'vertical' }}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>Core Concept Keywords</label>
+                <input 
+                  type="text"
+                  placeholder="e.g. minimum grade concrete RCC IS 456, M20"
+                  value={newCardConcept}
+                  onChange={(e) => setNewCardConcept(e.target.value)}
+                  style={{ fontSize: '0.9rem' }}
+                  required
+                />
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0' }}>
+                  Keywords help the AI grade your answer and customize the dynamic simulations.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button className="btn btn-secondary" type="button" onClick={() => setShowAddCardModal(false)}>
+                  Cancel
+                </button>
+                <button className="btn btn-primary" type="submit">
+                  Create Flashcard
                 </button>
               </div>
             </form>

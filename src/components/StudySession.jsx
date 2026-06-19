@@ -4,6 +4,7 @@ import { evaluateAnswer, generateSimulation } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
 import SimulationRenderer from './SimulationRenderer';
 import HighlightingTTS from './HighlightingTTS';
+import InlineTTSButton from './InlineTTSButton';
 import { playSuccess, playFailure } from '../utils/sound';
 
 
@@ -237,8 +238,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           </div>
 
           {/* Question Display */}
-          <h2 style={{ fontSize: '1.6rem', textAlign: 'left', lineHeight: '1.4', fontWeight: 700 }}>
-            {currentCard.question}
+          <h2 style={{ fontSize: '1.6rem', textAlign: 'left', lineHeight: '1.4', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span>{currentCard.question}</span>
+            <InlineTTSButton text={currentCard.question} voiceURI={voiceURI} />
           </h2>
 
           {/* User Text Answer */}
@@ -361,6 +363,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               <div style={{ background: 'rgba(16, 185, 129, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
                 <h4 style={{ color: '#a7f3d0', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                   <CheckCircle size={16} /> Key Strengths
+                  <InlineTTSButton text={"Key Strengths: " + (evaluation.strengths || []).join('. ')} voiceURI={voiceURI} />
                 </h4>
                 <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   {evaluation.strengths.map((s, i) => <li key={i}>{s}</li>)}
@@ -371,6 +374,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               <div style={{ background: 'rgba(239, 68, 68, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
                 <h4 style={{ color: '#fca5a5', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                   <AlertTriangle size={16} /> Logical Gaps / Misconceptions
+                  <InlineTTSButton text={"Logical Gaps or Misconceptions: " + (evaluation.weaknesses || []).join('. ')} voiceURI={voiceURI} />
                 </h4>
                 <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   {evaluation.weaknesses.map((w, i) => <li key={i}>{w}</li>)}
@@ -379,9 +383,11 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               </div>
             </div>
 
-            {/* Logic error analysis details */}
             <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', padding: '1rem 1.25rem', borderRadius: '12px' }}>
-              <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '0.25rem' }}>Logical Analysis</h4>
+              <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span>Logical Analysis</span>
+                <InlineTTSButton text={"Logical Analysis: " + (evaluation.logicAnalysis || '')} voiceURI={voiceURI} />
+              </h4>
               <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>{evaluation.logicAnalysis}</p>
             </div>
 
@@ -459,16 +465,16 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             <div style={{ textAlign: 'center' }}>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>FSRS Auto-Scheduled Interval</span>
               <h4 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-primary)', marginTop: '0.15rem' }}>
-                Next Review: {getFriendlyInterval(currentCard, evaluation.suggestedRating, targetRetention)}
+                Next Review: {getFriendlyInterval(currentCard, evaluation.suggestedRating || 'good', targetRetention)}
               </h4>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                Automatically calculated based on your score of {evaluation.score}% (FSRS status: {evaluation.suggestedRating.toUpperCase()}).
+                Automatically calculated based on your score of {evaluation.score}% (FSRS status: {(evaluation.suggestedRating || 'good').toUpperCase()}).
               </p>
             </div>
             
             <button 
               className="btn btn-primary" 
-              onClick={() => handleScheduleRating(evaluation.suggestedRating)}
+              onClick={() => handleScheduleRating(evaluation.suggestedRating || 'good')}
               style={{ width: '100%', maxWidth: '280px', gap: '0.5rem' }}
             >
               Save & Proceed <ArrowRight size={16} />

@@ -1,0 +1,74 @@
+import React, { useState, useEffect } from 'react';
+import { Volume2, Square } from 'lucide-react';
+
+export default function InlineTTSButton({ text, voiceURI = "" }) {
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (isPlaying && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [isPlaying]);
+
+  const speak = (e) => {
+    e.stopPropagation(); // prevent card clicks
+    if (!window.speechSynthesis) {
+      alert("Text-to-Speech is not supported in this browser.");
+      return;
+    }
+    
+    window.speechSynthesis.cancel(); // stop anything playing
+    
+    if (isPlaying) {
+      setIsPlaying(false);
+      return;
+    }
+    
+    setIsPlaying(true);
+    // Strip markdown characters before reading
+    const plainText = text.replace(/\*\*|###|##|#/g, '');
+    const utterance = new SpeechSynthesisUtterance(plainText);
+    
+    utterance.onend = () => setIsPlaying(false);
+    utterance.onerror = () => setIsPlaying(false);
+    
+    utterance.rate = 0.95; // slightly slower for better comprehension
+    utterance.pitch = 1.0;
+    
+    if (voiceURI) {
+      const selectedVoice = window.speechSynthesis.getVoices().find(v => v.voiceURI === voiceURI);
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
+    }
+    
+    window.speechSynthesis.speak(utterance);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={speak}
+      className="btn-text"
+      style={{
+        background: 'none',
+        border: 'none',
+        color: isPlaying ? 'var(--accent-secondary)' : 'var(--text-muted)',
+        cursor: 'pointer',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '0.2rem',
+        borderRadius: '4px',
+        transition: 'color 0.2s ease',
+        verticalAlign: 'middle',
+        marginLeft: '0.5rem'
+      }}
+      title={isPlaying ? "Stop reading" : "Read aloud"}
+    >
+      {isPlaying ? <Square size={14} fill="var(--accent-secondary)" /> : <Volume2 size={14} />}
+    </button>
+  );
+}
