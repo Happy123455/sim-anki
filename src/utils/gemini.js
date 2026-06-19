@@ -151,7 +151,7 @@ Please evaluate their response. Make sure to be constructive, pointing out exact
 `;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30-second timeout
 
   try {
     const response = await fetch(`${API_URL}/${model}:generateContent?key=${apiKey}`, {
@@ -163,7 +163,28 @@ Please evaluate their response. Make sure to be constructive, pointing out exact
           { role: "user", parts: [{ text: systemPrompt + "\n\n" + prompt }] }
         ],
         generationConfig: {
-          responseMimeType: "application/json"
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              score: { type: "INTEGER" },
+              strengths: {
+                type: "ARRAY",
+                items: { type: "STRING" }
+              },
+              weaknesses: {
+                type: "ARRAY",
+                items: { type: "STRING" }
+              },
+              logicAnalysis: { type: "STRING" },
+              correctExplanation: { type: "STRING" },
+              suggestedRating: { 
+                type: "STRING", 
+                enum: ["again", "hard", "good", "easy"] 
+              }
+            },
+            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating"]
+          }
         }
       })
     });
@@ -181,7 +202,7 @@ Please evaluate their response. Make sure to be constructive, pointing out exact
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      throw new Error("Evaluation request timed out (15s limit). Please check your internet connection or try again.");
+      throw new Error("Evaluation request timed out (30s limit). Please check your internet connection or try again.");
     }
     throw err;
   }
