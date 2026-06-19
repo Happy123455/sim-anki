@@ -4,6 +4,7 @@ import Settings from './components/Settings';
 import StudySession from './components/StudySession';
 import { calculateNextState } from './utils/srs';
 import { ShieldAlert, BookOpen, Layers } from 'lucide-react';
+import { cleanApiKey, cleanModelName } from './utils/gemini';
 
 // Pre-seeded structural engineering deck and cards
 const initialDecks = [
@@ -239,8 +240,13 @@ export default function App() {
 
   // --- SETTINGS CONTROL HANDLERS ---
   const handleSaveSettings = (newSettings) => {
-    setSettings(newSettings);
-    localStorage.setItem('simanki_settings', JSON.stringify(newSettings));
+    const cleaned = {
+      ...newSettings,
+      apiKey: cleanApiKey(newSettings.apiKey),
+      model: cleanModelName(newSettings.model)
+    };
+    setSettings(cleaned);
+    localStorage.setItem('simanki_settings', JSON.stringify(cleaned));
   };
 
   const handleExportData = () => {

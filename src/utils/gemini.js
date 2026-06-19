@@ -34,6 +34,32 @@ export function escapeJsonLaTeX(str) {
   return result;
 }
 
+// Helper to clean API keys (strips whitespace, surrounding quotes)
+export function cleanApiKey(key) {
+  if (!key) return '';
+  let cleaned = key.trim();
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  if (cleaned.startsWith("'") && cleaned.endsWith("'")) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned;
+}
+
+// Helper to clean model names (strips whitespace, surrounding quotes)
+export function cleanModelName(model) {
+  if (!model) return 'gemini-3.5-flash';
+  let cleaned = model.trim();
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  if (cleaned.startsWith("'") && cleaned.endsWith("'")) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned;
+}
+
 // Helper to clean markdown code blocks before JSON parsing
 function cleanAndParseJson(text) {
   let cleaned = text.trim();
@@ -55,8 +81,8 @@ function cleanAndParseJson(text) {
  * @returns {Promise<boolean>} True if API key is valid.
  */
 export async function checkApiKey(apiKey, model = "gemini-3.5-flash") {
-  const trimmedKey = (apiKey || '').trim();
-  const cleanModel = (model || '').trim();
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
   if (!trimmedKey) return false;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000); // 8-second timeout
@@ -83,7 +109,7 @@ export async function checkApiKey(apiKey, model = "gemini-3.5-flash") {
  * 
  * @returns {Promise<Object>} The graded report JSON object.
  */
-export async function evaluateAnswer(apiKey, model, question, concept, userAnswer, timeSpent, confidence, consecutiveFails = 0, history = [], customInstructions = "") {
+export async function evaluateAnswer(apiKey, model, question, concept, userAnswer, timeSpent, confidence, consecutiveFails = 0, history = [], customInstructions = "", onStatusUpdate = () => {}) {
   const isEli5 = consecutiveFails >= 4;
 
   // Format previous history for Gemini
@@ -152,12 +178,18 @@ User's Self-Reported Confidence: ${confidence}/5 (FYI ONLY - do NOT use this to 
 Please evaluate their response. Make sure to be constructive, pointing out exactly where their logic broke or what crucial elements they omitted.
 `;
 
-  const trimmedKey = (apiKey || '').trim();
-  const cleanModel = (model || '').trim();
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  onStatusUpdate("Preparing request payload...");
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30-second timeout
+  const timeoutId = setTimeout(() => {
+    onStatusUpdate("Timeout reached! Aborting request...");
+    controller.abort();
+  }, 30000); // 30-second timeout
 
+  onStatusUpdate(`Sending fetch request to Gemini API (Model: ${cleanModel})...`);
   try {
     const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
       method: "POST",
@@ -196,19 +228,50 @@ Please evaluate their response. Make sure to be constructive, pointing out exact
 
     clearTimeout(timeoutId);
 
+    onStatusUpdate(`Response received with status ${response.status} (${response.statusText}). Reading content...`);
+
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Gemini API error: ${response.statusText}. Details: ${errText}`);
+      let errDetail = "";
+      try {
+        const errJson = await response.json();
+        errDetail = errJson?.error?.message || response.statusText;
+      } catch (e) {
+        errDetail = await response.text() || response.statusText;
+      }
+      
+      onStatusUpdate(`Error status ${response.status} received: ${errDetail}`);
+      
+      if (response.status === 503) {
+        throw new Error(`Gemini API is currently overloaded (503 Service Unavailable). Gemini 3.5 models sometimes experience capacity limits. Please switch to 'Gemini 3.1 Flash-Lite' in Settings (it has better availability), or try again in a few seconds.`);
+      }
+      if (response.status === 400 && errDetail.toLowerCase().includes("api key not valid")) {
+        throw new Error(`Invalid API key. Please check your Gemini API key in Settings and ensure there are no extra characters or quotes.`);
+      }
+      if (response.status === 403) {
+        throw new Error(`Access Forbidden (403). Your API key may be invalid, restricted, or billing is not configured correctly. Details: ${errDetail}`);
+      }
+      throw new Error(`Gemini API Error (${response.status}): ${errDetail}`);
     }
 
+    onStatusUpdate("Decoding JSON payload...");
     const data = await response.json();
+    if (!data.candidates || data.candidates.length === 0) {
+      onStatusUpdate("Error: Gemini returned an empty response. This could be due to safety filters or API limits.");
+      throw new Error("Gemini returned an empty response candidate list. Check safety settings or try again.");
+    }
+    
+    onStatusUpdate("Parsing evaluation response...");
     const text = data.candidates[0].content.parts[0].text;
-    return cleanAndParseJson(text);
+    const parsed = cleanAndParseJson(text);
+    onStatusUpdate("Grading completed successfully!");
+    return parsed;
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
+      onStatusUpdate("Request aborted due to 30-second timeout limit.");
       throw new Error("Evaluation request timed out (30s limit). Please check your internet connection or try again.");
     }
+    onStatusUpdate(`Request failed: ${err.message}`);
     throw err;
   }
 }
@@ -320,7 +383,10 @@ ${customInstructions ? `
 Design a custom calculator or a decision scenario to help them visually/interactively correct their logic. Return only the JSON object. Do not include any markdown fences or wrapping other than the raw JSON string.
 `;
 
-  const response = await fetch(`${API_URL}/${model}:generateContent?key=${apiKey}`, {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

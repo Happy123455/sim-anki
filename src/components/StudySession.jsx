@@ -57,6 +57,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [isGradingLoading, setIsGradingLoading] = useState(false);
   const [gradingError, setGradingError] = useState(null);
   const [evaluation, setEvaluation] = useState(null);
+  const [gradingStatus, setGradingStatus] = useState('');
 
   // Copy Prompt State
   const [copySuccess, setCopySuccess] = useState(false);
@@ -96,7 +97,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     setIsGradingLoading(true);
     setGradingError(null);
     setEvaluation(null);
-    setSimulation(null);
+    setGradingStatus('Initializing grading request...');
 
     try {
       const result = await evaluateAnswer(
@@ -109,7 +110,8 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
         confidence,
         currentCard.state?.consecutiveFails || 0,
         currentCard.history || [],
-        customInstructions
+        customInstructions,
+        (status) => setGradingStatus(status)
       );
       
       setEvaluation(result);
@@ -121,15 +123,11 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       } else {
         playFailure();
       }
-
-      // Auto trigger simulation if failed (suggestedRating === 'again') and they have failed before
-      const hasFailedBefore = currentCard.state && currentCard.state.consecutiveFails > 0;
-      if (result.suggestedRating === 'again' && hasFailedBefore) {
-        handleTriggerSimulation(result.logicAnalysis);
-      }
     } catch (err) {
       console.error(err);
-      setGradingError(err.message || 'Failed to grade your answer. Check your connection or API key.');
+      const errMsg = err.message || 'Failed to grade your answer. Check your connection or API key.';
+      setGradingError(errMsg);
+      alert(`Grading Error:\n\n${errMsg}`);
     } finally {
       setIsGradingLoading(false);
     }
@@ -297,11 +295,16 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
           {/* Loading status details */}
           {isGradingLoading && (
-            <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center', justifyContent: 'center', padding: '1rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '10px', border: '1px dashed rgba(139, 92, 246, 0.3)', textAlign: 'left' }}>
-              <RotateCcw className="animate-float" size={18} style={{ animation: 'spin 1.5s linear infinite', color: 'var(--accent-primary)', flexShrink: 0 }} />
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                Grading your answer with <strong>Gemini {model}</strong>... (This usually takes 2–5 seconds. If your internet is slow, it will abort and alert you after 30 seconds).
-              </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', padding: '1.25rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '10px', border: '1px dashed rgba(139, 92, 246, 0.3)', textAlign: 'left' }}>
+              <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
+                <RotateCcw className="animate-float" size={18} style={{ animation: 'spin 1.5s linear infinite', color: 'var(--accent-primary)', flexShrink: 0 }} />
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Grading your answer with <strong>Gemini {model}</strong>... (Usually takes 2–5s. Timeout limit 30s)
+                </span>
+              </div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--accent-secondary)', paddingLeft: '1.75rem', fontFamily: 'monospace' }}>
+                &gt; {gradingStatus}
+              </div>
             </div>
           )}
 
