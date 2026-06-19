@@ -134,27 +134,41 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   };
 
   const handleScheduleRating = (rating) => {
-    onRateCard(
-      currentCard.id,
-      rating,
-      userAnswer,
-      evaluation.score,
-      evaluation.logicAnalysis,
-      confidence,
-      elapsedTime,
-      null // simulation removed — replaced by copy-prompt
-    );
-    
-    // Reset states for next card
-    setUserAnswer('');
-    setConfidence(3);
-    setEvaluation(null);
+    try {
+      if (!evaluation) {
+        alert('Error: No evaluation data found. Please re-grade this card.');
+        return;
+      }
+      if (!currentCard) {
+        alert('Error: No current card found.');
+        return;
+      }
 
-    if (currentIndex + 1 < DueCards.length) {
-      setCurrentIndex(prev => prev + 1);
-      setStep('question');
-    } else {
-      onClose(); // End session when all due cards reviewed
+      onRateCard(
+        currentCard.id,
+        rating,
+        userAnswer,
+        evaluation.score || 0,
+        evaluation.logicAnalysis || '',
+        confidence,
+        elapsedTime,
+        null // simulation removed — replaced by copy-prompt
+      );
+      
+      // Reset states for next card
+      setUserAnswer('');
+      setConfidence(3);
+      setEvaluation(null);
+
+      if (currentIndex + 1 < DueCards.length) {
+        setCurrentIndex(prev => prev + 1);
+        setStep('question');
+      } else {
+        onClose(); // End session when all due cards reviewed
+      }
+    } catch (err) {
+      console.error('Save & Proceed error:', err);
+      alert('Error saving progress: ' + err.message);
     }
   };
 

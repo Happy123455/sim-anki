@@ -362,13 +362,18 @@ export default function App() {
   };
 
   const saveCards = (newCards, skipAutoPush = false) => {
-    setCards(newCards);
-    localStorage.setItem('simanki_cards', JSON.stringify(newCards));
-    const now = Date.now();
-    setLastModified(now);
-    localStorage.setItem('simanki_last_modified', String(now));
-    if (!skipAutoPush) {
-      triggerAutoPush(decks, newCards, null, now);
+    try {
+      setCards(newCards);
+      localStorage.setItem('simanki_cards', JSON.stringify(newCards));
+      const now = Date.now();
+      setLastModified(now);
+      localStorage.setItem('simanki_last_modified', String(now));
+      if (!skipAutoPush) {
+        triggerAutoPush(decks, newCards, null, now);
+      }
+    } catch (err) {
+      console.error('saveCards error:', err);
+      alert('Error saving cards to storage: ' + err.message);
     }
   };
 
@@ -604,54 +609,59 @@ export default function App() {
   };
 
   const handleRateCard = (cardId, rating, userAnswer, score, logicAnalysis, confidence, timeSpent, simulation = null) => {
-    const updatedCards = cards.map(card => {
-      if (card.id === cardId) {
-        const nextState = calculateNextState(card, rating, settings.targetRetention);
-        
-        // Log history entry
-        const historyEntry = {
-          date: new Date().toISOString(),
-          userAnswer,
-          score,
-          logicAnalysis,
-          confidence,
-          timeSpent,
-          rating,
-          simulation
-        };
-        
-        return {
-          ...card,
-          state: nextState,
-          history: [...(card.history || []), historyEntry]
-        };
-      }
-      return card;
-    });
-    saveCards(updatedCards);
-    
-    // Update local sessionCards to keep stable indices
-    setSessionCards(prev => prev.map(c => {
-      if (c.id === cardId) {
-        const nextState = calculateNextState(c, rating, settings.targetRetention);
-        const historyEntry = {
-          date: new Date().toISOString(),
-          userAnswer,
-          score,
-          logicAnalysis,
-          confidence,
-          timeSpent,
-          rating,
-          simulation
-        };
-        return {
-          ...c,
-          state: nextState,
-          history: [...(c.history || []), historyEntry]
-        };
-      }
-      return c;
-    }));
+    try {
+      const updatedCards = cards.map(card => {
+        if (card.id === cardId) {
+          const nextState = calculateNextState(card, rating, settings.targetRetention);
+          
+          // Log history entry
+          const historyEntry = {
+            date: new Date().toISOString(),
+            userAnswer: userAnswer || '',
+            score: score || 0,
+            logicAnalysis: logicAnalysis || '',
+            confidence: confidence || 3,
+            timeSpent: timeSpent || 0,
+            rating: rating || 'good',
+            simulation: simulation || null
+          };
+          
+          return {
+            ...card,
+            state: nextState,
+            history: [...(card.history || []), historyEntry]
+          };
+        }
+        return card;
+      });
+      saveCards(updatedCards);
+      
+      // Update local sessionCards to keep stable indices
+      setSessionCards(prev => prev.map(c => {
+        if (c.id === cardId) {
+          const nextState = calculateNextState(c, rating, settings.targetRetention);
+          const historyEntry = {
+            date: new Date().toISOString(),
+            userAnswer: userAnswer || '',
+            score: score || 0,
+            logicAnalysis: logicAnalysis || '',
+            confidence: confidence || 3,
+            timeSpent: timeSpent || 0,
+            rating: rating || 'good',
+            simulation: simulation || null
+          };
+          return {
+            ...c,
+            state: nextState,
+            history: [...(c.history || []), historyEntry]
+          };
+        }
+        return c;
+      }));
+    } catch (err) {
+      console.error('handleRateCard error:', err);
+      alert('Error saving card progress: ' + err.message);
+    }
   };
 
   // Helper to filter currently due cards in selected deck
