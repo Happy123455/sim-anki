@@ -58,10 +58,8 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [gradingError, setGradingError] = useState(null);
   const [evaluation, setEvaluation] = useState(null);
 
-  // Simulation States
-  const [isSimLoading, setIsSimLoading] = useState(false);
-  const [simulation, setSimulation] = useState(null);
-  const [simError, setSimError] = useState(null);
+  // Copy Prompt State
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Start timer on question load
   useEffect(() => {
@@ -84,7 +82,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     if (window.MathJax && window.MathJax.typesetPromise) {
       window.MathJax.typesetPromise().catch(err => console.error(err));
     }
-  }, [step, currentIndex, evaluation, simulation, isSimLoading, isGradingLoading]);
+  }, [step, currentIndex, evaluation, isGradingLoading]);
 
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
@@ -398,34 +396,50 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                   </p>
                 </div>
               </div>
-              
-              {!simulation && !isSimLoading && (
+            </div>
+
+            {/* Custom Simulation Prompt for Copy-Pasting */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(139, 92, 246, 0.04)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(139, 92, 246, 0.2)', textAlign: 'left' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', margin: 0, fontWeight: 700 }}>
+                  Generate Simulation Prompt (Save Tokens)
+                </h4>
                 <button 
                   className="btn btn-secondary"
-                  onClick={() => handleTriggerSimulation(evaluation.logicAnalysis)}
-                  style={{ gap: '0.5rem', fontSize: '0.85rem' }}
+                  onClick={() => {
+                    const simulationPrompt = `Please create a dynamic, interactive simulation based on the information below. Choose whatever programming language works best for this project. Make sure to include sound effects, text-to-speech voiceover( Native Speech Synthesis ) , and animated diagrams. Here is the info: \n\nTopic/Concept: ${currentCard?.concept || ''}\nQuestion: ${currentCard?.question || ''}\nMy Answer: ${userAnswer || ''}\nLogical Gap/Feedback: ${evaluation?.logicAnalysis || ''}`;
+                    navigator.clipboard.writeText(simulationPrompt);
+                    setCopySuccess(true);
+                    setTimeout(() => setCopySuccess(false), 2000);
+                  }}
+                  style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', minWidth: '100px' }}
                 >
-                  <BookOpen size={15} /> Interact & Practice
+                  {copySuccess ? 'Copied!' : 'Copy Prompt'}
                 </button>
-              )}
-            </div>
-
-            {/* Loading Simulation status */}
-            {isSimLoading && (
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
-                <RotateCcw className="animate-float" size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--accent-primary)' }} />
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>AI is designing custom interactive simulation for your logical gap...</span>
               </div>
-            )}
-            {simError && <div style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{simError}</div>}
-          </div>
-
-          {/* Renders Custom Simulator if generated */}
-          {simulation && (
-            <div className="animate-fade-in">
-              <SimulationRenderer simulation={simulation} voiceURI={voiceURI} />
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                Copy and paste this prompt into Gemini (or another AI) to build a custom interactive simulation for this concept.
+              </p>
+              <textarea
+                readOnly
+                value={`Please create a dynamic, interactive simulation based on the information below. Choose whatever programming language works best for this project. Make sure to include sound effects, text-to-speech voiceover( Native Speech Synthesis ) , and animated diagrams. Here is the info: \n\nTopic/Concept: ${currentCard?.concept || ''}\nQuestion: ${currentCard?.question || ''}\nMy Answer: ${userAnswer || ''}\nLogical Gap/Feedback: ${evaluation?.logicAnalysis || ''}`}
+                style={{ 
+                  fontFamily: 'monospace', 
+                  fontSize: '0.82rem', 
+                  background: 'rgba(0, 0, 0, 0.3)', 
+                  border: '1px solid var(--border-light)', 
+                  borderRadius: '6px', 
+                  padding: '0.75rem', 
+                  minHeight: '120px', 
+                  resize: 'none',
+                  color: 'var(--text-secondary)',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}
+                onClick={(e) => e.target.select()}
+              />
             </div>
-          )}
+          </div>
 
           {/* FSRS Auto-Scheduling Summary & Save Button */}
           <div className="glass-panel" style={{ padding: '1.5rem 2rem', display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', marginTop: '1rem' }}>
