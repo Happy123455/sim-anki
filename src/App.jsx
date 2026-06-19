@@ -178,6 +178,8 @@ export default function App() {
   const [decks, setDecks] = useState(initialDecks);
   const [cards, setCards] = useState(initialCards);
   const [activeDeckId, setActiveDeckId] = useState(null);
+  const [sessionCards, setSessionCards] = useState([]);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Trigger MathJax typesetting whenever view or cards change
   useEffect(() => {
@@ -308,6 +310,101 @@ export default function App() {
     saveCards([...cards, ...newCards]);
   };
 
+  const handlePushSync = async () => {
+    setIsSyncing(true);
+    try {
+      const payload = {
+        decks,
+        cards,
+        settings: {
+          apiKey: settings.apiKey,
+          model: settings.model,
+          targetRetention: settings.targetRetention,
+          customInstructions: settings.customInstructions,
+          voiceURI: settings.voiceURI
+        }
+      };
+
+      let code = settings.syncCode;
+      if (code) {
+        const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${code}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`Push failed with status ${res.status}`);
+        const data = await res.json();
+        if (data.status !== 0) throw new Error(data.message || 'Push update failed');
+      } else {
+        const res = await fetch(`https://extendsclass.com/api/json-storage/bin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(`Creation failed with status ${res.status}`);
+        const data = await res.json();
+        if (data.status !== 0) throw new Error(data.message || 'Creation failed');
+        code = data.id;
+        
+        const updatedSettings = { ...settings, syncCode: code };
+        setSettings(updatedSettings);
+        localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
+      }
+      alert(`Sync completed successfully!\n\nYour Sync Code is: ${code}\n\nUse this code on your other devices to pull your cards and progress.`);
+      return code;
+    } catch (err) {
+      console.error(err);
+      alert(`Sync failed: ${err.message}`);
+      return null;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handlePullSync = async (code) => {
+    if (!code) return false;
+    setIsSyncing(true);
+    try {
+      const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${code}`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error('Sync code not found. Make sure the code is correct.');
+        }
+        throw new Error(`Pull failed with status ${res.status}`);
+      }
+      const data = await res.json();
+      
+      if (data.decks && data.cards) {
+        saveDecks(data.decks);
+        saveCards(data.cards);
+        
+        if (data.settings) {
+          const mergedSettings = {
+            ...settings,
+            ...data.settings,
+            syncCode: code
+          };
+          setSettings(mergedSettings);
+          localStorage.setItem('simanki_settings', JSON.stringify(mergedSettings));
+        } else {
+          const updatedSettings = { ...settings, syncCode: code };
+          setSettings(updatedSettings);
+          localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
+        }
+        alert('Data synchronized successfully from the cloud!');
+        return true;
+      } else {
+        throw new Error('Invalid cloud data format.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert(`Sync failed: ${err.message}`);
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // --- DECK MANAGEMENT HANDLERS ---
   const handleCreateDeck = (title, description) => {
     const newDeck = {
@@ -346,6 +443,18 @@ export default function App() {
   // --- STUDY SESSION CONTROL HANDLERS ---
   const handleStartStudy = (deckId) => {
     setActiveDeckId(deckId);
+    
+    // Get due cards once and freeze them for the session
+    const deckCards = cards.filter(c => c.deckId === deckId);
+    const due = deckCards.filter(card => {
+      if (!card.state || !card.state.dueDate) return true;
+      const due = new Date(card.state.dueDate);
+      const now = new Date();
+      now.setHours(23, 59, 59, 999);
+      return due <= now;
+    });
+    
+    setSessionCards(due);
     setView('study');
   };
 
@@ -375,6 +484,29 @@ export default function App() {
       return card;
     });
     saveCards(updatedCards);
+    
+    // Update local sessionCards to keep stable indices
+    setSessionCards(prev => prev.map(c => {
+      if (c.id === cardId) {
+        const nextState = calculateNextState(c, rating, settings.targetRetention);
+        const historyEntry = {
+          date: new Date().toISOString(),
+          userAnswer,
+          score,
+          logicAnalysis,
+          confidence,
+          timeSpent,
+          rating,
+          simulation
+        };
+        return {
+          ...c,
+          state: nextState,
+          history: [...(c.history || []), historyEntry]
+        };
+      }
+      return c;
+    }));
   };
 
   // Helper to filter currently due cards in selected deck
@@ -448,13 +580,15 @@ export default function App() {
           onImportData={handleImportData}
           onClearData={handleClearData}
           onImportAnkiCards={handleImportAnkiCards}
+          onPushSync={handlePushSync}
+          onPullSync={handlePullSync}
+          isSyncing={isSyncing}
         />
       )}
 
       {view === 'study' && activeDeckId && (
         (() => {
           const activeDeck = decks.find(d => d.id === activeDeckId);
-          const dueCards = getDueCards();
 
           if (!settings.apiKey) {
             return (
@@ -479,7 +613,7 @@ export default function App() {
           return (
             <StudySession
               Deck={activeDeck}
-              DueCards={dueCards}
+              DueCards={sessionCards}
               apiKey={settings.apiKey}
               model={settings.model}
               targetRetention={settings.targetRetention}

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Save, ShieldAlert, ArrowLeft, RefreshCw, Download, Upload } from 'lucide-react';
 import { checkApiKey } from '../utils/gemini';
 
-export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData, onImportAnkiCards }) {
+export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData, onImportAnkiCards, onPushSync, onPullSync, isSyncing }) {
   const [apiKey, setApiKey] = useState(settings.apiKey || '');
   const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState(settings.model || 'gemini-3.5-flash');
@@ -13,6 +13,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState(null); // 'success' | 'error' | null
   const [saveStatus, setSaveStatus] = useState(false);
+  const [syncCode, setSyncCode] = useState(settings.syncCode || '');
 
   useEffect(() => {
     if (!window.speechSynthesis) return;
@@ -32,10 +33,35 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
     setTestResult(isValid ? 'success' : 'error');
   };
 
+  useEffect(() => {
+    if (settings) {
+      setApiKey(settings.apiKey || '');
+      setModel(settings.model || 'gemini-3.5-flash');
+      setTargetRetention(settings.targetRetention || 90);
+      setCustomInstructions(settings.customInstructions || '');
+      setVoiceURI(settings.voiceURI || '');
+      setSyncCode(settings.syncCode || '');
+    }
+  }, [settings]);
+
   const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode });
     setSaveStatus(true);
     setTimeout(() => setSaveStatus(false), 2000);
+  };
+
+  const handlePush = async () => {
+    const code = await onPushSync();
+    if (code) {
+      setSyncCode(code);
+    }
+  };
+
+  const handlePull = async () => {
+    if (!syncCode) return;
+    if (confirm("This will overwrite all local decks, cards, settings, and progress with cloud data. Are you sure you want to pull?")) {
+      await onPullSync(syncCode);
+    }
   };
 
   const handleFileUpload = (e) => {
@@ -256,6 +282,59 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
               <Upload size={16} /> Import Anki Text (TXT/TSV)
               <input type="file" accept=".txt,.tsv" onChange={handleAnkiTxtUpload} style={{ display: 'none' }} />
             </label>
+          </div>
+        </div>
+
+        <hr style={{ borderColor: 'var(--border-light)', margin: '1rem 0' }} />
+
+        {/* Cloud Synchronization */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left' }}>
+          <h3 style={{ fontSize: '1.2rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            🔄 Cloud Sync (Cross-Device)
+          </h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+            Sync your decks, cards, settings, and review progress across your devices (e.g. mobile browser) anonymously.
+          </p>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Enter Sync Code..."
+                value={syncCode}
+                onChange={(e) => setSyncCode(e.target.value.trim())}
+                style={{ flex: 1, minWidth: '200px', maxWidth: '300px' }}
+              />
+              <button 
+                className="btn btn-secondary" 
+                onClick={handlePull} 
+                disabled={!syncCode || isSyncing}
+                style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
+              >
+                {isSyncing ? 'Pulling...' : 'Pull Data (Overwrite Local)'}
+              </button>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={handlePush} 
+                disabled={isSyncing}
+                style={{ fontSize: '0.85rem', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+              >
+                <RefreshCw size={14} className={isSyncing ? "animate-float" : ""} style={{ animation: isSyncing ? "spin 1s linear infinite" : "none" }} />
+                {isSyncing ? 'Syncing...' : syncCode ? 'Push Sync (Save to Cloud)' : 'Generate Sync Code & Push'}
+              </button>
+            </div>
+            
+            {syncCode && (
+               <div style={{ padding: '0.75rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '8px', border: '1px solid rgba(139, 92, 246, 0.15)', fontSize: '0.85rem' }}>
+                 <strong>Active Sync Code:</strong> <code style={{ color: 'var(--accent-secondary)', fontSize: '0.95rem', background: 'rgba(0,0,0,0.2)', padding: '0.15rem 0.35rem', borderRadius: '4px' }}>{syncCode}</code>
+                 <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                   Write this down or copy it to your other device to load your progress there.
+                 </p>
+               </div>
+            )}
           </div>
         </div>
 
