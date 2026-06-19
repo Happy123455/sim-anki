@@ -40,7 +40,7 @@ const parseMarkdown = (markdown) => {
   return html;
 };
 
-export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", onRateCard, onClose }) {
+export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const currentCard = DueCards[currentIndex];
 
@@ -160,7 +160,8 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       evaluation.score,
       evaluation.logicAnalysis,
       confidence,
-      elapsedTime
+      elapsedTime,
+      simulation
     );
     
     // Reset states for next card
@@ -376,7 +377,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 dangerouslySetInnerHTML={{ __html: parseMarkdown(evaluation.correctExplanation) }}
                 style={{ fontSize: '0.92rem', color: 'var(--text-secondary)' }}
               />
-              <HighlightingTTS text={evaluation.correctExplanation} />
+              <HighlightingTTS text={evaluation.correctExplanation} voiceURI={voiceURI} />
             </div>
 
             {/* Suggested Rating Badging */}
@@ -415,7 +416,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           {/* Renders Custom Simulator if generated */}
           {simulation && (
             <div className="animate-fade-in">
-              <SimulationRenderer simulation={simulation} />
+              <SimulationRenderer simulation={simulation} voiceURI={voiceURI} />
             </div>
           )}
 

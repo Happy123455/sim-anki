@@ -25,7 +25,7 @@ const tokenizeText = (text) => {
   return tokens;
 };
 
-export default function HighlightingTTS({ text }) {
+export default function HighlightingTTS({ text, voiceURI = "" }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeWordIndex, setActiveWordIndex] = useState(null);
   
@@ -94,6 +94,13 @@ export default function HighlightingTTS({ text }) {
     // Optionally set standard voice parameters
     utterance.rate = 1.0; 
     utterance.pitch = 1.0;
+
+    if (voiceURI) {
+      const selectedVoice = window.speechSynthesis.getVoices().find(v => v.voiceURI === voiceURI);
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
+    }
 
     window.speechSynthesis.speak(utterance);
   };

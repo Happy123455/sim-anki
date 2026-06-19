@@ -4,7 +4,7 @@ import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 
 
-export default function Dashboard({ Decks, Cards, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings }) {
+export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings }) {
   const [showCreateDeckModal, setShowCreateDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
@@ -348,6 +348,7 @@ export default function Dashboard({ Decks, Cards, onCreateDeck, onDeleteDeck, on
       {activeCardDetails && (
         <CardProgressDetails 
           card={activeCardDetails} 
+          voiceURI={settings.voiceURI || ''}
           onClose={() => setActiveCardDetails(null)} 
         />
       )}

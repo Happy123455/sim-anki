@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { Calendar, Award, Clock, Star, Layers, X, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
+import SimulationRenderer from './SimulationRenderer';
 
-export default function CardProgressDetails({ card, onClose }) {
+export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
   const [expandedLogIdx, setExpandedLogIdx] = useState(null);
+  const [activeSimLogIdx, setActiveSimLogIdx] = useState(null);
 
   const history = card.history || [];
   const hasHistory = history.length > 0;
 
-  // Render dynamic SVG chart
+  // Render dynamic SVG chart for Score Progress
   const renderChart = () => {
     if (history.length < 2) {
       return (
@@ -108,6 +110,105 @@ export default function CardProgressDetails({ card, onClose }) {
     );
   };
 
+  // Render FSRS Memory Retention Forgetting Curve SVG chart
+  const renderForgettingCurve = () => {
+    if (!card.state || !card.state.stability || !card.state.lastReviewDate) {
+      return (
+        <div style={{ height: '150px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.01)', borderRadius: '12px', border: '1px dashed var(--border-light)' }}>
+          <TrendingUp size={24} style={{ marginRight: '0.5rem' }} /> No review history. Study this card first to activate the forgetting curve.
+        </div>
+      );
+    }
+
+    const S = card.state.stability;
+    const elapsedMs = new Date() - new Date(card.state.lastReviewDate);
+    const elapsedDays = Math.max(0, Math.round(elapsedMs / (1000 * 60 * 60 * 24)));
+
+    // Define X-axis range: up to 3 * S or at least 7 days (capped at 60 days to look reasonable)
+    const maxDays = Math.max(7, Math.min(60, Math.round(S * 3)));
+    
+    const width = 550;
+    const height = 180;
+    const paddingX = 40;
+    const paddingY = 25;
+    const chartW = width - 2 * paddingX;
+    const chartH = height - 2 * paddingY;
+
+    // Generate curve points: 30 steps
+    const steps = 30;
+    const points = [];
+    for (let i = 0; i <= steps; i++) {
+      const d = (i / steps) * maxDays;
+      const R = Math.pow(0.9, d / S) * 100;
+      const x = paddingX + (i / steps) * chartW;
+      const y = paddingY + chartH - (R / 100) * chartH;
+      points.push({ x, y });
+    }
+
+    // Build SVG path
+    let curvePath = `M ${points[0].x} ${points[0].y}`;
+    let fillPath = `M ${points[0].x} ${paddingY + chartH} L ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+      curvePath += ` L ${points[i].x} ${points[i].y}`;
+      fillPath += ` L ${points[i].x} ${points[i].y}`;
+    }
+    fillPath += ` L ${points[points.length - 1].x} ${paddingY + chartH} Z`;
+
+    // Active marker coordinates
+    const currentR = Math.pow(0.9, elapsedDays / S) * 100;
+    const markerX = paddingX + Math.min(1, elapsedDays / maxDays) * chartW;
+    const markerY = paddingY + chartH - (Math.min(100, Math.max(0, currentR)) / 100) * chartH;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
+          <span>Elapsed Time: <strong>{elapsedDays} days</strong> since last review</span>
+          <span>Current Retention: <strong style={{ color: currentR >= 85 ? 'var(--success)' : 'var(--warning)' }}>{Math.round(currentR)}%</strong></span>
+        </div>
+        <div style={{ position: 'relative', width: '100%', overflowX: 'auto' }}>
+          <svg width={width} height={height} style={{ overflow: 'visible' }}>
+            <defs>
+              <linearGradient id="decayGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.35" />
+                <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.0" />
+              </linearGradient>
+            </defs>
+
+            {/* Grid lines */}
+            <line x1={paddingX} y1={paddingY} x2={paddingX + chartW} y2={paddingY} stroke="rgba(255,255,255,0.05)" strokeDasharray="4" />
+            <line x1={paddingX} y1={paddingY + chartH / 2} x2={paddingX + chartW} y2={paddingY + chartH / 2} stroke="rgba(255,255,255,0.05)" strokeDasharray="4" />
+            <line x1={paddingX} y1={paddingY + chartH} x2={paddingX + chartW} y2={paddingY + chartH} stroke="rgba(255,255,255,0.08)" />
+
+            {/* Shaded Area */}
+            <path d={fillPath} fill="url(#decayGrad)" />
+
+            {/* Decay Curve Line */}
+            <path d={curvePath} fill="none" stroke="#8b5cf6" strokeWidth="3" strokeLinecap="round" />
+
+            {/* Y Axis labels */}
+            <text x={paddingX - 10} y={paddingY + 4} fill="var(--text-muted)" fontSize="10" textAnchor="end">100%</text>
+            <text x={paddingX - 10} y={paddingY + chartH / 2 + 4} fill="var(--text-muted)" fontSize="10" textAnchor="end">50%</text>
+            <text x={paddingX - 10} y={paddingY + chartH + 4} fill="var(--text-muted)" fontSize="10" textAnchor="end">0%</text>
+
+            {/* X Axis labels */}
+            <text x={paddingX} y={paddingY + chartH + 18} fill="var(--text-muted)" fontSize="10" textAnchor="middle">0d (Review)</text>
+            <text x={paddingX + chartW / 2} y={paddingY + chartH + 18} fill="var(--text-muted)" fontSize="10" textAnchor="middle">{Math.round(maxDays / 2)}d</text>
+            <text x={paddingX + chartW} y={paddingY + chartH + 18} fill="var(--text-muted)" fontSize="10" textAnchor="middle">{maxDays}d</text>
+
+            {/* Active Marker Dot */}
+            <g>
+              <line x1={markerX} y1={paddingY} x2={markerX} y2={paddingY + chartH} stroke="rgba(139, 92, 246, 0.25)" strokeDasharray="3" />
+              <circle cx={markerX} cy={markerY} r="7" fill="var(--accent-secondary)" stroke="#fff" strokeWidth="2" style={{ boxShadow: '0 0 10px var(--accent-secondary)' }} />
+              <text x={markerX} y={markerY - 14} fill="var(--text-primary)" fontSize="9" fontWeight="700" textAnchor="middle">
+                {Math.round(currentR)}%
+              </text>
+            </g>
+          </svg>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{
       position: 'fixed',
@@ -195,13 +296,22 @@ export default function CardProgressDetails({ card, onClose }) {
           {renderChart()}
         </div>
 
+        {/* Forgetting Curve Chart */}
+        <div>
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <TrendingUp size={16} style={{ color: '#8b5cf6' }} /> Memory Retention (Forgetting Curve)
+          </h3>
+          {renderForgettingCurve()}
+        </div>
+
         {/* Historical Review Log List */}
         <div>
           <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.75rem' }}>Review Logs</h3>
           
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '0.25rem' }}>
             {history.map((log, idx) => {
               const isExpanded = expandedLogIdx === idx;
+              const isSimActive = activeSimLogIdx === idx;
               return (
                 <div 
                   key={idx} 
@@ -214,7 +324,10 @@ export default function CardProgressDetails({ card, onClose }) {
                 >
                   {/* Log Header Row */}
                   <div 
-                    onClick={() => setExpandedLogIdx(isExpanded ? null : idx)}
+                    onClick={() => {
+                      setExpandedLogIdx(isExpanded ? null : idx);
+                      setActiveSimLogIdx(null); // Reset sim panel on collapse/expand toggles
+                    }}
                     style={{ 
                       display: 'flex', 
                       justifyContent: 'space-between', 
@@ -264,6 +377,29 @@ export default function CardProgressDetails({ card, onClose }) {
                         <div>
                           <strong style={{ color: '#fca5a5' }}>Logical Gaps / Logic Corrections:</strong>
                           <p style={{ color: 'var(--text-secondary)', marginTop: '0.2rem' }}>{log.logicAnalysis}</p>
+                        </div>
+                      )}
+
+                      {/* Replay Simulation Action */}
+                      {log.simulation && (
+                        <div style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem' }}>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveSimLogIdx(isSimActive ? null : idx);
+                            }}
+                            style={{ gap: '0.4rem', fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'flex', alignItems: 'center' }}
+                          >
+                            <Layers size={12} /> 
+                            {isSimActive ? 'Close Interactive Practice' : 'Replay Practice Simulation'}
+                          </button>
+                          
+                          {isSimActive && (
+                            <div style={{ marginTop: '1rem', scale: '0.96', transformOrigin: 'top center', border: '1px solid rgba(139, 92, 246, 0.15)', borderRadius: '8px', overflow: 'hidden' }}>
+                              <SimulationRenderer simulation={log.simulation} voiceURI={voiceURI} />
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

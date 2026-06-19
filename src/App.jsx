@@ -40,7 +40,7 @@ const initialCards = [
 
 export default function App() {
   const [view, setView] = useState('dashboard'); // 'dashboard' | 'settings' | 'study'
-  const [settings, setSettings] = useState({ apiKey: '', model: 'gemini-3.5-flash', targetRetention: 90, customInstructions: '' });
+  const [settings, setSettings] = useState({ apiKey: '', model: 'gemini-3.5-flash', targetRetention: 90, customInstructions: '', voiceURI: '' });
   const [decks, setDecks] = useState(initialDecks);
   const [cards, setCards] = useState(initialCards);
   const [activeDeckId, setActiveDeckId] = useState(null);
@@ -93,7 +93,7 @@ export default function App() {
     localStorage.removeItem('simanki_settings');
     localStorage.removeItem('simanki_decks');
     localStorage.removeItem('simanki_cards');
-    setSettings({ apiKey: '', model: 'gemini-3.5-flash', targetRetention: 90, customInstructions: '' });
+    setSettings({ apiKey: '', model: 'gemini-3.5-flash', targetRetention: 90, customInstructions: '', voiceURI: '' });
     setDecks([]);
     setCards([]);
     setView('dashboard');
@@ -140,7 +140,7 @@ export default function App() {
     setView('study');
   };
 
-  const handleRateCard = (cardId, rating, userAnswer, score, logicAnalysis, confidence, timeSpent) => {
+  const handleRateCard = (cardId, rating, userAnswer, score, logicAnalysis, confidence, timeSpent, simulation = null) => {
     const updatedCards = cards.map(card => {
       if (card.id === cardId) {
         const nextState = calculateNextState(card, rating, settings.targetRetention);
@@ -153,7 +153,8 @@ export default function App() {
           logicAnalysis,
           confidence,
           timeSpent,
-          rating
+          rating,
+          simulation
         };
         
         return {
@@ -219,6 +220,7 @@ export default function App() {
         <Dashboard
           Decks={decks}
           Cards={cards}
+          settings={settings}
           onCreateDeck={handleCreateDeck}
           onDeleteDeck={handleDeleteDeck}
           onAddCard={handleAddCard}
@@ -272,6 +274,7 @@ export default function App() {
               model={settings.model}
               targetRetention={settings.targetRetention}
               customInstructions={settings.customInstructions || ''}
+              voiceURI={settings.voiceURI || ''}
               onRateCard={handleRateCard}
               onClose={() => setView('dashboard')}
             />

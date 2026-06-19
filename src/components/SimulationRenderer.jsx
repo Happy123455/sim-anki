@@ -72,7 +72,7 @@ const evaluateCondition = (condition, scope) => {
   return false;
 };
 
-export default function SimulationRenderer({ simulation }) {
+export default function SimulationRenderer({ simulation, voiceURI = "" }) {
   if (!simulation) return null;
 
   const { simulationType, title, description } = simulation;
@@ -97,6 +97,10 @@ export default function SimulationRenderer({ simulation }) {
     }
     
     const utterance = new SpeechSynthesisUtterance(textToRead);
+    if (voiceURI) {
+      const selectedVoice = window.speechSynthesis.getVoices().find(v => v.voiceURI === voiceURI);
+      if (selectedVoice) utterance.voice = selectedVoice;
+    }
     utterance.onend = () => setIsReadingSim(false);
     utterance.onerror = () => setIsReadingSim(false);
     window.speechSynthesis.speak(utterance);
@@ -201,6 +205,16 @@ export default function SimulationRenderer({ simulation }) {
     setScenarioHistory([]);
   };
 
+  // Compile interactive reactive SVG placeholders dynamically
+  let processedSvg = simulation.svgDiagram;
+  if (processedSvg) {
+    const scope = { ...calcInputs, ...calcOutputs };
+    Object.keys(scope).forEach(key => {
+      const regex = new RegExp(`{${key}}`, 'g');
+      processedSvg = processedSvg.replace(regex, scope[key]);
+    });
+  }
+
   return (
     <div className="glass-panel animate-fade-in" style={{ padding: '1.75rem', background: 'rgba(17, 12, 35, 0.45)', border: '1px solid rgba(139, 92, 246, 0.25)', display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'left' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -257,7 +271,7 @@ export default function SimulationRenderer({ simulation }) {
               width: '100%',
               boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.6)'
             }}
-            dangerouslySetInnerHTML={{ __html: simulation.svgDiagram }}
+            dangerouslySetInnerHTML={{ __html: processedSvg }}
           />
         </div>
       )}

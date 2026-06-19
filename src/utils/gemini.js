@@ -60,9 +60,9 @@ export async function evaluateAnswer(apiKey, model, question, concept, userAnswe
 Your job is to analyze the student's answer, provide a score from 0 to 100, identify strengths, list logical gaps or incorrect concepts, analyze their errors, and provide a clear, concise markdown explanation of the concept that directly addresses their errors.
 
 [CRITICAL BRIEFNESS REQUIREMENT]:
-1. Keep all explanations short, simple, easy to understand, and under 150 words total, including a quick real-world example and a creative analogy.
+1. Keep all explanations extremely short, simple, and under 80 words total. Focus strictly on the core explanation with a quick 1-sentence analogy or real-world example.
 2. The "strengths" and "weaknesses" lists must contain a maximum of 2 short bullet points each.
-3. The "logicAnalysis" must be an extremely direct summary of exactly "where to improve" in 1 or 2 sentences max.
+3. The "logicAnalysis" must be a direct advice on exactly "where to improve" in under 30 words (1 sentence max).
 
 ${formattedHistory ? `
 [CRITICAL HISTORY DIAGNOSIS RULE]:
@@ -153,8 +153,11 @@ You must respond with a JSON object.
 
 [CRITICAL SVG DIAGRAM REQUIREMENT]:
 For either simulation type, you MUST generate a visual, animated diagram in the "svgDiagram" field, along with a text description in the "svgDescription" field.
-"svgDiagram": "A complete, valid, raw SVG string (e.g. '<svg viewBox=\"0 0 400 200\" width=\"100%\" height=\"auto\" xmlns=\"http://www.w3.org/2000/svg\">...</svg>'). Use standard native SVG animations (like <animate>, <animateTransform>, etc.) to make it visually move and represent the concept dynamically (e.g. show load bending a beam or concrete cracks forming). The SVG styles must look good on a dark background (use purples, pinks, teals, white, grey for lines). Ensure it is complete, valid, and has no markdown code blocks or wrapper backticks inside the string."
+"svgDiagram": "A complete, valid, raw SVG string (e.g. '<svg viewBox=\"0 0 400 200\" width=\"100%\" height=\"auto\" xmlns=\"http://www.w3.org/2000/svg\">...</svg>'). Use standard native SVG animations (like <animate>, <animateTransform>, etc.) to make it visually move. Style it beautifully for a dark background (use purples, pinks, teals, white, grey for lines). Ensure it is complete, valid, and has no markdown code blocks inside the string."
 "svgDescription": "A short, concise description (1-2 sentences) of what the animated SVG diagram depicts, which will be read out loud via text-to-speech voiceover."
+
+[INTERACTIVE/REACTIVE SVG BINDING]:
+To make the SVG interactive and reactive, you can use curly-brace placeholders containing variable or formula names (e.g. '{load}', '{wsmStress}', '{deflection}') anywhere inside the SVG text, attributes, or styles (for example: '<text x=\"10\" y=\"20\">Load: {load} kN</text>', or '<circle r=\"{wsmStress}\" .../>', or a transform attribute like 'transform=\"translate(0, {deflection})\"'). The renderer will automatically substitute these placeholders with their active values as the user adjusts the sliders, causing the SVG shapes and text to update instantly!"
 
 If you choose "calculator", return this JSON structure:
 {

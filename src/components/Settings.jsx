@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Save, ShieldAlert, ArrowLeft, RefreshCw, Download, Upload } from 'lucide-react';
 import { checkApiKey } from '../utils/gemini';
 
@@ -8,9 +8,20 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [model, setModel] = useState(settings.model || 'gemini-3.5-flash');
   const [targetRetention, setTargetRetention] = useState(settings.targetRetention || 90);
   const [customInstructions, setCustomInstructions] = useState(settings.customInstructions || '');
+  const [voiceURI, setVoiceURI] = useState(settings.voiceURI || '');
+  const [voices, setVoices] = useState([]);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState(null); // 'success' | 'error' | null
   const [saveStatus, setSaveStatus] = useState(false);
+
+  useEffect(() => {
+    if (!window.speechSynthesis) return;
+    const updateVoices = () => {
+      setVoices(window.speechSynthesis.getVoices());
+    };
+    updateVoices();
+    window.speechSynthesis.onvoiceschanged = updateVoices;
+  }, []);
 
   const handleTestKey = async () => {
     if (!apiKey) return;
@@ -22,7 +33,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   };
 
   const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI });
     setSaveStatus(true);
     setTimeout(() => setSaveStatus(false), 2000);
   };
@@ -134,6 +145,33 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
             <option value="gemini-2.5-flash">Gemini 2.5 Flash (Very Fast)</option>
             <option value="gemini-2.5-pro">Gemini 2.5 Pro (Deep Analysis)</option>
           </select>
+        </div>
+
+        {/* Voice Selection */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
+          <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Tutor Speech Voice (Neural / Natural)</label>
+          <select value={voiceURI} onChange={(e) => setVoiceURI(e.target.value)}>
+            <option value="">System Default Voice</option>
+            {voices
+              .filter(v => v.lang.startsWith('en'))
+              .map(v => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name} ({v.lang}) {v.localService ? '[Local]' : '[Network]'}
+                </option>
+              ))
+            }
+            {voices
+              .filter(v => !v.lang.startsWith('en'))
+              .map(v => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name} ({v.lang})
+                </option>
+              ))
+            }
+          </select>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            Choose a high-quality or neural voice supported by your browser/OS for more natural narration.
+          </p>
         </div>
 
         {/* FSRS Toughness/Target Retention Selection */}
