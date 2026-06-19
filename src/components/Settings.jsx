@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Save, ShieldAlert, ArrowLeft, RefreshCw, Download, Upload } from 'lucide-react';
 import { checkApiKey } from '../utils/gemini';
 
-export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData }) {
+export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData, onImportAnkiCards }) {
   const [apiKey, setApiKey] = useState(settings.apiKey || '');
   const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState(settings.model || 'gemini-3.5-flash');
@@ -39,6 +39,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   };
 
   const handleFileUpload = (e) => {
+    if (!e.target.files || e.target.files.length === 0) return;
     const fileReader = new FileReader();
     fileReader.readAsText(e.target.files[0], "UTF-8");
     fileReader.onload = (event) => {
@@ -54,6 +55,29 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
         alert("Failed to parse JSON file.");
       }
     };
+    e.target.value = '';
+  };
+
+  const handleAnkiTxtUpload = (e) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const fileReader = new FileReader();
+    fileReader.readAsText(e.target.files[0], "UTF-8");
+    fileReader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        const importedCards = parseAnkiTxt(text);
+        if (importedCards && importedCards.length > 0) {
+          onImportAnkiCards(importedCards);
+          alert(`Successfully imported ${importedCards.length} flashcards from Anki file!`);
+        } else {
+          alert("No valid cards found in the Anki file. Make sure it is tab-separated.");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Failed to parse Anki file. " + err.message);
+      }
+    };
+    e.target.value = '';
   };
 
   return (
@@ -228,6 +252,10 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
               <Upload size={16} /> Import Backup (JSON)
               <input type="file" accept=".json" onChange={handleFileUpload} style={{ display: 'none' }} />
             </label>
+            <label className="btn btn-secondary" style={{ fontSize: '0.9rem', gap: '0.5rem', cursor: 'pointer', margin: 0 }}>
+              <Upload size={16} /> Import Anki Text (TXT/TSV)
+              <input type="file" accept=".txt,.tsv" onChange={handleAnkiTxtUpload} style={{ display: 'none' }} />
+            </label>
           </div>
         </div>
 
@@ -252,4 +280,68 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       </div>
     </div>
   );
+}
+
+// Clean text and decode common HTML entities
+function cleanText(str) {
+  if (!str) return '';
+  let text = str;
+  // Decode common HTML entities
+  text = text
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&deg;/g, '°')
+    .replace(/&nbsp;/g, ' ');
+  
+  // Remove basic HTML tags
+  text = text.replace(/<\/?[^>]+(>|$)/g, "");
+  
+  // Trim surrounding spaces and quotes if any
+  text = text.trim();
+  if (text.startsWith('"') && text.endsWith('"')) {
+    text = text.slice(1, -1).trim();
+  }
+  return text;
+}
+
+// Parse tab-separated Anki text format
+function parseAnkiTxt(text) {
+  const lines = text.split(/\r?\n/);
+  const cards = [];
+  
+  for (let line of lines) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) continue;
+    // Skip comments / settings metadata lines
+    if (trimmedLine.startsWith('#')) continue;
+    
+    const columns = line.split('\t');
+    if (columns.length < 2) continue;
+    
+    let question = cleanText(columns[0]);
+    let answer = cleanText(columns[1]);
+    let conceptFocus = columns[4] ? cleanText(columns[4]) : '';
+    let mnemonic = columns[5] ? cleanText(columns[5]) : '';
+    
+    if (!question || !answer) continue;
+    
+    // Construct the concept string.
+    let concept = `Correct Answer: ${answer}`;
+    if (conceptFocus) {
+      concept += `. Explanation: ${conceptFocus}`;
+    }
+    if (mnemonic) {
+      concept += `. Mnemonic: ${mnemonic}`;
+    }
+    
+    cards.push({
+      question,
+      concept
+    });
+  }
+  
+  return cards;
 }

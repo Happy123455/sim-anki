@@ -35,6 +35,139 @@ const initialCards = [
     question: 'Why do we need shear stirrups in concrete beams, and how do they carry the diagonal shear forces?',
     concept: 'Concrete beam shear failure and shear stirrups design',
     state: null // new card
+  },
+  {
+    id: 'card-4',
+    deckId: 'deck-structural',
+    question: 'Which IS code is used for Plain and Reinforced Concrete?',
+    concept: 'Correct Answer: IS 456 : 2000. Focus: IS 456 is for plain and reinforced concrete. Mnemonic: The foundational concrete rulebook.',
+    state: null
+  },
+  {
+    id: 'card-5',
+    deckId: 'deck-structural',
+    question: 'Which IS code (Parts I to V) governs Loading Standards (Dead, Live, Wind, Snow)?',
+    concept: 'Correct Answer: IS 875. Focus: IS 875 governs loading standards. Mnemonic: The rulebook for incoming damage types.',
+    state: null
+  },
+  {
+    id: 'card-6',
+    deckId: 'deck-structural',
+    question: 'Which IS code contains the criteria for Earthquake Resistant Design?',
+    concept: 'Correct Answer: IS 1893. Focus: IS 1893 is for earthquake resistant design. Mnemonic: The main Geo defense rulebook.',
+    state: null
+  },
+  {
+    id: 'card-7',
+    deckId: 'deck-structural',
+    question: 'Which IS code handles Ductile Detailing of seismic structures?',
+    concept: 'Correct Answer: IS 13920. Focus: IS 13920 is for ductile detailing. Mnemonic: The "flexibility" rulebook for surviving tremors.',
+    state: null
+  },
+  {
+    id: 'card-8',
+    deckId: 'deck-structural',
+    question: 'What is the Partial Material Safety Factor for Concrete (\\(\\gamma_{mc}\\))?',
+    concept: 'Correct Answer: 1.5. Focus: The material safety factor for concrete is 1.5. Mnemonic: A bigger safety buffer because it\'s crafted in the wild.',
+    state: null
+  },
+  {
+    id: 'card-9',
+    deckId: 'deck-structural',
+    question: 'What is the Partial Material Safety Factor for Steel (\\(\\gamma_{ms}\\))?',
+    concept: 'Correct Answer: 1.15. Focus: The material safety factor for steel is 1.15. Mnemonic: A smaller safety buffer because it\'s forged in a controlled factory.',
+    state: null
+  },
+  {
+    id: 'card-10',
+    deckId: 'deck-structural',
+    question: 'Why is the safety factor for concrete (1.5) higher than for steel (1.15)?',
+    concept: 'Correct Answer: Concrete is mixed on-site (lower quality control), steel is factory-made (high quality control). Focus: Concrete has less quality control than factory-made steel. Mnemonic: Field-crafting has unpredictable RNG compared to a blacksmith shop.',
+    state: null
+  },
+  {
+    id: 'card-11',
+    deckId: 'deck-structural',
+    question: 'What is the standard Load Safety Factor \\(\\gamma_{f}\\) for Dead + Live loads?',
+    concept: 'Correct Answer: 1.5. Focus: The load safety factor is 1.5. Mnemonic: Multiplier applied to enemy attacks to ensure you survive.',
+    state: null
+  },
+  {
+    id: 'card-12',
+    deckId: 'deck-structural',
+    question: 'The Limit State Method combines concepts from which two older design methods?',
+    concept: 'Correct Answer: Ultimate Load Method and Working Stress Method. Focus: Limit State Method combines Ultimate Load and Working Stress methods. Mnemonic: A hybrid build of two older metas.',
+    state: null
+  },
+  {
+    id: 'card-13',
+    deckId: 'deck-structural',
+    question: 'Which Limit State deals with the structure failing or being unable to resist external loads?',
+    concept: 'Correct Answer: Limit State of Collapse (Strength). Focus: The limit state of collapse deals with structural failure. Mnemonic: Total HP reaches zero.',
+    state: null
+  },
+  {
+    id: 'card-14',
+    deckId: 'deck-structural',
+    question: 'Deflection, cracking, and vibration belong to which Limit State?',
+    concept: 'Correct Answer: Limit State of Serviceability. Focus: Deflection and cracking fall under the limit state of serviceability. Mnemonic: HP isn\'t zero, but the structure has a continuous debuff making it uncomfortable.',
+    state: null
+  },
+  {
+    id: 'card-15',
+    deckId: 'deck-structural',
+    question: 'What is the formula to convert Characteristic Strength to Design Strength?',
+    concept: 'Correct Answer: Divide by the Material Safety Factor, i.e., \\(\\frac{\\text{Characteristic Strength}}{\\text{Material Safety Factor}}\\). Focus: Design strength is characteristic strength divided by the material safety factor. Mnemonic: Nerf your own base stats on paper for a safety buffer.',
+    state: null
+  },
+  {
+    id: 'card-16',
+    deckId: 'deck-structural',
+    question: 'What is the formula to convert Characteristic Load to Design Load?',
+    concept: 'Correct Answer: Multiply by the Load Safety Factor, i.e., \\(\\text{Characteristic Load} \\times \\text{Load Safety Factor}\\). Focus: Design load is characteristic load multiplied by the load safety factor. Mnemonic: Buff the enemy\'s base damage on paper for a safety buffer.',
+    state: null
+  },
+  {
+    id: 'card-17',
+    deckId: 'deck-structural',
+    question: 'What is the "Golden Rule" equation of structural design?',
+    concept: 'Correct Answer: Design Strength \\(\\ge\\) Design Load. Focus: Design strength must be greater than or equal to design load. Mnemonic: Your nerfed shield must still block their buffed attack.',
+    state: null
+  },
+  {
+    id: 'card-18',
+    deckId: 'deck-structural',
+    question: 'What is the minimum grade of concrete allowed for RCC per IS 456?',
+    concept: 'Correct Answer: M20. Focus: The minimum grade of concrete for RCC is M20. Mnemonic: The minimum level required to equip reinforcements.',
+    state: null
+  },
+  {
+    id: 'card-19',
+    deckId: 'deck-structural',
+    question: 'What is the standard unit weight of RCC (Reinforced Cement Concrete)?',
+    concept: 'Correct Answer: 25 kN/m\u00b3. Focus: The unit weight of RCC is 25 kilonewtons per cubic meter. Mnemonic: Heaviest because of the steel inside.',
+    state: null
+  },
+  {
+    id: 'card-20',
+    deckId: 'deck-structural',
+    question: 'What is the standard unit weight of PCC (Plain Cement Concrete)?',
+    concept: 'Correct Answer: 24 kN/m\u00b3. Focus: The unit weight of PCC is 24 kilonewtons per cubic meter. Mnemonic: Lighter by 1 point because it lacks metal.',
+    state: null
+  },
+  {
+    id: 'card-21',
+    deckId: 'deck-structural',
+    question: 'What is the standard unit weight of Steel?',
+    concept: 'Correct Answer: 78.5 kN/m\u00b3. Focus: The unit weight of steel is 78.5 kilonewtons per cubic meter. Mnemonic: Extremely dense material.',
+    state: null
+  },
+  {
+    id: 'card-22',
+    deckId: 'deck-structural',
+    question: 'What is the standard Modulus of Elasticity of Steel (\\(E_s\\))?',
+    concept: 'Correct Answer: 2 \\(\\times\\) 10^5 N/mm\u00b2. Focus: The modulus of elasticity of steel is 2 times 10 to the power 5 newtons per square millimeter. Mnemonic: Memorize the 2 and the 5 zeroes.',
+    state: null
   }
 ];
 
@@ -94,9 +227,42 @@ export default function App() {
     localStorage.removeItem('simanki_decks');
     localStorage.removeItem('simanki_cards');
     setSettings({ apiKey: '', model: 'gemini-3.5-flash', targetRetention: 90, customInstructions: '', voiceURI: '' });
-    setDecks([]);
-    setCards([]);
+    setDecks(initialDecks);
+    setCards(initialCards);
     setView('dashboard');
+  };
+
+  const handleImportAnkiCards = (importedCards) => {
+    let targetDeckId = activeDeckId;
+    let updatedDecks = [...decks];
+    
+    if (!targetDeckId) {
+      const structuralDeckExists = decks.some(d => d.id === 'deck-structural');
+      if (structuralDeckExists) {
+        targetDeckId = 'deck-structural';
+      } else if (decks.length > 0) {
+        targetDeckId = decks[0].id;
+      } else {
+        targetDeckId = `deck-imported-${Date.now()}`;
+        const newDeck = {
+          id: targetDeckId,
+          title: 'Imported Deck',
+          description: 'Flashcards imported from Anki tab-separated text file.'
+        };
+        updatedDecks.push(newDeck);
+        saveDecks(updatedDecks);
+      }
+    }
+    
+    const newCards = importedCards.map((c, index) => ({
+      id: `card-imported-${Date.now()}-${index}`,
+      deckId: targetDeckId,
+      question: c.question,
+      concept: c.concept,
+      state: null
+    }));
+    
+    saveCards([...cards, ...newCards]);
   };
 
   // --- DECK MANAGEMENT HANDLERS ---
@@ -238,6 +404,7 @@ export default function App() {
           onExportData={handleExportData}
           onImportData={handleImportData}
           onClearData={handleClearData}
+          onImportAnkiCards={handleImportAnkiCards}
         />
       )}
 
