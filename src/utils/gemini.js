@@ -1,5 +1,39 @@
 const API_URL = "https://generativelanguage.googleapis.com/v1beta/models";
 
+// Clean single backslashes in JSON strings that are not valid JSON escape sequences
+export function escapeJsonLaTeX(str) {
+  let result = '';
+  let inString = false;
+  let i = 0;
+  while (i < str.length) {
+    const char = str[i];
+    if (char === '"' && (i === 0 || str[i - 1] !== '\\')) {
+      inString = !inString;
+      result += char;
+      i++;
+      continue;
+    }
+    
+    if (inString && char === '\\') {
+      const nextChar = str[i + 1];
+      if (nextChar === '"') {
+        result += '\\"';
+        i += 2;
+      } else if (nextChar === '\\') {
+        result += '\\\\';
+        i += 2;
+      } else {
+        result += '\\\\';
+        i++;
+      }
+    } else {
+      result += char;
+      i++;
+    }
+  }
+  return result;
+}
+
 // Helper to clean markdown code blocks before JSON parsing
 function cleanAndParseJson(text) {
   let cleaned = text.trim();
@@ -8,7 +42,8 @@ function cleanAndParseJson(text) {
     cleaned = cleaned.replace(/^```[a-zA-Z]*\n/, ''); // remove start fence
     cleaned = cleaned.replace(/\n```$/, ''); // remove end fence
   }
-  return JSON.parse(cleaned.trim());
+  cleaned = escapeJsonLaTeX(cleaned.trim());
+  return JSON.parse(cleaned);
 }
 
 

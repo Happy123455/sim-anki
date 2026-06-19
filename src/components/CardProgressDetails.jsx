@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Calendar, Award, Clock, Star, Layers, X, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
 import SimulationRenderer from './SimulationRenderer';
 
@@ -8,6 +8,13 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
 
   const history = card.history || [];
   const hasHistory = history.length > 0;
+
+  // Trigger MathJax typesetting when logs or cards open/expand
+  useEffect(() => {
+    if (window.MathJax && window.MathJax.typesetPromise) {
+      window.MathJax.typesetPromise().catch(err => console.error(err));
+    }
+  }, [card, expandedLogIdx, activeSimLogIdx]);
 
   // Render dynamic SVG chart for Score Progress
   const renderChart = () => {

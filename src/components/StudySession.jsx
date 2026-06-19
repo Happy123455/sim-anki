@@ -79,6 +79,13 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     return () => clearInterval(timerRef.current);
   }, []);
 
+  // Trigger MathJax typesetting when card content updates
+  useEffect(() => {
+    if (window.MathJax && window.MathJax.typesetPromise) {
+      window.MathJax.typesetPromise().catch(err => console.error(err));
+    }
+  }, [step, currentIndex, evaluation, simulation, isSimLoading, isGradingLoading]);
+
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
     const s = (secs % 60).toString().padStart(2, '0');

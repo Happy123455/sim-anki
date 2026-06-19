@@ -178,15 +178,39 @@ export default function App() {
   const [cards, setCards] = useState(initialCards);
   const [activeDeckId, setActiveDeckId] = useState(null);
 
+  // Trigger MathJax typesetting whenever view or cards change
+  useEffect(() => {
+    if (window.MathJax && window.MathJax.typesetPromise) {
+      window.MathJax.typesetPromise().catch((err) => console.log('MathJax typesetting failed:', err));
+    }
+  }, [view, activeDeckId, cards]);
+
   // Load state from localStorage on init
   useEffect(() => {
-    const savedSettings = localStorage.getItem('simanki_settings');
-    const savedDecks = localStorage.getItem('simanki_decks');
-    const savedCards = localStorage.getItem('simanki_cards');
+    try {
+      const savedSettings = localStorage.getItem('simanki_settings');
+      if (savedSettings) setSettings(JSON.parse(savedSettings));
+    } catch (e) {
+      console.error("Error loading settings from localStorage:", e);
+    }
 
-    if (savedSettings) setSettings(JSON.parse(savedSettings));
-    if (savedDecks) setDecks(JSON.parse(savedDecks));
-    if (savedCards) setCards(JSON.parse(savedCards));
+    try {
+      const savedDecks = localStorage.getItem('simanki_decks');
+      if (savedDecks) setDecks(JSON.parse(savedDecks));
+    } catch (e) {
+      console.error("Error loading decks from localStorage:", e);
+    }
+
+    try {
+      const savedCards = localStorage.getItem('simanki_cards');
+      if (savedCards) {
+        const cleaned = escapeJsonLaTeX(savedCards);
+        setCards(JSON.parse(cleaned));
+      }
+    } catch (e) {
+      console.error("Error loading cards from localStorage:", e);
+      setCards(initialCards);
+    }
   }, []);
 
   // Save changes to localStorage helper
@@ -450,4 +474,38 @@ export default function App() {
       )}
     </div>
   );
+}
+
+// Clean single backslashes in JSON strings that are not valid JSON escape sequences
+function escapeJsonLaTeX(str) {
+  let result = '';
+  let inString = false;
+  let i = 0;
+  while (i < str.length) {
+    const char = str[i];
+    if (char === '"' && (i === 0 || str[i - 1] !== '\\')) {
+      inString = !inString;
+      result += char;
+      i++;
+      continue;
+    }
+    
+    if (inString && char === '\\') {
+      const nextChar = str[i + 1];
+      if (nextChar === '"') {
+        result += '\\"';
+        i += 2;
+      } else if (nextChar === '\\') {
+        result += '\\\\';
+        i += 2;
+      } else {
+        result += '\\\\';
+        i++;
+      }
+    } else {
+      result += char;
+      i++;
+    }
+  }
+  return result;
 }
