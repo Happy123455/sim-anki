@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp } from 'lucide-react';
 import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
@@ -14,6 +14,13 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [newCardConcept, setNewCardConcept] = useState('');
   const [activeCardDetails, setActiveCardDetails] = useState(null); // To open stats/progress details modal
   const [showAddCardModal, setShowAddCardModal] = useState(false);
+  const [selectedDeckId, setSelectedDeckId] = useState('');
+
+  useEffect(() => {
+    if (showAddCardModal) {
+      setSelectedDeckId(activeDeckId || (Decks.length > 0 ? Decks[0].id : ''));
+    }
+  }, [showAddCardModal, activeDeckId, Decks]);
 
 
   const handleCreateDeckSubmit = (e) => {
@@ -27,8 +34,8 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
   const handleAddCardSubmit = (e) => {
     e.preventDefault();
-    if (!newCardQuestion.trim() || !newCardConcept.trim()) return;
-    onAddCard(activeDeckId, newCardQuestion, newCardConcept);
+    if (!selectedDeckId || !newCardQuestion.trim() || !newCardConcept.trim()) return;
+    onAddCard(selectedDeckId, newCardQuestion, newCardConcept);
     setNewCardQuestion('');
     setNewCardConcept('');
   };
@@ -61,6 +68,14 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
         <div style={{ display: 'flex', gap: '1rem' }}>
           <button className="btn btn-secondary" onClick={onOpenSettings} style={{ gap: '0.5rem' }}>
             <Settings size={18} /> Settings
+          </button>
+          <button 
+            className="btn btn-secondary" 
+            onClick={() => setShowAddCardModal(true)}
+            disabled={Decks.length === 0}
+            style={{ gap: '0.5rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', opacity: Decks.length === 0 ? 0.5 : 1, cursor: Decks.length === 0 ? 'not-allowed' : 'pointer' }}
+          >
+            <Plus size={18} /> Add Card
           </button>
           <button className="btn btn-primary" onClick={() => setShowCreateDeckModal(true)} style={{ gap: '0.5rem' }}>
             <Plus size={18} /> Create Deck
@@ -116,21 +131,31 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
               </div>
 
               {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
                 <button 
                   className="btn btn-primary" 
                   onClick={() => onStartStudy(deck.id)}
                   disabled={stats.total === 0}
-                  style={{ flex: 1, gap: '0.5rem', opacity: stats.total === 0 ? 0.5 : 1, cursor: stats.total === 0 ? 'not-allowed' : 'pointer' }}
+                  style={{ flex: 1.2, gap: '0.35rem', opacity: stats.total === 0 ? 0.5 : 1, cursor: stats.total === 0 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', padding: '0.5rem' }}
                 >
-                  <Play size={16} /> Study Now
+                  <Play size={14} /> Study
+                </button>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => {
+                    setActiveDeckId(deck.id);
+                    setShowAddCardModal(true);
+                  }}
+                  style={{ gap: '0.35rem', fontSize: '0.85rem', padding: '0.5rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', color: '#34d399' }}
+                >
+                  <Plus size={14} /> + Card
                 </button>
                 <button 
                   className="btn btn-secondary" 
                   onClick={() => setActiveDeckId(isSelected ? null : deck.id)}
-                  style={{ gap: '0.5rem' }}
+                  style={{ gap: '0.35rem', fontSize: '0.85rem', padding: '0.5rem' }}
                 >
-                  <Layers size={16} /> Cards ({stats.total})
+                  <Layers size={14} /> Cards ({stats.total})
                 </button>
               </div>
             </div>
@@ -363,6 +388,21 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
               handleAddCardSubmit(e);
               setShowAddCardModal(false);
             }} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'left' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>Select Target Deck</label>
+                <select 
+                  value={selectedDeckId} 
+                  onChange={(e) => setSelectedDeckId(e.target.value)}
+                  style={{ fontSize: '0.9rem' }}
+                  required
+                >
+                  <option value="" disabled>-- Select a Deck --</option>
+                  {Decks.map(d => (
+                    <option key={d.id} value={d.id}>{d.title}</option>
+                  ))}
+                </select>
+              </div>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                 <label style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>Card Question</label>
                 <textarea 

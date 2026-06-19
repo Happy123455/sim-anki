@@ -411,7 +411,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 <div>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>AI Suggested Card Status</span>
                   <p style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                    Grade suggested rating is <span style={{ color: 'var(--accent-secondary)', textTransform: 'uppercase' }}>{evaluation.suggestedRating}</span>
+                    Grade suggested rating is <span style={{ color: 'var(--accent-secondary)', textTransform: 'uppercase' }}>{String(evaluation.suggestedRating || 'good').toUpperCase()}</span>
                   </p>
                 </div>
               </div>
@@ -465,16 +465,16 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             <div style={{ textAlign: 'center' }}>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>FSRS Auto-Scheduled Interval</span>
               <h4 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-primary)', marginTop: '0.15rem' }}>
-                Next Review: {getFriendlyInterval(currentCard, evaluation.suggestedRating || 'good', targetRetention)}
+                Next Review: {getFriendlyInterval(currentCard, String(evaluation.suggestedRating || 'good').toLowerCase(), targetRetention)}
               </h4>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                Automatically calculated based on your score of {evaluation.score}% (FSRS status: {(evaluation.suggestedRating || 'good').toUpperCase()}).
+                Automatically calculated based on your score of {evaluation.score}% (FSRS status: {String(evaluation.suggestedRating || 'good').toUpperCase()}).
               </p>
             </div>
             
             <button 
               className="btn btn-primary" 
-              onClick={() => handleScheduleRating(evaluation.suggestedRating || 'good')}
+              onClick={() => handleScheduleRating(String(evaluation.suggestedRating || 'good').toLowerCase())}
               style={{ width: '100%', maxWidth: '280px', gap: '0.5rem' }}
             >
               Save & Proceed <ArrowRight size={16} />

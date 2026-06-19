@@ -2,6 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Save, ShieldAlert, ArrowLeft, RefreshCw, Download, Upload } from 'lucide-react';
 import { checkApiKey } from '../utils/gemini';
 
+const getBestDefaultVoice = (voices) => {
+  const preferredSubstrings = ["siri", "google us english", "google uk english", "natural", "neural", "samantha", "aria", "guy"];
+  const englishVoices = voices.filter(v => v.lang.toLowerCase().startsWith('en'));
+  if (englishVoices.length === 0) return null;
+
+  for (const sub of preferredSubstrings) {
+    const match = englishVoices.find(v => v.name.toLowerCase().includes(sub));
+    if (match) return match;
+  }
+  return englishVoices[0];
+};
+
 export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData, onImportAnkiCards, onPushSync, onPullSync, isSyncing }) {
   const [apiKey, setApiKey] = useState(settings.apiKey || '');
   const [showKey, setShowKey] = useState(false);
@@ -18,11 +30,20 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   useEffect(() => {
     if (!window.speechSynthesis) return;
     const updateVoices = () => {
-      setVoices(window.speechSynthesis.getVoices());
+      const allVoices = window.speechSynthesis.getVoices();
+      setVoices(allVoices);
+      
+      // Auto-suggest best natural English voice if none is configured
+      if (!voiceURI && allVoices.length > 0) {
+        const best = getBestDefaultVoice(allVoices);
+        if (best) {
+          setVoiceURI(best.voiceURI);
+        }
+      }
     };
     updateVoices();
     window.speechSynthesis.onvoiceschanged = updateVoices;
-  }, []);
+  }, [voiceURI]);
 
   const handleTestKey = async () => {
     if (!apiKey) return;

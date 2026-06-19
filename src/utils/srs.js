@@ -22,7 +22,10 @@ const w = [
  */
 export function calculateNextState(card, ratingStr, targetRetention = 90) {
   const ratingMap = { again: 1, hard: 2, good: 3, easy: 4 };
-  const G = ratingMap[ratingStr] || 3;
+  const normalizedRating = String(ratingStr || 'good').toLowerCase();
+  const G = ratingMap[normalizedRating] || 3;
+  
+  const retentionVal = Number(targetRetention) || 90;
   
   const currentState = card.state || {
     difficulty: 4.93, // base difficulty
@@ -79,9 +82,11 @@ export function calculateNextState(card, ratingStr, targetRetention = 90) {
   }
 
   // Calculate interval in days based on custom target retrievability
-  // FSRS formula: I = stability * ln(R_target) / ln(0.9)
-  const R_target = targetRetention / 100;
+  const R_target = retentionVal / 100;
   let interval = Math.max(1, Math.round(nextStability * (Math.log(R_target) / Math.log(0.9))));
+  if (isNaN(interval) || !isFinite(interval)) {
+    interval = 1;
+  }
 
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + interval);

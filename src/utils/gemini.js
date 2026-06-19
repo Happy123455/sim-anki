@@ -82,24 +82,17 @@ function cleanAndParseJson(text) {
  */
 export async function checkApiKey(apiKey, model = "gemini-3.5-flash") {
   const trimmedKey = cleanApiKey(apiKey);
-  const cleanModel = cleanModelName(model);
   if (!trimmedKey) return false;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8-second timeout
+  const timeoutId = setTimeout(() => controller.abort(), 6000); // 6-second timeout
   try {
-    const res = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: "ping" }] }]
-      })
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${trimmedKey}`, {
+      method: "GET",
+      signal: controller.signal
     });
     clearTimeout(timeoutId);
-    // 200 OK means everything is good
-    // 503 Service Unavailable means model is overloaded but API key is VALID
-    // 429 Too Many Requests means rate limits hit but API key is VALID
-    return res.status === 200 || res.status === 503 || res.status === 429;
+    // A status of 200 OK means the API key is authorized and valid.
+    return res.status === 200;
   } catch (e) {
     clearTimeout(timeoutId);
     console.error("API Key check error:", e);

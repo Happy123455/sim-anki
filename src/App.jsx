@@ -180,6 +180,10 @@ export default function App() {
   const [activeDeckId, setActiveDeckId] = useState(null);
   const [sessionCards, setSessionCards] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastModified, setLastModified] = useState(() => {
+    const saved = localStorage.getItem('simanki_last_modified');
+    return saved ? Number(saved) : 0;
+  });
 
   // Trigger MathJax typesetting whenever view or cards change
   useEffect(() => {
@@ -240,7 +244,11 @@ export default function App() {
           const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${activeSyncCode}`);
           if (res.ok) {
             const data = await res.json();
-            if (data.decks && data.cards) {
+            const cloudLastModified = Number(data.lastModified) || 0;
+            const localSaved = localStorage.getItem('simanki_last_modified');
+            const localTS = localSaved ? Number(localSaved) : 0;
+
+            if (cloudLastModified > localTS && data.decks && data.cards) {
               setDecks(data.decks);
               localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
               setCards(data.cards);
@@ -252,7 +260,11 @@ export default function App() {
                 setSettings(merged);
                 localStorage.setItem('simanki_settings', JSON.stringify(merged));
               }
-              console.log("Auto-sync: Silently updated state from cloud on startup!");
+              setLastModified(cloudLastModified);
+              localStorage.setItem('simanki_last_modified', String(cloudLastModified));
+              console.log("Auto-sync: Silently updated state from cloud on startup!", cloudLastModified, localTS);
+            } else {
+              console.log("Auto-sync: Startup check - local state is already newer or up to date.", localTS, cloudLastModified);
             }
           }
         } catch (e) {
@@ -263,9 +275,56 @@ export default function App() {
     }
   }, []);
 
-  const triggerAutoPush = async (newDecks, newCards, customSettings = null) => {
+  // Background polling for auto-sync
+  useEffect(() => {
+    if (!settings.syncCode) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${settings.syncCode}`);
+        if (res.ok) {
+          const data = await res.json();
+          const cloudLastModified = Number(data.lastModified) || 0;
+          
+          // Load local lastModified from localStorage directly to avoid stale state closures
+          const localSaved = localStorage.getItem('simanki_last_modified');
+          const localTS = localSaved ? Number(localSaved) : 0;
+
+          if (cloudLastModified > localTS) {
+            console.log("Auto-sync: Cloud data is newer. Pulling automatically...", cloudLastModified, localTS);
+            
+            if (data.decks) {
+              setDecks(data.decks);
+              localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
+            }
+            if (data.cards) {
+              setCards(data.cards);
+              localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
+            }
+            if (data.settings) {
+              const savedSettings = localStorage.getItem('simanki_settings');
+              const parsed = savedSettings ? JSON.parse(savedSettings) : {};
+              const merged = { ...parsed, ...data.settings, syncCode: settings.syncCode };
+              setSettings(merged);
+              localStorage.setItem('simanki_settings', JSON.stringify(merged));
+            }
+            
+            setLastModified(cloudLastModified);
+            localStorage.setItem('simanki_last_modified', String(cloudLastModified));
+          }
+        }
+      } catch (e) {
+        console.error("Auto-sync background poll failed:", e);
+      }
+    }, 20000); // Poll every 20 seconds
+
+    return () => clearInterval(interval);
+  }, [settings.syncCode]);
+
+  const triggerAutoPush = async (newDecks, newCards, customSettings = null, timestamp = null) => {
     const activeSettings = customSettings || settings;
     if (!activeSettings.syncCode) return;
+    const ts = timestamp || Date.now();
     try {
       const payload = {
         decks: newDecks,
@@ -276,14 +335,15 @@ export default function App() {
           targetRetention: activeSettings.targetRetention,
           customInstructions: activeSettings.customInstructions,
           voiceURI: activeSettings.voiceURI
-        }
+        },
+        lastModified: ts
       };
       await fetch(`https://extendsclass.com/api/json-storage/bin/${activeSettings.syncCode}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      console.log("Auto-sync background push success:", activeSettings.syncCode);
+      console.log("Auto-sync background push success:", activeSettings.syncCode, "timestamp:", ts);
     } catch (e) {
       console.error("Auto-sync background push failed:", e);
     }
@@ -293,16 +353,22 @@ export default function App() {
   const saveDecks = (newDecks, skipAutoPush = false) => {
     setDecks(newDecks);
     localStorage.setItem('simanki_decks', JSON.stringify(newDecks));
+    const now = Date.now();
+    setLastModified(now);
+    localStorage.setItem('simanki_last_modified', String(now));
     if (!skipAutoPush) {
-      triggerAutoPush(newDecks, cards);
+      triggerAutoPush(newDecks, cards, null, now);
     }
   };
 
   const saveCards = (newCards, skipAutoPush = false) => {
     setCards(newCards);
     localStorage.setItem('simanki_cards', JSON.stringify(newCards));
+    const now = Date.now();
+    setLastModified(now);
+    localStorage.setItem('simanki_last_modified', String(now));
     if (!skipAutoPush) {
-      triggerAutoPush(decks, newCards);
+      triggerAutoPush(decks, newCards, null, now);
     }
   };
 
@@ -315,8 +381,11 @@ export default function App() {
     };
     setSettings(cleaned);
     localStorage.setItem('simanki_settings', JSON.stringify(cleaned));
+    const now = Date.now();
+    setLastModified(now);
+    localStorage.setItem('simanki_last_modified', String(now));
     if (cleaned.syncCode) {
-      triggerAutoPush(decks, cards, cleaned);
+      triggerAutoPush(decks, cards, cleaned, now);
     }
   };
 
@@ -381,6 +450,7 @@ export default function App() {
 
   const handlePushSync = async () => {
     setIsSyncing(true);
+    const now = Date.now();
     try {
       const payload = {
         decks,
@@ -391,7 +461,8 @@ export default function App() {
           targetRetention: settings.targetRetention,
           customInstructions: settings.customInstructions,
           voiceURI: settings.voiceURI
-        }
+        },
+        lastModified: now
       };
 
       let code = settings.syncCode;
@@ -419,6 +490,8 @@ export default function App() {
         setSettings(updatedSettings);
         localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
       }
+      setLastModified(now);
+      localStorage.setItem('simanki_last_modified', String(now));
       alert(`Sync completed successfully!\n\nYour Sync Code is: ${code}\n\nUse this code on your other devices to pull your cards and progress.`);
       return code;
     } catch (err) {
@@ -460,6 +533,9 @@ export default function App() {
           setSettings(updatedSettings);
           localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
         }
+        const cloudLastModified = Number(data.lastModified) || Date.now();
+        setLastModified(cloudLastModified);
+        localStorage.setItem('simanki_last_modified', String(cloudLastModified));
         alert('Data synchronized successfully from the cloud!');
         return true;
       } else {

@@ -25,6 +25,18 @@ const tokenizeText = (text) => {
   return tokens;
 };
 
+const getBestDefaultVoice = (voices) => {
+  const preferredSubstrings = ["siri", "google us english", "google uk english", "natural", "neural", "samantha", "aria", "guy"];
+  const englishVoices = voices.filter(v => v.lang.toLowerCase().startsWith('en'));
+  if (englishVoices.length === 0) return null;
+
+  for (const sub of preferredSubstrings) {
+    const match = englishVoices.find(v => v.name.toLowerCase().includes(sub));
+    if (match) return match;
+  }
+  return englishVoices[0];
+};
+
 export default function HighlightingTTS({ text, voiceURI = "" }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeWordIndex, setActiveWordIndex] = useState(null);
@@ -95,11 +107,18 @@ export default function HighlightingTTS({ text, voiceURI = "" }) {
     utterance.rate = 1.0; 
     utterance.pitch = 1.0;
 
+    const allVoices = window.speechSynthesis.getVoices();
     if (voiceURI) {
-      const selectedVoice = window.speechSynthesis.getVoices().find(v => v.voiceURI === voiceURI);
+      const selectedVoice = allVoices.find(v => v.voiceURI === voiceURI);
       if (selectedVoice) {
         utterance.voice = selectedVoice;
+      } else {
+        const best = getBestDefaultVoice(allVoices);
+        if (best) utterance.voice = best;
       }
+    } else {
+      const best = getBestDefaultVoice(allVoices);
+      if (best) utterance.voice = best;
     }
 
     window.speechSynthesis.speak(utterance);
