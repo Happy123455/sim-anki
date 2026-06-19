@@ -54,18 +54,23 @@ function cleanAndParseJson(text) {
  * @param {string} model - The model identifier to test.
  * @returns {Promise<boolean>} True if API key is valid.
  */
-export async function checkApiKey(apiKey, model = "gemini-1.5-flash") {
+export async function checkApiKey(apiKey, model = "gemini-3.5-flash") {
   if (!apiKey) return false;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8-second timeout
   try {
     const res = await fetch(`${API_URL}/${model}:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         contents: [{ parts: [{ text: "ping" }] }]
       })
     });
+    clearTimeout(timeoutId);
     return res.status === 200;
   } catch (e) {
+    clearTimeout(timeoutId);
     console.error("API Key check error:", e);
     return false;
   }
@@ -145,27 +150,41 @@ User's Self-Reported Confidence: ${confidence}/5 (FYI ONLY - do NOT use this to 
 Please evaluate their response. Make sure to be constructive, pointing out exactly where their logic broke or what crucial elements they omitted.
 `;
 
-  const response = await fetch(`${API_URL}/${model}:generateContent?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        { role: "user", parts: [{ text: systemPrompt + "\n\n" + prompt }] }
-      ],
-      generationConfig: {
-        responseMimeType: "application/json"
-      }
-    })
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Gemini API error: ${response.statusText}. Details: ${errText}`);
+  try {
+    const response = await fetch(`${API_URL}/${model}:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [
+          { role: "user", parts: [{ text: systemPrompt + "\n\n" + prompt }] }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      })
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Gemini API error: ${response.statusText}. Details: ${errText}`);
+    }
+
+    const data = await response.json();
+    const text = data.candidates[0].content.parts[0].text;
+    return cleanAndParseJson(text);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error("Evaluation request timed out (15s limit). Please check your internet connection or try again.");
+    }
+    throw err;
   }
-
-  const data = await response.json();
-  const text = data.candidates[0].content.parts[0].text;
-  return cleanAndParseJson(text);
 }
 
 /**

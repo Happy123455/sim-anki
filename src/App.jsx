@@ -189,7 +189,20 @@ export default function App() {
   useEffect(() => {
     try {
       const savedSettings = localStorage.getItem('simanki_settings');
-      if (savedSettings) setSettings(JSON.parse(savedSettings));
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        // Automatically migrate deprecated model names to gemini-3.5-flash
+        if (parsed.model && (
+          parsed.model.includes('1.5') || 
+          parsed.model.includes('2.0') || 
+          parsed.model.includes('2.5') ||
+          parsed.model === 'gemini-pro'
+        )) {
+          parsed.model = 'gemini-3.5-flash';
+          localStorage.setItem('simanki_settings', JSON.stringify(parsed));
+        }
+        setSettings(parsed);
+      }
     } catch (e) {
       console.error("Error loading settings from localStorage:", e);
     }
