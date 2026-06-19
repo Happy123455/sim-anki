@@ -295,6 +295,16 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             </button>
           </div>
 
+          {/* Loading status details */}
+          {isGradingLoading && (
+            <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center', justifyContent: 'center', padding: '1rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '10px', border: '1px dashed rgba(139, 92, 246, 0.3)', textAlign: 'left' }}>
+              <RotateCcw className="animate-float" size={18} style={{ animation: 'spin 1.5s linear infinite', color: 'var(--accent-primary)', flexShrink: 0 }} />
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Grading your answer with <strong>Gemini {model}</strong>... (This usually takes 2–5 seconds. If your internet is slow, it will abort and alert you after 30 seconds).
+              </span>
+            </div>
+          )}
+
           {/* Error Message */}
           {gradingError && (
             <div style={{ color: 'var(--danger)', padding: '0.75rem', background: 'rgba(239, 68, 68, 0.05)', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)', fontSize: '0.85rem', textAlign: 'left', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>

@@ -55,11 +55,13 @@ function cleanAndParseJson(text) {
  * @returns {Promise<boolean>} True if API key is valid.
  */
 export async function checkApiKey(apiKey, model = "gemini-3.5-flash") {
-  if (!apiKey) return false;
+  const trimmedKey = (apiKey || '').trim();
+  const cleanModel = (model || '').trim();
+  if (!trimmedKey) return false;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000); // 8-second timeout
   try {
-    const res = await fetch(`${API_URL}/${model}:generateContent?key=${apiKey}`, {
+    const res = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
@@ -150,11 +152,14 @@ User's Self-Reported Confidence: ${confidence}/5 (FYI ONLY - do NOT use this to 
 Please evaluate their response. Make sure to be constructive, pointing out exactly where their logic broke or what crucial elements they omitted.
 `;
 
+  const trimmedKey = (apiKey || '').trim();
+  const cleanModel = (model || '').trim();
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000); // 30-second timeout
 
   try {
-    const response = await fetch(`${API_URL}/${model}:generateContent?key=${apiKey}`, {
+    const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
