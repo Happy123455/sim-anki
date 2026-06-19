@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle } from 'lucide-react';
-import { evaluateAnswer, generateSimulation } from '../utils/gemini';
+import { evaluateAnswer } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
-import SimulationRenderer from './SimulationRenderer';
 import HighlightingTTS from './HighlightingTTS';
 import InlineTTSButton from './InlineTTSButton';
 import { playSuccess, playFailure } from '../utils/sound';
@@ -134,28 +133,6 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     }
   };
 
-  const handleTriggerSimulation = async (logicAnalysisText) => {
-    setIsSimLoading(true);
-    setSimError(null);
-    try {
-      const simData = await generateSimulation(
-        apiKey,
-        model,
-        currentCard.question,
-        currentCard.concept,
-        userAnswer,
-        logicAnalysisText || evaluation?.logicAnalysis || 'Conceptual confusion',
-        customInstructions
-      );
-      setSimulation(simData);
-    } catch (err) {
-      console.error(err);
-      setSimError('Failed to generate simulation. Try again.');
-    } finally {
-      setIsSimLoading(false);
-    }
-  };
-
   const handleScheduleRating = (rating) => {
     onRateCard(
       currentCard.id,
@@ -165,14 +142,13 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       evaluation.logicAnalysis,
       confidence,
       elapsedTime,
-      simulation
+      null // simulation removed — replaced by copy-prompt
     );
     
     // Reset states for next card
     setUserAnswer('');
     setConfidence(3);
     setEvaluation(null);
-    setSimulation(null);
 
     if (currentIndex + 1 < DueCards.length) {
       setCurrentIndex(prev => prev + 1);
