@@ -446,24 +446,45 @@ export default function App() {
     saveCards([...cards, ...newCards]);
   };
 
-  const handlePushSync = async (passedPat = null) => {
+  const handlePushSync = async (passedPat = null, passedSyncCode = null) => {
     const patToUse = String(passedPat || settings.githubPAT || '').trim();
     if (!patToUse) {
       alert("GitHub Personal Access Token (PAT) is required to push/create a Gist sync.");
       return null;
     }
     
+    // Use explicitly passed syncCode (from Settings component) over stale state
+    const syncCodeToUse = String(passedSyncCode || settings.syncCode || '').trim();
+    
     setIsSyncing(true);
-    const now = Date.now();
     try {
+      // Validate token structure before hitting GitHub
+      if (!patToUse.startsWith('ghp_') && !patToUse.startsWith('github_pat_')) {
+        throw new Error(`Token format is invalid. A classic token must start with 'ghp_' and a fine-grained token must start with 'github_pat_'.\n\nYour token starts with: "${patToUse.slice(0, 10)}..." (Length: ${patToUse.length})`);
+      }
+
+      // Preemptively test token connectivity against GitHub user endpoint
+      const testRes = await fetch("https://api.github.com/user", {
+        headers: { 
+          'Authorization': `Bearer ${patToUse}`,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28'
+        }
+      });
+      if (!testRes.ok) {
+        throw new Error(`Invalid GitHub token (status ${testRes.status}).\n\nLoaded token starts with "${patToUse.slice(0, 6)}..." and ends with "...${patToUse.slice(-4)}" (Length: ${patToUse.length}).\n\nPlease check your copied token.`);
+      }
+
       // First, update and save the settings locally
       const updatedSettings = { 
         ...settings, 
-        githubPAT: patToUse 
+        githubPAT: patToUse,
+        syncCode: syncCodeToUse
       };
       setSettings(updatedSettings);
       localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
 
+      const now = Date.now();
       const payload = {
         decks,
         cards,
@@ -473,12 +494,12 @@ export default function App() {
           targetRetention: updatedSettings.targetRetention,
           customInstructions: updatedSettings.customInstructions,
           voiceURI: updatedSettings.voiceURI,
-          syncCode: updatedSettings.syncCode
+          syncCode: syncCodeToUse
         },
         lastModified: now
       };
 
-      const gistId = await pushToGist(patToUse, updatedSettings.syncCode, payload);
+      const gistId = await pushToGist(patToUse, syncCodeToUse, payload);
       
       const finalSettings = { ...updatedSettings, syncCode: gistId };
       setSettings(finalSettings);
@@ -504,6 +525,25 @@ export default function App() {
     const patToUse = String(passedPat || settings.githubPAT || '').trim();
     setIsSyncing(true);
     try {
+      // Validate token structure before hitting GitHub
+      if (patToUse && !patToUse.startsWith('ghp_') && !patToUse.startsWith('github_pat_')) {
+        throw new Error(`Token format is invalid. A classic token must start with 'ghp_' and a fine-grained token must start with 'github_pat_'.\n\nYour token starts with: "${patToUse.slice(0, 10)}..." (Length: ${patToUse.length})`);
+      }
+
+      if (patToUse) {
+        // Preemptively test token connectivity against GitHub user endpoint
+        const testRes = await fetch("https://api.github.com/user", {
+          headers: { 
+            'Authorization': `Bearer ${patToUse}`,
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28'
+          }
+        });
+        if (!testRes.ok) {
+          throw new Error(`Invalid GitHub token (status ${testRes.status}).\n\nLoaded token starts with "${patToUse.slice(0, 6)}..." and ends with "...${patToUse.slice(-4)}" (Length: ${patToUse.length}).\n\nPlease check your copied token.`);
+        }
+      }
+
       // Temporarily save code/pat inputs so they persist
       const preSavedSettings = {
         ...settings,

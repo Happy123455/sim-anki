@@ -79,17 +79,27 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       alert("GitHub Personal Access Token (PAT) is required to push/create a Gist sync.");
       return;
     }
-    const code = await onPushSync(githubPAT);
+    // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT });
+    const code = await onPushSync(githubPAT, syncCode);
     if (code) {
       setSyncCode(code);
+      // Save again with the returned gist ID
+      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT });
     }
   };
 
   const handlePull = async () => {
-    if (!syncCode) return;
-    if (confirm("This will overwrite all local decks, cards, settings, and progress with cloud data. Are you sure you want to pull?")) {
-      await onPullSync(syncCode, githubPAT);
+    if (!syncCode) {
+      alert("Enter a Gist ID (Sync Code) first.");
+      return;
     }
+    if (!confirm("This will overwrite all local decks, cards, settings, and progress with cloud data. Are you sure you want to pull?")) {
+      return;
+    }
+    // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT });
+    await onPullSync(syncCode, githubPAT);
   };
 
   const handleFileUpload = (e) => {

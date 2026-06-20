@@ -89,5 +89,21 @@ export async function pullFromGist(pat, gistId) {
     throw new Error("The specified Gist does not contain a 'simanki_backup.json' file.");
   }
   
-  return JSON.parse(file.content);
+  // GitHub truncates large gist files — if truncated, fetch from raw_url
+  let content = file.content;
+  if (file.truncated && file.raw_url) {
+    const rawRes = await fetch(file.raw_url, {
+      headers: cleanPat ? { 'Authorization': `Bearer ${cleanPat}` } : {}
+    });
+    if (!rawRes.ok) {
+      throw new Error(`Failed to fetch full Gist content (${rawRes.status})`);
+    }
+    content = await rawRes.text();
+  }
+  
+  if (!content) {
+    throw new Error("Gist file content is empty.");
+  }
+  
+  return JSON.parse(content);
 }
