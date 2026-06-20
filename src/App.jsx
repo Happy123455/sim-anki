@@ -258,7 +258,7 @@ export default function App() {
             if (data.settings) {
               const savedSettings = localStorage.getItem('simanki_settings');
               const parsed = savedSettings ? JSON.parse(savedSettings) : {};
-              const merged = { ...parsed, ...data.settings, syncCode: activeSyncCode };
+              const merged = { ...parsed, ...data.settings, apiKey: parsed.apiKey, syncCode: activeSyncCode };
               setSettings(merged);
               localStorage.setItem('simanki_settings', JSON.stringify(merged));
             }
@@ -307,7 +307,7 @@ export default function App() {
           if (data.settings) {
             const savedSettings = localStorage.getItem('simanki_settings');
             const parsed = savedSettings ? JSON.parse(savedSettings) : {};
-            const merged = { ...parsed, ...data.settings, syncCode: settings.syncCode };
+            const merged = { ...parsed, ...data.settings, apiKey: parsed.apiKey, syncCode: settings.syncCode };
             setSettings(merged);
             localStorage.setItem('simanki_settings', JSON.stringify(merged));
           }
@@ -347,7 +347,6 @@ export default function App() {
             decks: localDecks,
             cards: localCards,
             settings: {
-              apiKey: localSettings.apiKey,
               model: localSettings.model,
               targetRetention: localSettings.targetRetention,
               customInstructions: localSettings.customInstructions,
@@ -397,7 +396,7 @@ export default function App() {
             setCards(data.cards);
             localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
             if (data.settings) {
-              const merged = { ...localSettings, ...data.settings, syncCode: code, githubPAT: pat };
+              const merged = { ...localSettings, ...data.settings, apiKey: localSettings.apiKey, syncCode: code, githubPAT: pat };
               setSettings(merged);
               localStorage.setItem('simanki_settings', JSON.stringify(merged));
             }
@@ -426,7 +425,6 @@ export default function App() {
         decks: newDecks,
         cards: newCards,
         settings: {
-          apiKey: activeSettings.apiKey,
           model: activeSettings.model,
           targetRetention: activeSettings.targetRetention,
           customInstructions: activeSettings.customInstructions,
@@ -592,7 +590,6 @@ export default function App() {
         decks,
         cards,
         settings: {
-          apiKey: updatedSettings.apiKey,
           model: updatedSettings.model,
           targetRetention: updatedSettings.targetRetention,
           customInstructions: updatedSettings.customInstructions,
@@ -665,6 +662,7 @@ export default function App() {
         const mergedSettings = {
           ...settings,
           ...(data.settings || {}),
+          apiKey: settings.apiKey,
           githubPAT: patToUse,
           syncCode: codeToUse
         };
