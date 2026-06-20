@@ -79,7 +79,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       alert("GitHub Personal Access Token (PAT) is required to push/create a Gist sync.");
       return;
     }
-    const code = await onPushSync();
+    const code = await onPushSync(githubPAT);
     if (code) {
       setSyncCode(code);
     }
@@ -88,7 +88,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const handlePull = async () => {
     if (!syncCode) return;
     if (confirm("This will overwrite all local decks, cards, settings, and progress with cloud data. Are you sure you want to pull?")) {
-      await onPullSync(syncCode);
+      await onPullSync(syncCode, githubPAT);
     }
   };
 

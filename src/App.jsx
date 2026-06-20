@@ -331,7 +331,6 @@ export default function App() {
           targetRetention: activeSettings.targetRetention,
           customInstructions: activeSettings.customInstructions,
           voiceURI: activeSettings.voiceURI,
-          githubPAT: activeSettings.githubPAT,
           syncCode: activeSettings.syncCode
         },
         lastModified: ts
@@ -447,34 +446,43 @@ export default function App() {
     saveCards([...cards, ...newCards]);
   };
 
-  const handlePushSync = async () => {
-    if (!settings.githubPAT) {
-      alert("Please enter a GitHub Personal Access Token (PAT) first in Settings.");
+  const handlePushSync = async (passedPat = null) => {
+    const patToUse = String(passedPat || settings.githubPAT || '').trim();
+    if (!patToUse) {
+      alert("GitHub Personal Access Token (PAT) is required to push/create a Gist sync.");
       return null;
     }
+    
     setIsSyncing(true);
     const now = Date.now();
     try {
+      // First, update and save the settings locally
+      const updatedSettings = { 
+        ...settings, 
+        githubPAT: patToUse 
+      };
+      setSettings(updatedSettings);
+      localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
+
       const payload = {
         decks,
         cards,
         settings: {
-          apiKey: settings.apiKey,
-          model: settings.model,
-          targetRetention: settings.targetRetention,
-          customInstructions: settings.customInstructions,
-          voiceURI: settings.voiceURI,
-          githubPAT: settings.githubPAT,
-          syncCode: settings.syncCode
+          apiKey: updatedSettings.apiKey,
+          model: updatedSettings.model,
+          targetRetention: updatedSettings.targetRetention,
+          customInstructions: updatedSettings.customInstructions,
+          voiceURI: updatedSettings.voiceURI,
+          syncCode: updatedSettings.syncCode
         },
         lastModified: now
       };
 
-      const gistId = await pushToGist(settings.githubPAT, settings.syncCode, payload);
+      const gistId = await pushToGist(patToUse, updatedSettings.syncCode, payload);
       
-      const updatedSettings = { ...settings, syncCode: gistId };
-      setSettings(updatedSettings);
-      localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
+      const finalSettings = { ...updatedSettings, syncCode: gistId };
+      setSettings(finalSettings);
+      localStorage.setItem('simanki_settings', JSON.stringify(finalSettings));
       
       setLastModified(now);
       localStorage.setItem('simanki_last_modified', String(now));
@@ -489,11 +497,23 @@ export default function App() {
     }
   };
 
-  const handlePullSync = async (code) => {
-    if (!code) return false;
+  const handlePullSync = async (code, passedPat = null) => {
+    const codeToUse = String(code || '').trim();
+    if (!codeToUse) return false;
+    
+    const patToUse = String(passedPat || settings.githubPAT || '').trim();
     setIsSyncing(true);
     try {
-      const data = await pullFromGist(settings.githubPAT, code);
+      // Temporarily save code/pat inputs so they persist
+      const preSavedSettings = {
+        ...settings,
+        githubPAT: patToUse,
+        syncCode: codeToUse
+      };
+      setSettings(preSavedSettings);
+      localStorage.setItem('simanki_settings', JSON.stringify(preSavedSettings));
+
+      const data = await pullFromGist(patToUse, codeToUse);
       
       if (data.decks && data.cards) {
         saveDecks(data.decks, true);
@@ -502,7 +522,8 @@ export default function App() {
         const mergedSettings = {
           ...settings,
           ...(data.settings || {}),
-          syncCode: code
+          githubPAT: patToUse,
+          syncCode: codeToUse
         };
         setSettings(mergedSettings);
         localStorage.setItem('simanki_settings', JSON.stringify(mergedSettings));
