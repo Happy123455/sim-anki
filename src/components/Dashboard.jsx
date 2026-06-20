@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload } from 'lucide-react';
 import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
+import ImportModal from './ImportModal';
 
-
-export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings }) {
+export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards }) {
   const [showCreateDeckModal, setShowCreateDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
@@ -14,6 +14,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [newCardConcept, setNewCardConcept] = useState('');
   const [activeCardDetails, setActiveCardDetails] = useState(null); // To open stats/progress details modal
   const [showAddCardModal, setShowAddCardModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedDeckId, setSelectedDeckId] = useState('');
 
   useEffect(() => {
@@ -65,9 +66,16 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
             Spaced Repetition with AI Grading & Interactive Simulations
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
           <button className="btn btn-secondary" onClick={onOpenSettings} style={{ gap: '0.5rem' }}>
             <Settings size={18} /> Settings
+          </button>
+          <button 
+            className="btn btn-secondary" 
+            onClick={() => setShowImportModal(true)}
+            style={{ gap: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', color: '#c084fc' }}
+          >
+            <Upload size={18} /> Import Cards
           </button>
           <button 
             className="btn btn-secondary" 
@@ -446,6 +454,14 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           card={activeCardDetails} 
           voiceURI={settings.voiceURI || ''}
           onClose={() => setActiveCardDetails(null)} 
+        />
+      )}
+      {showImportModal && (
+        <ImportModal
+          Decks={Decks}
+          onCreateDeck={onCreateDeck}
+          onImportCards={onImportCards}
+          onClose={() => setShowImportModal(false)}
         />
       )}
     </div>

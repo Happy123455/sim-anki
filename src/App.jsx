@@ -5,6 +5,7 @@ import StudySession from './components/StudySession';
 import { calculateNextState } from './utils/srs';
 import { ShieldAlert, BookOpen, Layers } from 'lucide-react';
 import { cleanApiKey, cleanModelName } from './utils/gemini';
+import { pushToGist, pullFromGist } from './utils/githubSync';
 
 // Pre-seeded structural engineering deck and cards
 const initialDecks = [
@@ -241,34 +242,32 @@ export default function App() {
       console.log("Auto-sync: Found active sync code, pulling latest cloud data...");
       const silentPull = async () => {
         try {
-          const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${activeSyncCode}`);
-          if (res.ok) {
-            const data = await res.json();
-            const cloudLastModified = Number(data.lastModified) || 0;
-            const localSaved = localStorage.getItem('simanki_last_modified');
-            const localTS = localSaved ? Number(localSaved) : 0;
+          const pat = settings.githubPAT || (localStorage.getItem('simanki_settings') ? JSON.parse(localStorage.getItem('simanki_settings')).githubPAT : '');
+          const data = await pullFromGist(pat, activeSyncCode);
+          const cloudLastModified = Number(data.lastModified) || 0;
+          const localSaved = localStorage.getItem('simanki_last_modified');
+          const localTS = localSaved ? Number(localSaved) : 0;
 
-            if (cloudLastModified > localTS && data.decks && data.cards) {
-              setDecks(data.decks);
-              localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
-              setCards(data.cards);
-              localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
-              if (data.settings) {
-                const savedSettings = localStorage.getItem('simanki_settings');
-                const parsed = savedSettings ? JSON.parse(savedSettings) : {};
-                const merged = { ...parsed, ...data.settings, syncCode: activeSyncCode };
-                setSettings(merged);
-                localStorage.setItem('simanki_settings', JSON.stringify(merged));
-              }
-              setLastModified(cloudLastModified);
-              localStorage.setItem('simanki_last_modified', String(cloudLastModified));
-              console.log("Auto-sync: Silently updated state from cloud on startup!", cloudLastModified, localTS);
-            } else {
-              console.log("Auto-sync: Startup check - local state is already newer or up to date.", localTS, cloudLastModified);
+          if (cloudLastModified > localTS && data.decks && data.cards) {
+            setDecks(data.decks);
+            localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
+            setCards(data.cards);
+            localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
+            if (data.settings) {
+              const savedSettings = localStorage.getItem('simanki_settings');
+              const parsed = savedSettings ? JSON.parse(savedSettings) : {};
+              const merged = { ...parsed, ...data.settings, syncCode: activeSyncCode };
+              setSettings(merged);
+              localStorage.setItem('simanki_settings', JSON.stringify(merged));
             }
+            setLastModified(cloudLastModified);
+            localStorage.setItem('simanki_last_modified', String(cloudLastModified));
+            console.log("Auto-sync: Silently updated state from cloud Gist on startup!", cloudLastModified, localTS);
+          } else {
+            console.log("Auto-sync: Startup Gist check - local state is already newer or up to date.", localTS, cloudLastModified);
           }
         } catch (e) {
-          console.error("Auto-sync silent startup pull failed:", e);
+          console.error("Auto-sync silent startup Gist pull failed:", e);
         }
       };
       silentPull();
@@ -277,53 +276,50 @@ export default function App() {
 
   // Background polling for auto-sync
   useEffect(() => {
-    if (!settings.syncCode) return;
+    if (!settings.syncCode || !settings.githubPAT) return;
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${settings.syncCode}`);
-        if (res.ok) {
-          const data = await res.json();
-          const cloudLastModified = Number(data.lastModified) || 0;
-          
-          // Load local lastModified from localStorage directly to avoid stale state closures
-          const localSaved = localStorage.getItem('simanki_last_modified');
-          const localTS = localSaved ? Number(localSaved) : 0;
+        const data = await pullFromGist(settings.githubPAT, settings.syncCode);
+        const cloudLastModified = Number(data.lastModified) || 0;
+        
+        // Load local lastModified from localStorage directly to avoid stale state closures
+        const localSaved = localStorage.getItem('simanki_last_modified');
+        const localTS = localSaved ? Number(localSaved) : 0;
 
-          if (cloudLastModified > localTS) {
-            console.log("Auto-sync: Cloud data is newer. Pulling automatically...", cloudLastModified, localTS);
-            
-            if (data.decks) {
-              setDecks(data.decks);
-              localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
-            }
-            if (data.cards) {
-              setCards(data.cards);
-              localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
-            }
-            if (data.settings) {
-              const savedSettings = localStorage.getItem('simanki_settings');
-              const parsed = savedSettings ? JSON.parse(savedSettings) : {};
-              const merged = { ...parsed, ...data.settings, syncCode: settings.syncCode };
-              setSettings(merged);
-              localStorage.setItem('simanki_settings', JSON.stringify(merged));
-            }
-            
-            setLastModified(cloudLastModified);
-            localStorage.setItem('simanki_last_modified', String(cloudLastModified));
+        if (cloudLastModified > localTS) {
+          console.log("Auto-sync: Cloud Gist data is newer. Pulling automatically...", cloudLastModified, localTS);
+          
+          if (data.decks) {
+            setDecks(data.decks);
+            localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
           }
+          if (data.cards) {
+            setCards(data.cards);
+            localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
+          }
+          if (data.settings) {
+            const savedSettings = localStorage.getItem('simanki_settings');
+            const parsed = savedSettings ? JSON.parse(savedSettings) : {};
+            const merged = { ...parsed, ...data.settings, syncCode: settings.syncCode };
+            setSettings(merged);
+            localStorage.setItem('simanki_settings', JSON.stringify(merged));
+          }
+          
+          setLastModified(cloudLastModified);
+          localStorage.setItem('simanki_last_modified', String(cloudLastModified));
         }
       } catch (e) {
-        console.error("Auto-sync background poll failed:", e);
+        console.error("Auto-sync Gist background poll failed:", e);
       }
-    }, 20000); // Poll every 20 seconds
+    }, 25000); // Poll every 25 seconds
 
     return () => clearInterval(interval);
-  }, [settings.syncCode]);
+  }, [settings.syncCode, settings.githubPAT]);
 
   const triggerAutoPush = async (newDecks, newCards, customSettings = null, timestamp = null) => {
     const activeSettings = customSettings || settings;
-    if (!activeSettings.syncCode) return;
+    if (!activeSettings.githubPAT || !activeSettings.syncCode) return;
     const ts = timestamp || Date.now();
     try {
       const payload = {
@@ -334,18 +330,16 @@ export default function App() {
           model: activeSettings.model,
           targetRetention: activeSettings.targetRetention,
           customInstructions: activeSettings.customInstructions,
-          voiceURI: activeSettings.voiceURI
+          voiceURI: activeSettings.voiceURI,
+          githubPAT: activeSettings.githubPAT,
+          syncCode: activeSettings.syncCode
         },
         lastModified: ts
       };
-      await fetch(`https://extendsclass.com/api/json-storage/bin/${activeSettings.syncCode}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      console.log("Auto-sync background push success:", activeSettings.syncCode, "timestamp:", ts);
+      await pushToGist(activeSettings.githubPAT, activeSettings.syncCode, payload);
+      console.log("Auto-sync background Gist push success:", activeSettings.syncCode, "timestamp:", ts);
     } catch (e) {
-      console.error("Auto-sync background push failed:", e);
+      console.error("Auto-sync background Gist push failed:", e);
     }
   };
 
@@ -420,8 +414,8 @@ export default function App() {
     setView('dashboard');
   };
 
-  const handleImportAnkiCards = (importedCards) => {
-    let targetDeckId = activeDeckId;
+  const handleImportAnkiCards = (importedCards, deckId = null) => {
+    let targetDeckId = deckId || activeDeckId;
     let updatedDecks = [...decks];
     
     if (!targetDeckId) {
@@ -454,6 +448,10 @@ export default function App() {
   };
 
   const handlePushSync = async () => {
+    if (!settings.githubPAT) {
+      alert("Please enter a GitHub Personal Access Token (PAT) first in Settings.");
+      return null;
+    }
     setIsSyncing(true);
     const now = Date.now();
     try {
@@ -465,40 +463,23 @@ export default function App() {
           model: settings.model,
           targetRetention: settings.targetRetention,
           customInstructions: settings.customInstructions,
-          voiceURI: settings.voiceURI
+          voiceURI: settings.voiceURI,
+          githubPAT: settings.githubPAT,
+          syncCode: settings.syncCode
         },
         lastModified: now
       };
 
-      let code = settings.syncCode;
-      if (code) {
-        const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${code}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error(`Push failed with status ${res.status}`);
-        const data = await res.json();
-        if (data.status !== 0) throw new Error(data.message || 'Push update failed');
-      } else {
-        const res = await fetch(`https://extendsclass.com/api/json-storage/bin`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error(`Creation failed with status ${res.status}`);
-        const data = await res.json();
-        if (data.status !== 0) throw new Error(data.message || 'Creation failed');
-        code = data.id;
-        
-        const updatedSettings = { ...settings, syncCode: code };
-        setSettings(updatedSettings);
-        localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
-      }
+      const gistId = await pushToGist(settings.githubPAT, settings.syncCode, payload);
+      
+      const updatedSettings = { ...settings, syncCode: gistId };
+      setSettings(updatedSettings);
+      localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
+      
       setLastModified(now);
       localStorage.setItem('simanki_last_modified', String(now));
-      alert(`Sync completed successfully!\n\nYour Sync Code is: ${code}\n\nUse this code on your other devices to pull your cards and progress.`);
-      return code;
+      alert(`Sync completed successfully!\n\nYour Gist ID (Sync Code) is: ${gistId}\n\nUse this Gist ID on your other devices to pull your cards and progress.`);
+      return gistId;
     } catch (err) {
       console.error(err);
       alert(`Sync failed: ${err.message}`);
@@ -512,43 +493,31 @@ export default function App() {
     if (!code) return false;
     setIsSyncing(true);
     try {
-      const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${code}`);
-      if (!res.ok) {
-        if (res.status === 404) {
-          throw new Error('Sync code not found. Make sure the code is correct.');
-        }
-        throw new Error(`Pull failed with status ${res.status}`);
-      }
-      const data = await res.json();
+      const data = await pullFromGist(settings.githubPAT, code);
       
       if (data.decks && data.cards) {
         saveDecks(data.decks, true);
         saveCards(data.cards, true);
         
-        if (data.settings) {
-          const mergedSettings = {
-            ...settings,
-            ...data.settings,
-            syncCode: code
-          };
-          setSettings(mergedSettings);
-          localStorage.setItem('simanki_settings', JSON.stringify(mergedSettings));
-        } else {
-          const updatedSettings = { ...settings, syncCode: code };
-          setSettings(updatedSettings);
-          localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
-        }
+        const mergedSettings = {
+          ...settings,
+          ...(data.settings || {}),
+          syncCode: code
+        };
+        setSettings(mergedSettings);
+        localStorage.setItem('simanki_settings', JSON.stringify(mergedSettings));
+        
         const cloudLastModified = Number(data.lastModified) || Date.now();
         setLastModified(cloudLastModified);
         localStorage.setItem('simanki_last_modified', String(cloudLastModified));
-        alert('Data synchronized successfully from the cloud!');
+        alert('Data synchronized successfully from GitHub Gist!');
         return true;
       } else {
         throw new Error('Invalid cloud data format.');
       }
     } catch (err) {
       console.error(err);
-      alert(`Sync failed: ${err.message}`);
+      alert(`Sync Pull failed: ${err.message}`);
       return false;
     } finally {
       setIsSyncing(false);
@@ -557,12 +526,14 @@ export default function App() {
 
   // --- DECK MANAGEMENT HANDLERS ---
   const handleCreateDeck = (title, description) => {
+    const newId = `deck-${Date.now()}`;
     const newDeck = {
-      id: `deck-${Date.now()}`,
+      id: newId,
       title,
       description
     };
     saveDecks([...decks, newDeck]);
+    return newId;
   };
 
   const handleDeleteDeck = (deckId) => {
@@ -723,6 +694,7 @@ export default function App() {
           onDeleteCard={handleDeleteCard}
           onStartStudy={handleStartStudy}
           onOpenSettings={() => setView('settings')}
+          onImportCards={handleImportAnkiCards}
         />
       )}
 

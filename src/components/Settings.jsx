@@ -26,6 +26,8 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [testResult, setTestResult] = useState(null); // 'success' | 'error' | null
   const [saveStatus, setSaveStatus] = useState(false);
   const [syncCode, setSyncCode] = useState(settings.syncCode || '');
+  const [githubPAT, setGithubPAT] = useState(settings.githubPAT || '');
+  const [showPat, setShowPat] = useState(false);
 
   useEffect(() => {
     if (!window.speechSynthesis) return;
@@ -62,16 +64,21 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       setCustomInstructions(settings.customInstructions || '');
       setVoiceURI(settings.voiceURI || '');
       setSyncCode(settings.syncCode || '');
+      setGithubPAT(settings.githubPAT || '');
     }
   }, [settings]);
 
   const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT });
     setSaveStatus(true);
     setTimeout(() => setSaveStatus(false), 2000);
   };
 
   const handlePush = async () => {
+    if (!githubPAT) {
+      alert("GitHub Personal Access Token (PAT) is required to push/create a Gist sync.");
+      return;
+    }
     const code = await onPushSync();
     if (code) {
       setSyncCode(code);
@@ -308,23 +315,70 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
 
         <hr style={{ borderColor: 'var(--border-light)', margin: '1rem 0' }} />
 
-        {/* Cloud Synchronization */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left' }}>
+        {/* Cloud Gist Synchronization */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left' }}>
           <h3 style={{ fontSize: '1.2rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            🔄 Cloud Sync (Cross-Device)
+            🔄 GitHub Gist Cloud Sync
           </h3>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-            Sync your decks, cards, settings, and review progress across your devices (e.g. mobile browser) anonymously.
+            Sync your decks, cards, settings, and FSRS progress securely across devices (Mac, mobile, tablets) using a secret GitHub Gist.
           </p>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+
+          {/* GitHub PAT Input */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              GitHub Personal Access Token (PAT)
+            </label>
+            <div style={{ display: 'flex', gap: '0.5rem', position: 'relative' }}>
+              <input
+                type={showPat ? 'text' : 'password'}
+                placeholder="ghp_..."
+                value={githubPAT}
+                onChange={(e) => setGithubPAT(e.target.value.trim())}
+                style={{ paddingRight: '2.5rem' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPat(!showPat)}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer'
+                }}
+              >
+                {showPat ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
+              Needs a token with <code style={{ color: 'var(--accent-secondary)' }}>gist</code> scope. Create one under{' '}
+              <a 
+                href="https://github.com/settings/tokens" 
+                target="_blank" 
+                rel="noreferrer"
+                style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}
+              >
+                GitHub Settings (Tokens Classic)
+              </a>.
+            </p>
+          </div>
+
+          {/* Gist ID (Sync Code) Input */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              Gist ID (Sync Code)
+            </label>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <input
                 type="text"
-                placeholder="Enter Sync Code..."
+                placeholder="Leave blank to generate on Push..."
                 value={syncCode}
                 onChange={(e) => setSyncCode(e.target.value.trim())}
-                style={{ flex: 1, minWidth: '200px', maxWidth: '300px' }}
+                style={{ flex: 1, minWidth: '200px' }}
               />
               <button 
                 className="btn btn-secondary" 
@@ -332,27 +386,24 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
                 disabled={!syncCode || isSyncing}
                 style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
               >
-                {isSyncing ? 'Pulling...' : 'Pull Data (Overwrite Local)'}
+                {isSyncing ? 'Pulling...' : 'Pull Data'}
               </button>
-            </div>
-            
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
               <button 
                 className="btn btn-secondary" 
                 onClick={handlePush} 
-                disabled={isSyncing}
+                disabled={!githubPAT || isSyncing}
                 style={{ fontSize: '0.85rem', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
               >
                 <RefreshCw size={14} className={isSyncing ? "animate-float" : ""} style={{ animation: isSyncing ? "spin 1s linear infinite" : "none" }} />
-                {isSyncing ? 'Syncing...' : syncCode ? 'Push Sync (Save to Cloud)' : 'Generate Sync Code & Push'}
+                {isSyncing ? 'Syncing...' : syncCode ? 'Push Data' : 'Create Gist & Push'}
               </button>
             </div>
             
             {syncCode && (
-               <div style={{ padding: '0.75rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '8px', border: '1px solid rgba(139, 92, 246, 0.15)', fontSize: '0.85rem' }}>
-                 <strong>Active Sync Code:</strong> <code style={{ color: 'var(--accent-secondary)', fontSize: '0.95rem', background: 'rgba(0,0,0,0.2)', padding: '0.15rem 0.35rem', borderRadius: '4px' }}>{syncCode}</code>
+               <div style={{ padding: '0.75rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '8px', border: '1px solid rgba(139, 92, 246, 0.15)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
+                 <strong>Active Gist ID (Sync Code):</strong> <code style={{ color: 'var(--accent-secondary)', fontSize: '0.9rem', background: 'rgba(0,0,0,0.2)', padding: '0.15rem 0.35rem', borderRadius: '4px' }}>{syncCode}</code>
                  <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                   Write this down or copy it to your other device to load your progress there.
+                   Copy this Gist ID and your PAT to your other device to seamlessly sync your cards.
                  </p>
                </div>
             )}
