@@ -258,7 +258,13 @@ export default function App() {
             if (data.settings) {
               const savedSettings = localStorage.getItem('simanki_settings');
               const parsed = savedSettings ? JSON.parse(savedSettings) : {};
-              const merged = { ...parsed, ...data.settings, apiKey: parsed.apiKey, syncCode: activeSyncCode };
+              const merged = { 
+                ...parsed, 
+                ...data.settings, 
+                apiKey: parsed.apiKey || '', 
+                githubPAT: parsed.githubPAT || '',
+                syncCode: activeSyncCode 
+              };
               setSettings(merged);
               localStorage.setItem('simanki_settings', JSON.stringify(merged));
             }
@@ -307,7 +313,13 @@ export default function App() {
           if (data.settings) {
             const savedSettings = localStorage.getItem('simanki_settings');
             const parsed = savedSettings ? JSON.parse(savedSettings) : {};
-            const merged = { ...parsed, ...data.settings, apiKey: parsed.apiKey, syncCode: settings.syncCode };
+            const merged = { 
+              ...parsed, 
+              ...data.settings, 
+              apiKey: parsed.apiKey || '', 
+              githubPAT: parsed.githubPAT || '',
+              syncCode: settings.syncCode 
+            };
             setSettings(merged);
             localStorage.setItem('simanki_settings', JSON.stringify(merged));
           }
@@ -396,7 +408,13 @@ export default function App() {
             setCards(data.cards);
             localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
             if (data.settings) {
-              const merged = { ...localSettings, ...data.settings, apiKey: localSettings.apiKey, syncCode: code, githubPAT: pat };
+              const merged = { 
+                ...localSettings, 
+                ...data.settings, 
+                apiKey: localSettings.apiKey || '', 
+                githubPAT: pat, 
+                syncCode: code 
+              };
               setSettings(merged);
               localStorage.setItem('simanki_settings', JSON.stringify(merged));
             }
@@ -660,9 +678,9 @@ export default function App() {
         saveCards(data.cards, true);
         
         const mergedSettings = {
-          ...settings,
+          ...preSavedSettings,
           ...(data.settings || {}),
-          apiKey: settings.apiKey,
+          apiKey: preSavedSettings.apiKey || '',
           githubPAT: patToUse,
           syncCode: codeToUse
         };
