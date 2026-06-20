@@ -51,12 +51,6 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
     if (!apiKey) return;
     setIsTesting(true);
     setTestResult(null);
-    const cleaned = cleanApiKey(apiKey);
-    if (cleaned.startsWith('AQ.') && cleaned.length < 100) {
-      setIsTesting(false);
-      setTestResult('truncated');
-      return;
-    }
     const isValid = await checkApiKey(apiKey, model);
     setIsTesting(false);
     setTestResult(isValid ? 'success' : 'error');
@@ -227,14 +221,6 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
               <span style={{ color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.85rem' }}>
                 ✗ Invalid API Key or Model selection.
               </span>
-            )}
-            {testResult === 'truncated' && (
-              <div style={{ color: '#ff9800', display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem', textAlign: 'left', marginTop: '0.5rem', border: '1px solid #ff9800', padding: '0.75rem', borderRadius: '4px', background: 'rgba(255, 152, 0, 0.1)', width: '100%', boxSizing: 'border-box' }}>
-                <span style={{ fontWeight: 'bold' }}>⚠️ Truncated API Key Detected</span>
-                <span>Your key starts with "AQ." but is only {cleanApiKey(apiKey).length} characters long. Google's new "AQ." API keys are typically over 100 characters long.</span>
-                <span style={{ marginTop: '0.25rem' }}>It looks like you copied it visually from the Google AI Studio screen (which truncates display text with "...") instead of clicking the actual <span style={{ fontWeight: 'bold', textDecoration: 'underline' }}>Copy (clipboard) icon</span> next to the key.</span>
-                <span style={{ marginTop: '0.25rem' }}>Please go back to Google AI Studio, click the Copy icon, and paste the full key here.</span>
-              </div>
             )}
           </div>
         </div>
