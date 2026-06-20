@@ -3,13 +3,14 @@
  */
 
 export async function pushToGist(pat, gistId, payload) {
-  if (!pat) {
+  const cleanPat = String(pat || '').trim();
+  if (!cleanPat) {
     throw new Error("GitHub Personal Access Token (PAT) is required.");
   }
   
   const headers = {
     'Accept': 'application/vnd.github+json',
-    'Authorization': `token ${pat}`,
+    'Authorization': `Bearer ${cleanPat}`,
     'X-GitHub-Api-Version': '2022-11-28',
     'Content-Type': 'application/json'
   };
@@ -67,8 +68,9 @@ export async function pullFromGist(pat, gistId) {
     'X-GitHub-Api-Version': '2022-11-28'
   };
   
-  if (pat) {
-    headers['Authorization'] = `token ${pat}`;
+  const cleanPat = String(pat || '').trim();
+  if (cleanPat) {
+    headers['Authorization'] = `Bearer ${cleanPat}`;
   }
 
   const res = await fetch(`https://api.github.com/gists/${gistId}`, {
