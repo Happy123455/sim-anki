@@ -3,7 +3,7 @@ import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import StudySession from './components/StudySession';
 import { calculateNextState } from './utils/srs';
-import { ShieldAlert, BookOpen, Layers } from 'lucide-react';
+import { ShieldAlert, BookOpen, Layers, CloudOff, Cloud, RefreshCw } from 'lucide-react';
 import { cleanApiKey, cleanModelName } from './utils/gemini';
 import { pushToGist, pullFromGist } from './utils/githubSync';
 
@@ -181,6 +181,8 @@ export default function App() {
   const [activeDeckId, setActiveDeckId] = useState(null);
   const [sessionCards, setSessionCards] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [syncError, setSyncError] = useState(null);
   const [lastModified, setLastModified] = useState(() => {
     const saved = localStorage.getItem('simanki_last_modified');
     return saved ? Number(saved) : 0;
@@ -263,8 +265,12 @@ export default function App() {
             setLastModified(cloudLastModified);
             localStorage.setItem('simanki_last_modified', String(cloudLastModified));
             console.log("Auto-sync: Silently updated state from cloud Gist on startup!", cloudLastModified, localTS);
+            setLastSyncTime(new Date());
+            setSyncError(null);
           } else {
             console.log("Auto-sync: Startup Gist check - local state is already newer or up to date.", localTS, cloudLastModified);
+            setLastSyncTime(new Date());
+            setSyncError(null);
           }
         } catch (e) {
           console.error("Auto-sync silent startup Gist pull failed:", e);
@@ -308,13 +314,107 @@ export default function App() {
           
           setLastModified(cloudLastModified);
           localStorage.setItem('simanki_last_modified', String(cloudLastModified));
+          setLastSyncTime(new Date());
+          setSyncError(null);
+        } else {
+          // Even if no update, record successful check
+          setLastSyncTime(new Date());
+          setSyncError(null);
         }
       } catch (e) {
+        setSyncError(e.message);
         console.error("Auto-sync Gist background poll failed:", e);
       }
     }, 25000); // Poll every 25 seconds
 
     return () => clearInterval(interval);
+  }, [settings.syncCode, settings.githubPAT]);
+
+  // Anki-like auto-sync: push on tab hide / page close, pull on tab return
+  useEffect(() => {
+    if (!settings.syncCode || !settings.githubPAT) return;
+
+    // When user switches away or closes tab → push local changes
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'hidden') {
+        // Use sendBeacon for reliable push on tab close (fire-and-forget)
+        try {
+          const localDecks = JSON.parse(localStorage.getItem('simanki_decks') || '[]');
+          const localCards = JSON.parse(localStorage.getItem('simanki_cards') || '[]');
+          const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
+          const now = Date.now();
+          const payload = {
+            decks: localDecks,
+            cards: localCards,
+            settings: {
+              apiKey: localSettings.apiKey,
+              model: localSettings.model,
+              targetRetention: localSettings.targetRetention,
+              customInstructions: localSettings.customInstructions,
+              voiceURI: localSettings.voiceURI,
+              syncCode: localSettings.syncCode
+            },
+            lastModified: now
+          };
+          const gistId = localSettings.syncCode;
+          const pat = localSettings.githubPAT;
+          if (gistId && pat) {
+            // sendBeacon is fire-and-forget, reliable on mobile tab switch & page close
+            // But GitHub API requires auth headers sendBeacon can't set, so use keepalive fetch
+            fetch(`https://api.github.com/gists/${gistId}`, {
+              method: 'PATCH',
+              headers: {
+                'Accept': 'application/vnd.github+json',
+                'Authorization': `Bearer ${pat}`,
+                'X-GitHub-Api-Version': '2022-11-28',
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                files: { "simanki_backup.json": { content: JSON.stringify(payload) } }
+              }),
+              keepalive: true  // ensures request completes even if page is unloading
+            }).catch(() => {});
+            localStorage.setItem('simanki_last_modified', String(now));
+          }
+        } catch (e) {
+          console.error('Auto-sync push on hide failed:', e);
+        }
+      } else if (document.visibilityState === 'visible') {
+        // Tab came back → pull latest from cloud
+        try {
+          const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
+          const pat = localSettings.githubPAT;
+          const code = localSettings.syncCode;
+          if (!pat || !code) return;
+          
+          const data = await pullFromGist(pat, code);
+          const cloudTS = Number(data.lastModified) || 0;
+          const localTS = Number(localStorage.getItem('simanki_last_modified')) || 0;
+
+          if (cloudTS > localTS && data.decks && data.cards) {
+            setDecks(data.decks);
+            localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
+            setCards(data.cards);
+            localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
+            if (data.settings) {
+              const merged = { ...localSettings, ...data.settings, syncCode: code, githubPAT: pat };
+              setSettings(merged);
+              localStorage.setItem('simanki_settings', JSON.stringify(merged));
+            }
+            setLastModified(cloudTS);
+            localStorage.setItem('simanki_last_modified', String(cloudTS));
+            setLastSyncTime(new Date());
+            setSyncError(null);
+            console.log('Auto-sync: Pulled newer data on tab focus', cloudTS, localTS);
+          }
+        } catch (e) {
+          console.error('Auto-sync pull on focus failed:', e);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [settings.syncCode, settings.githubPAT]);
 
   const triggerAutoPush = async (newDecks, newCards, customSettings = null, timestamp = null) => {
@@ -336,8 +436,11 @@ export default function App() {
         lastModified: ts
       };
       await pushToGist(activeSettings.githubPAT, activeSettings.syncCode, payload);
+      setLastSyncTime(new Date());
+      setSyncError(null);
       console.log("Auto-sync background Gist push success:", activeSettings.syncCode, "timestamp:", ts);
     } catch (e) {
+      setSyncError(e.message);
       console.error("Auto-sync background Gist push failed:", e);
     }
   };
@@ -709,8 +812,63 @@ export default function App() {
     });
   };
 
+  // Helper for sync status badge
+  const getSyncStatusText = () => {
+    if (!settings.syncCode || !settings.githubPAT) return null;
+    if (isSyncing) return 'Syncing...';
+    if (syncError) return 'Sync error';
+    if (lastSyncTime) {
+      const secs = Math.round((Date.now() - lastSyncTime.getTime()) / 1000);
+      if (secs < 5) return 'Just synced';
+      if (secs < 60) return `${secs}s ago`;
+      const mins = Math.round(secs / 60);
+      if (mins < 60) return `${mins}m ago`;
+      return `${Math.round(mins / 60)}h ago`;
+    }
+    return 'Waiting...';
+  };
+
   return (
     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', flex: 1 }}>
+      {/* Floating Auto-Sync Status Indicator */}
+      {settings.syncCode && settings.githubPAT && (
+        <div
+          title={syncError ? `Error: ${syncError}` : lastSyncTime ? `Last synced: ${lastSyncTime.toLocaleTimeString()}` : 'Auto-sync enabled'}
+          style={{
+            position: 'fixed',
+            bottom: '1rem',
+            right: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            padding: '0.4rem 0.75rem',
+            borderRadius: '20px',
+            background: syncError
+              ? 'rgba(239, 68, 68, 0.15)'
+              : isSyncing
+                ? 'rgba(139, 92, 246, 0.15)'
+                : 'rgba(34, 197, 94, 0.12)',
+            border: `1px solid ${syncError ? 'rgba(239, 68, 68, 0.3)' : isSyncing ? 'rgba(139, 92, 246, 0.3)' : 'rgba(34, 197, 94, 0.25)'}`,
+            backdropFilter: 'blur(12px)',
+            fontSize: '0.72rem',
+            fontWeight: 500,
+            color: syncError ? '#fca5a5' : isSyncing ? '#c4b5fd' : '#86efac',
+            zIndex: 1000,
+            cursor: 'default',
+            transition: 'all 0.3s ease',
+            userSelect: 'none'
+          }}
+        >
+          {isSyncing ? (
+            <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} />
+          ) : syncError ? (
+            <CloudOff size={12} />
+          ) : (
+            <Cloud size={12} />
+          )}
+          <span>{getSyncStatusText()}</span>
+        </div>
+      )}
       {/* Settings warning header (if no key is saved) */}
       {view === 'dashboard' && !settings.apiKey && (
         <div 
