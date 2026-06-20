@@ -240,7 +240,11 @@ Please evaluate their response. Make sure to be constructive, pointing out exact
       if (response.status === 503) {
         throw new Error(`Gemini API is currently overloaded (503 Service Unavailable). Gemini 3.5 models sometimes experience capacity limits. Please switch to 'Gemini 3.1 Flash-Lite' in Settings (it has better availability), or try again in a few seconds.`);
       }
-      if (response.status === 400 && errDetail.toLowerCase().includes("api key not valid")) {
+      const cleanedKey = cleanApiKey(apiKey);
+      if (cleanedKey.startsWith('AQ.') && cleanedKey.length < 100) {
+        throw new Error(`Invalid/Truncated API key. Your key starts with "AQ." but is only ${cleanedKey.length} characters long. Google's new "AQ." keys are typically over 100 characters long. Please click the copy (clipboard) icon in Google AI Studio to copy the full key instead of selecting it visually.`);
+      }
+      if (response.status === 401 || (response.status === 400 && errDetail.toLowerCase().includes("api key not valid"))) {
         throw new Error(`Invalid API key. Please check your Gemini API key in Settings and ensure there are no extra characters or quotes.`);
       }
       if (response.status === 403) {
@@ -396,6 +400,10 @@ Design a custom calculator or a decision scenario to help them visually/interact
   });
 
   if (!response.ok) {
+    const cleanedKey = cleanApiKey(apiKey);
+    if (cleanedKey.startsWith('AQ.') && cleanedKey.length < 100) {
+      throw new Error(`Invalid/Truncated API key. Your key starts with "AQ." but is only ${cleanedKey.length} characters long. Google's new "AQ." keys are typically over 100 characters long. Please click the copy (clipboard) icon in Google AI Studio to copy the full key instead of selecting it visually.`);
+    }
     const errText = await response.text();
     throw new Error(`Gemini API error: ${response.statusText}. Details: ${errText}`);
   }
