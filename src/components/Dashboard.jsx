@@ -205,6 +205,28 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     return 0;
   });
 
+  // Trigger MathJax typesetting when list filters or deck change
+  useEffect(() => {
+    if (window.MathJax && window.MathJax.typesetPromise) {
+      setTimeout(() => {
+        if (window.MathJax && window.MathJax.typesetPromise) {
+          window.MathJax.typesetPromise().catch((err) => console.log('MathJax typesetting failed in Dashboard:', err));
+        }
+      }, 50);
+    }
+  }, [
+    searchQuery,
+    difficultyFilter,
+    stabilityFilter,
+    repsFilter,
+    failsFilter,
+    sortBy,
+    sortOrder,
+    searchAllDecks,
+    activeDeckId,
+    Cards
+  ]);
+
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* Top Header Section */}

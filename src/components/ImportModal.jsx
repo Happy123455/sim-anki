@@ -32,8 +32,8 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
       .replace(/&deg;/g, '°')
       .replace(/&nbsp;/g, ' ');
     
-    // Remove HTML tags
-    text = text.replace(/<\/?[^>]+(>|$)/g, "");
+    // Remove actual HTML tags safely (do not strip LaTeX comparison operators like < or >)
+    text = text.replace(/<\/?[a-zA-Z0-9:-]+(?:\s+[^>]*)*>/g, "");
     text = text.trim();
     if (text.startsWith('"') && text.endsWith('"')) {
       text = text.slice(1, -1).trim();
@@ -43,13 +43,19 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
 
   // Parsing logic
   const parseData = (textToParse, sep) => {
-    if (!textToParse.trim()) {
+    let cleanRawText = textToParse.trim();
+    if (!cleanRawText) {
       setParsedCards([]);
       setPreviewError('');
       return;
     }
 
-    const lines = textToParse.split(/\r?\n/);
+    // Strip outer quotes from the entire pasted text if it's a quoted file representation
+    if (cleanRawText.startsWith('"') && cleanRawText.endsWith('"') && cleanRawText.includes('\n')) {
+      cleanRawText = cleanRawText.slice(1, -1).trim();
+    }
+
+    const lines = cleanRawText.split(/\r?\n/);
     const results = [];
     let detectedSep = sep;
 
@@ -58,12 +64,17 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
       const firstLine = lines.find(line => line.trim() && !line.trim().startsWith('#'));
       if (firstLine) {
         const tabs = (firstLine.match(/\t/g) || []).length;
-        const commas = (firstLine.match(/,/g) || []).length;
         const semicolons = (firstLine.match(/;/g) || []).length;
+        const commas = (firstLine.match(/,/g) || []).length;
 
-        if (tabs >= commas && tabs >= semicolons) detectedSep = '\t';
-        else if (semicolons >= commas && semicolons >= tabs) detectedSep = ';';
-        else detectedSep = ',';
+        // Tabs are highly intentional delimiters and almost never appear in natural text
+        if (tabs > 0) {
+          detectedSep = '\t';
+        } else if (semicolons > 0 && semicolons >= commas) {
+          detectedSep = ';';
+        } else {
+          detectedSep = ',';
+        }
       } else {
         detectedSep = ',';
       }
@@ -128,10 +139,19 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
 
   // Re-run parser when text or separator changes
   useEffect(() => {
-    if (importType === 'paste') {
-      parseData(rawText, separator);
+    parseData(rawText, separator);
+  }, [rawText, separator]);
+
+  // Trigger MathJax typesetting when parsed preview cards change
+  useEffect(() => {
+    if (parsedCards.length > 0 && window.MathJax && window.MathJax.typesetPromise) {
+      setTimeout(() => {
+        if (window.MathJax && window.MathJax.typesetPromise) {
+          window.MathJax.typesetPromise().catch((err) => console.log('MathJax typesetting failed in ImportModal:', err));
+        }
+      }, 50);
     }
-  }, [rawText, separator, importType]);
+  }, [parsedCards]);
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];

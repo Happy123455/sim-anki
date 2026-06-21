@@ -458,8 +458,8 @@ function cleanText(str) {
     .replace(/&deg;/g, '°')
     .replace(/&nbsp;/g, ' ');
   
-  // Remove basic HTML tags
-  text = text.replace(/<\/?[^>]+(>|$)/g, "");
+  // Remove actual HTML tags safely (do not strip LaTeX comparison operators like < or >)
+  text = text.replace(/<\/?[a-zA-Z0-9:-]+(?:\s+[^>]*)*>/g, "");
   
   // Trim surrounding spaces and quotes if any
   text = text.trim();
@@ -471,7 +471,12 @@ function cleanText(str) {
 
 // Parse tab-separated Anki text format
 function parseAnkiTxt(text) {
-  const lines = text.split(/\r?\n/);
+  let cleanRawText = text.trim();
+  if (cleanRawText.startsWith('"') && cleanRawText.endsWith('"') && cleanRawText.includes('\n')) {
+    cleanRawText = cleanRawText.slice(1, -1).trim();
+  }
+
+  const lines = cleanRawText.split(/\r?\n/);
   const cards = [];
   
   for (let line of lines) {
