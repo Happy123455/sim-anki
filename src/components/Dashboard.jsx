@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter } from 'lucide-react';
+import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 import ImportModal from './ImportModal';
@@ -31,6 +31,9 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
   const [searchAllDecks, setSearchAllDecks] = useState(false);
+  const [showStats, setShowStats] = useState(true);
+  const [futureDueRange, setFutureDueRange] = useState('1 month');
+  const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
   const fileInputRef = useRef(null);
 
@@ -329,6 +332,341 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           </div>
         )}
       </div>
+
+      {/* ──── Statistics Section: Future Due & Calendar Heatmap ──── */}
+      {Cards.length > 0 && (
+        <div className="glass-panel animate-fade-in" style={{ padding: '1.5rem 2rem', border: '1px solid var(--border-light)', marginTop: '1.5rem' }}>
+          <div 
+            onClick={() => setShowStats(!showStats)}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+          >
+            <h2 style={{ fontSize: '1.4rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+              <BarChart3 size={22} style={{ color: 'var(--accent-primary)' }} /> Statistics
+            </h2>
+            {showStats ? <ChevronUp size={20} style={{ color: 'var(--text-muted)' }} /> : <ChevronDown size={20} style={{ color: 'var(--text-muted)' }} />}
+          </div>
+
+          {showStats && (() => {
+            // ── 1. Calculate future due limit ──
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            let limitDays = 30;
+            if (futureDueRange === '3 months') limitDays = 90;
+            else if (futureDueRange === '1 year') limitDays = 365;
+            else if (futureDueRange === 'all') {
+              let maxDiff = 30;
+              Cards.forEach(c => {
+                if (c.state && c.state.dueDate) {
+                  const due = new Date(c.state.dueDate);
+                  const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+                  if (diff > maxDiff) maxDiff = diff;
+                }
+              });
+              limitDays = Math.min(365, maxDiff);
+            }
+
+            // ── 2. Populate Future Due data ──
+            const futureDueData = new Array(limitDays).fill(0);
+            let overdueCount = 0;
+
+            Cards.forEach(card => {
+              if (!card.state || !card.state.dueDate) {
+                futureDueData[0]++; // New cards are due today
+                return;
+              }
+              const due = new Date(card.state.dueDate);
+              due.setHours(0, 0, 0, 0);
+              const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24));
+              if (diffDays <= 0) {
+                futureDueData[0]++;
+              } else if (diffDays < limitDays) {
+                futureDueData[diffDays]++;
+              }
+            });
+
+            // Cumulative sum
+            let runningSum = 0;
+            const cumulativeData = futureDueData.map(v => {
+              runningSum += v;
+              return runningSum;
+            });
+            const totalReviews = runningSum;
+            const dueTomorrowCount = futureDueData[1] || 0;
+            const averageReviews = (totalReviews / limitDays).toFixed(1);
+            const dailyLoad = (totalReviews / limitDays).toFixed(1);
+
+            // Future Due SVG values
+            const svgWidth = 450;
+            const svgHeight = 180;
+            const paddingLeft = 35;
+            const paddingRight = 35;
+            const paddingTop = 15;
+            const paddingBottom = 20;
+            const chartW = svgWidth - paddingLeft - paddingRight;
+            const chartH = svgHeight - paddingTop - paddingBottom;
+            const barGap = chartW / limitDays;
+            const barWidth = Math.max(0.6, barGap * 0.6);
+
+            const maxDailyCount = Math.max(...futureDueData, 1);
+            const safeMaxDaily = Math.max(maxDailyCount, 1);
+            const safeTotal = Math.max(totalReviews, 1);
+
+            // Points for cumulative line
+            const points = futureDueData.map((val, i) => {
+              const x = paddingLeft + i * barGap + barGap / 2;
+              const y = paddingTop + chartH - (totalReviews > 0 ? (cumulativeData[i] / safeTotal) * chartH : 0);
+              return { x, y };
+            });
+
+            // Path for cumulative shaded area & line
+            let areaPath = '';
+            let linePath = '';
+            if (points.length > 0) {
+              areaPath = `M ${points[0].x} ${paddingTop + chartH} ` + points.map(p => `L ${p.x} ${p.y}`).join(' ') + ` L ${points[points.length - 1].x} ${paddingTop + chartH} Z`;
+              linePath = `M ${points[0].x} ${points[0].y} ` + points.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ');
+            }
+
+            // Left axis labels (unique daily counts)
+            const leftLabels = [];
+            const steps = maxDailyCount > 5 ? 5 : maxDailyCount;
+            for (let i = 0; i <= steps; i++) {
+              const pct = i / steps;
+              const val = Math.round(maxDailyCount * pct);
+              const y = paddingTop + chartH - pct * chartH;
+              if (!leftLabels.some(l => l.val === val)) leftLabels.push({ val, y });
+            }
+
+            // Right axis labels (unique cumulative counts)
+            const rightLabels = [];
+            const cSteps = totalReviews > 5 ? 5 : totalReviews;
+            for (let i = 0; i <= cSteps; i++) {
+              const pct = i / cSteps;
+              const val = Math.round(totalReviews * pct);
+              const y = paddingTop + chartH - pct * chartH;
+              if (!rightLabels.some(r => r.val === val)) rightLabels.push({ val, y });
+            }
+
+            // X axis labels
+            const xLabels = [];
+            if (futureDueRange === '1 month') {
+              for (let i = 5; i <= 30; i += 5) {
+                if (i < limitDays) xLabels.push({ label: `${i}`, index: i });
+              }
+            } else if (futureDueRange === '3 months') {
+              for (let i = 15; i <= 90; i += 15) {
+                if (i < limitDays) xLabels.push({ label: `${i}`, index: i });
+              }
+            } else {
+              const interval = Math.floor(limitDays / 5);
+              for (let i = interval; i <= limitDays; i += interval) {
+                xLabels.push({ label: `${i}`, index: i - 1 });
+              }
+            }
+
+            // ── 3. Build Calendar Heatmap grid cells ──
+            const jan1 = new Date(calendarYear, 0, 1);
+            const startDay = jan1.getDay(); // 0 = Sun
+            const cells = [];
+            const reviewCounts = {};
+
+            Cards.forEach(card => {
+              (card.history || []).forEach(h => {
+                const d = new Date(h.date);
+                if (d.getFullYear() === calendarYear) {
+                  const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+                  reviewCounts[key] = (reviewCounts[key] || 0) + 1;
+                }
+              });
+            });
+
+            for (let col = 0; col < 53; col++) {
+              for (let row = 0; row < 7; row++) {
+                const dayOffset = col * 7 + row - startDay;
+                const date = new Date(calendarYear, 0, 1 + dayOffset);
+                if (date.getFullYear() === calendarYear) {
+                  const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+                  const count = reviewCounts[key] || 0;
+                  cells.push({ col, row, date, count });
+                }
+              }
+            }
+
+            const getCellColor = (count) => {
+              if (count === 0) return 'rgba(255, 255, 255, 0.04)';
+              if (count === 1) return 'rgba(59, 130, 246, 0.3)';
+              if (count === 2) return 'rgba(59, 130, 246, 0.55)';
+              if (count === 3) return 'rgba(59, 130, 246, 0.8)';
+              return 'rgb(59, 130, 246)'; // bright blue
+            };
+
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', marginTop: '1.25rem' }}>
+                
+                {/* ── Future Due Card ── */}
+                <div className="glass-panel" style={{ padding: '1.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '12px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                  <h3 style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 0.25rem' }}>Future Due</h3>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>The number of reviews due in the future.</span>
+                  
+                  {/* Radio Buttons */}
+                  <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginBottom: '1rem', fontSize: '0.9rem' }}>
+                    {['1 month', '3 months', '1 year', 'all'].map(option => (
+                      <label key={option} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: futureDueRange === option ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                        <input 
+                          type="radio" 
+                          name="futureDueRange" 
+                          value={option} 
+                          checked={futureDueRange === option} 
+                          onChange={() => setFutureDueRange(option)}
+                          style={{ accentColor: '#10b981', cursor: 'pointer' }}
+                        />
+                        {option}
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Future Due SVG Chart */}
+                  <div style={{ position: 'relative', width: '100%', display: 'flex', justifyContent: 'center' }}>
+                    <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} width="100%" height="auto" style={{ overflow: 'visible', maxWidth: '450px' }}>
+                      {/* Grid lines */}
+                      {leftLabels.map((l, i) => (
+                        <line key={`grid-${i}`} x1={paddingLeft} y1={l.y} x2={paddingLeft + chartW} y2={l.y} stroke="rgba(255,255,255,0.05)" />
+                      ))}
+
+                      {/* Cumulative Area */}
+                      {areaPath && <path d={areaPath} fill="rgba(255, 255, 255, 0.08)" />}
+                      {linePath && <path d={linePath} fill="none" stroke="rgba(255, 255, 255, 0.4)" strokeWidth="1.5" />}
+
+                      {/* Bars */}
+                      {futureDueData.map((val, idx) => {
+                        const barH = (val / safeMaxDaily) * chartH;
+                        const x = paddingLeft + idx * barGap + (barGap - barWidth) / 2;
+                        const y = paddingTop + chartH - barH;
+                        return (
+                          <rect 
+                            key={`bar-${idx}`}
+                            x={x}
+                            y={y}
+                            width={Math.max(0.5, barWidth)}
+                            height={Math.max(barH, 0)}
+                            fill="#2ecc71"
+                            rx={barWidth > 3 ? 1 : 0}
+                            ry={barWidth > 3 ? 1 : 0}
+                          >
+                            <title>{`Day ${idx}: ${val} due`}</title>
+                          </rect>
+                        );
+                      })}
+
+                      {/* Axis lines */}
+                      <line x1={paddingLeft} y1={paddingTop + chartH} x2={paddingLeft + chartW} y2={paddingTop + chartH} stroke="rgba(255,255,255,0.15)" />
+
+                      {/* Left Labels */}
+                      {leftLabels.map((l, idx) => (
+                        <text key={`l-${idx}`} x={paddingLeft - 8} y={l.y + 3} fill="var(--text-muted)" fontSize="8" textAnchor="end">{l.val}</text>
+                      ))}
+
+                      {/* Right Labels */}
+                      {rightLabels.map((r, idx) => (
+                        <text key={`r-${idx}`} x={paddingLeft + chartW + 8} y={r.y + 3} fill="var(--text-muted)" fontSize="8" textAnchor="start">{r.val}</text>
+                      ))}
+
+                      {/* X labels */}
+                      {xLabels.map((xl, idx) => {
+                        const x = paddingLeft + xl.index * barGap + barGap / 2;
+                        return (
+                          <text key={`xl-${idx}`} x={x} y={paddingTop + chartH + 12} fill="var(--text-muted)" fontSize="8" textAnchor="middle">{xl.label}</text>
+                        );
+                      })}
+                    </svg>
+                  </div>
+
+                  {/* Statistics text block */}
+                  <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'center', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                    <span>Total: <strong style={{ color: 'var(--text-primary)' }}>{totalReviews} reviews</strong></span>
+                    <span>Average: <strong style={{ color: 'var(--text-primary)' }}>{averageReviews} reviews/day</strong></span>
+                    <span>Due tomorrow: <strong style={{ color: 'var(--text-primary)' }}>{dueTomorrowCount} reviews</strong></span>
+                    <span>Daily load: <strong style={{ color: 'var(--text-primary)' }}>{dailyLoad} reviews/day</strong></span>
+                  </div>
+                </div>
+
+                {/* ── Calendar Heatmap Card ── */}
+                <div className="glass-panel" style={{ padding: '1.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '12px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                  <h3 style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 1rem' }}>Calendar</h3>
+
+                  {/* Year selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem', marginBottom: '1.25rem' }}>
+                    <button 
+                      onClick={() => setCalendarYear(prev => prev - 1)}
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '0.25rem 0.5rem', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span style={{ fontSize: '1rem', fontWeight: 600 }}>{calendarYear}</span>
+                    <button 
+                      onClick={() => setCalendarYear(prev => prev + 1)}
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '0.25rem 0.5rem', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+
+                  {/* Heatmap Grid SVG */}
+                  <div style={{ position: 'relative', width: '100%', display: 'flex', justifyContent: 'center' }}>
+                    <svg viewBox="0 0 670 115" width="100%" height="auto" style={{ overflow: 'visible', maxWidth: '670px' }}>
+                      {/* Left row labels */}
+                      {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+                        <text 
+                          key={`day-${idx}`} 
+                          x={10} 
+                          y={15 + idx * 12 + 8} 
+                          fill="var(--text-muted)" 
+                          fontSize="8" 
+                          fontWeight="500" 
+                          textAnchor="middle"
+                        >
+                          {day}
+                        </text>
+                      ))}
+
+                      {/* Cells */}
+                      {cells.map((cell, idx) => (
+                        <rect 
+                          key={`cell-${idx}`}
+                          x={25 + cell.col * 12}
+                          y={15 + cell.row * 12}
+                          width={10}
+                          height={10}
+                          fill={getCellColor(cell.count)}
+                          rx={1.5}
+                          ry={1.5}
+                          stroke="rgba(0,0,0,0.15)"
+                          strokeWidth={0.5}
+                        >
+                          <title>{`${cell.date.toDateString()}: ${cell.count} reviews`}</title>
+                        </rect>
+                      ))}
+                    </svg>
+                  </div>
+
+                  {/* Legend */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.35rem', marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <span>Less</span>
+                    <div style={{ width: '10px', height: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '1.5px' }} />
+                    <div style={{ width: '10px', height: '10px', background: 'rgba(59, 130, 246, 0.3)', borderRadius: '1.5px' }} />
+                    <div style={{ width: '10px', height: '10px', background: 'rgba(59, 130, 246, 0.55)', borderRadius: '1.5px' }} />
+                    <div style={{ width: '10px', height: '10px', background: 'rgba(59, 130, 246, 0.8)', borderRadius: '1.5px' }} />
+                    <div style={{ width: '10px', height: '10px', background: 'rgb(59, 130, 246)', borderRadius: '1.5px' }} />
+                    <span>More</span>
+                  </div>
+                </div>
+
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
 
       {/* Card Manager Panel (Slide down for selected deck) */}
       {activeDeckId && (
