@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import StudySession from './components/StudySession';
@@ -187,6 +187,17 @@ export default function App() {
     const saved = localStorage.getItem('simanki_last_modified');
     return saved ? Number(saved) : 0;
   });
+
+  const autoPushTimeoutRef = useRef(null);
+
+  // Clean timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoPushTimeoutRef.current) {
+        clearTimeout(autoPushTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Trigger MathJax typesetting whenever view or cards change
   useEffect(() => {
@@ -434,31 +445,41 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [settings.syncCode, settings.githubPAT]);
 
-  const triggerAutoPush = async (newDecks, newCards, customSettings = null, timestamp = null) => {
+  const triggerAutoPush = (newDecks, newCards, customSettings = null, timestamp = null) => {
     const activeSettings = customSettings || settings;
     if (!activeSettings.githubPAT || !activeSettings.syncCode) return;
     const ts = timestamp || Date.now();
-    try {
-      const payload = {
-        decks: newDecks,
-        cards: newCards,
-        settings: {
-          model: activeSettings.model,
-          targetRetention: activeSettings.targetRetention,
-          customInstructions: activeSettings.customInstructions,
-          voiceURI: activeSettings.voiceURI,
-          syncCode: activeSettings.syncCode
-        },
-        lastModified: ts
-      };
-      await pushToGist(activeSettings.githubPAT, activeSettings.syncCode, payload);
-      setLastSyncTime(new Date());
-      setSyncError(null);
-      console.log("Auto-sync background Gist push success:", activeSettings.syncCode, "timestamp:", ts);
-    } catch (e) {
-      setSyncError(e.message);
-      console.error("Auto-sync background Gist push failed:", e);
+
+    if (autoPushTimeoutRef.current) {
+      clearTimeout(autoPushTimeoutRef.current);
     }
+
+    autoPushTimeoutRef.current = setTimeout(async () => {
+      setIsSyncing(true);
+      try {
+        const payload = {
+          decks: newDecks,
+          cards: newCards,
+          settings: {
+            model: activeSettings.model,
+            targetRetention: activeSettings.targetRetention,
+            customInstructions: activeSettings.customInstructions,
+            voiceURI: activeSettings.voiceURI,
+            syncCode: activeSettings.syncCode
+          },
+          lastModified: ts
+        };
+        await pushToGist(activeSettings.githubPAT, activeSettings.syncCode, payload);
+        setLastSyncTime(new Date());
+        setSyncError(null);
+        console.log("Auto-sync background Gist push success:", activeSettings.syncCode, "timestamp:", ts);
+      } catch (e) {
+        setSyncError(e.message);
+        console.error("Auto-sync background Gist push failed:", e);
+      } finally {
+        setIsSyncing(false);
+      }
+    }, 2000); // 2-second debounce to throttle pushes and prevent rate limit (403) errors on fast updates
   };
 
   // Save changes to localStorage helper
@@ -745,6 +766,21 @@ export default function App() {
     saveCards(updatedCards);
   };
 
+  const handleBulkDeleteCards = (cardIds) => {
+    const updatedCards = cards.filter(c => !cardIds.includes(c.id));
+    saveCards(updatedCards);
+  };
+
+  const handleMoveCards = (cardIds, targetDeckId) => {
+    const updatedCards = cards.map(c => {
+      if (cardIds.includes(c.id)) {
+        return { ...c, deckId: targetDeckId };
+      }
+      return c;
+    });
+    saveCards(updatedCards);
+  };
+
   // --- STUDY SESSION CONTROL HANDLERS ---
   const handleStartStudy = (deckId) => {
     setActiveDeckId(deckId);
@@ -934,6 +970,8 @@ export default function App() {
           onStartStudy={handleStartStudy}
           onOpenSettings={() => setView('settings')}
           onImportCards={handleImportAnkiCards}
+          onBulkDeleteCards={handleBulkDeleteCards}
+          onMoveCards={handleMoveCards}
         />
       )}
 

@@ -4,7 +4,7 @@ import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 import ImportModal from './ImportModal';
 
-export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards }) {
+export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards }) {
   const [showCreateDeckModal, setShowCreateDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
@@ -34,6 +34,13 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [showStats, setShowStats] = useState(true);
   const [futureDueRange, setFutureDueRange] = useState('1 month');
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
+
+  const [selectedCardIds, setSelectedCardIds] = useState([]);
+
+  // Clear selection when deck, search, or filters change
+  useEffect(() => {
+    setSelectedCardIds([]);
+  }, [activeDeckId, searchQuery, difficultyFilter, stabilityFilter, repsFilter, failsFilter, searchAllDecks]);
 
   const fileInputRef = useRef(null);
 
@@ -857,6 +864,108 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
               </div>
             </div>
 
+            {/* Selection Toolbar */}
+            {sortedCards.length > 0 && (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.02)',
+                padding: '0.75rem 1rem',
+                borderRadius: '8px',
+                border: '1px solid var(--border-light)',
+                marginBottom: '1rem',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+                textAlign: 'left'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input 
+                    type="checkbox"
+                    checked={sortedCards.length > 0 && sortedCards.every(c => selectedCardIds.includes(c.id))}
+                    ref={el => {
+                      if (el) {
+                        const someSelected = sortedCards.some(c => selectedCardIds.includes(c.id));
+                        const allSelected = sortedCards.every(c => selectedCardIds.includes(c.id));
+                        el.indeterminate = someSelected && !allSelected;
+                      }
+                    }}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        // Select all visible cards
+                        const visibleIds = sortedCards.map(c => c.id);
+                        setSelectedCardIds(prev => {
+                          const union = new Set([...prev, ...visibleIds]);
+                          return Array.from(union);
+                        });
+                      } else {
+                        // Deselect all visible cards
+                        const visibleIds = sortedCards.map(c => c.id);
+                        setSelectedCardIds(prev => prev.filter(id => !visibleIds.includes(id)));
+                      }
+                    }}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    {selectedCardIds.length > 0 
+                      ? `${selectedCardIds.length} cards selected` 
+                      : 'Select All'}
+                  </span>
+                </div>
+
+                {selectedCardIds.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    {/* Move to Deck Dropdown & Action */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '0.1rem 0.25rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '0.25rem' }}>Move to:</span>
+                      <select
+                        defaultValue=""
+                        onChange={(e) => {
+                          const deckId = e.target.value;
+                          if (!deckId) return;
+                          const targetDeck = Decks.find(d => d.id === deckId);
+                          if (window.confirm(`Move ${selectedCardIds.length} cards to "${targetDeck.title}"?`)) {
+                            onMoveCards(selectedCardIds, deckId);
+                            setSelectedCardIds([]);
+                          }
+                          e.target.value = ""; // Reset
+                        }}
+                        style={{ fontSize: '0.75rem', padding: '0.25rem', background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', maxWidth: '140px' }}
+                      >
+                        <option value="" disabled>Choose Deck...</option>
+                        {Decks.map(d => (
+                          <option key={d.id} value={d.id}>{d.title}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Delete Selected Button */}
+                    <button 
+                      className="btn btn-secondary" 
+                      onClick={() => {
+                        if (window.confirm(`Are you sure you want to delete ${selectedCardIds.length} selected cards?`)) {
+                          onBulkDeleteCards(selectedCardIds);
+                          setSelectedCardIds([]);
+                        }
+                      }}
+                      style={{ 
+                        padding: '0.35rem 0.75rem', 
+                        fontSize: '0.75rem', 
+                        background: 'rgba(239, 68, 68, 0.1)', 
+                        border: '1px solid rgba(239, 68, 68, 0.3)', 
+                        color: '#fca5a5',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem'
+                      }}
+                    >
+                      <Trash2 size={12} /> Delete Selected
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Cards List */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '550px', overflowY: 'auto', paddingRight: '0.5rem' }}>
               {sortedCards.length === 0 ? (
@@ -881,46 +990,60 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                         textAlign: 'left'
                       }}
                     >
-                      <div style={{ flex: 1, paddingRight: '1.5rem' }}>
-                        <p style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem', color: 'var(--text-primary)' }}>
-                          {idx + 1}. {card.question}
-                        </p>
-                        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                          {searchAllDecks && (
-                            <span style={{ fontSize: '0.75rem', color: '#c084fc', background: 'rgba(192, 132, 252, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>
-                              Deck: {Decks.find(d => d.id === card.deckId)?.title || "Unknown"}
-                            </span>
-                          )}
-                          <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', background: 'rgba(139, 92, 246, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px' }}>
-                            Concept: {card.concept}
-                          </span>
-                          {card.imageUrl && (
-                            <span style={{ fontSize: '0.75rem', color: '#34d399', background: 'rgba(16, 185, 129, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                              <Image size={12} /> Image
-                            </span>
-                          )}
-                          {card.youtubeUrl && (
-                            <span style={{ fontSize: '0.75rem', color: '#3b82f6', background: 'rgba(59, 130, 246, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                              <Play size={12} /> Video
-                            </span>
-                          )}
-                          {card.state ? (
-                            <>
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                <Calendar size={12} /> Interval: {card.state.interval}d
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, paddingRight: '1.5rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedCardIds.includes(card.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCardIds(prev => [...prev, card.id]);
+                            } else {
+                              setSelectedCardIds(prev => prev.filter(id => id !== card.id));
+                            }
+                          }}
+                          style={{ width: '15px', height: '15px', cursor: 'pointer', flexShrink: 0 }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <p style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem', color: 'var(--text-primary)' }}>
+                            {idx + 1}. {card.question}
+                          </p>
+                          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                            {searchAllDecks && (
+                              <span style={{ fontSize: '0.75rem', color: '#c084fc', background: 'rgba(192, 132, 252, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>
+                                Deck: {Decks.find(d => d.id === card.deckId)?.title || "Unknown"}
                               </span>
-                              {card.state.consecutiveFails > 0 && (
-                                <span style={{ fontSize: '0.75rem', color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                  <AlertTriangle size={12} /> Fails: {card.state.consecutiveFails}
+                            )}
+                            <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', background: 'rgba(139, 92, 246, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px' }}>
+                              Concept: {card.concept}
+                            </span>
+                            {card.imageUrl && (
+                              <span style={{ fontSize: '0.75rem', color: '#34d399', background: 'rgba(16, 185, 129, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                <Image size={12} /> Image
+                              </span>
+                            )}
+                            {card.youtubeUrl && (
+                              <span style={{ fontSize: '0.75rem', color: '#3b82f6', background: 'rgba(59, 130, 246, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                <Play size={12} /> Video
+                              </span>
+                            )}
+                            {card.state ? (
+                              <>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                  <Calendar size={12} /> Interval: {card.state.interval}d
                                 </span>
-                              )}
-                            </>
-                          ) : (
-                            <span style={{ fontSize: '0.75rem', color: 'var(--info)' }}>New Card</span>
-                          )}
-                          <span className={`badge ${dueStatus ? 'badge-due' : 'badge-learn'}`} style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
-                            {dueStatus ? 'Due' : 'Scheduled'}
-                          </span>
+                                {card.state.consecutiveFails > 0 && (
+                                  <span style={{ fontSize: '0.75rem', color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    <AlertTriangle size={12} /> Fails: {card.state.consecutiveFails}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span style={{ fontSize: '0.75rem', color: 'var(--info)' }}>New Card</span>
+                            )}
+                            <span className={`badge ${dueStatus ? 'badge-due' : 'badge-learn'}`} style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
+                              {dueStatus ? 'Due' : 'Scheduled'}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
