@@ -26,6 +26,11 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [stabilityFilter, setStabilityFilter] = useState('');
   const [repsFilter, setRepsFilter] = useState('');
   const [failsFilter, setFailsFilter] = useState('');
+  
+  // Sorting & Deck Scope State
+  const [sortBy, setSortBy] = useState('');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [searchAllDecks, setSearchAllDecks] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -117,7 +122,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   };
 
   const filteredCards = Cards.filter(card => {
-    if (card.deckId !== activeDeckId) return false;
+    if (!searchAllDecks && card.deckId !== activeDeckId) return false;
     
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -167,6 +172,34 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     }
     
     return true;
+  });
+
+  const sortedCards = [...filteredCards].sort((a, b) => {
+    if (!sortBy) return 0;
+    
+    const stateA = a.state;
+    const stateB = b.state;
+    
+    let valA = 0;
+    let valB = 0;
+    
+    if (sortBy === 'difficulty') {
+      valA = stateA ? stateA.difficulty : 0;
+      valB = stateB ? stateB.difficulty : 0;
+    } else if (sortBy === 'stability') {
+      valA = stateA ? stateA.stability : 0;
+      valB = stateB ? stateB.stability : 0;
+    } else if (sortBy === 'reps') {
+      valA = stateA ? stateA.repetitions : 0;
+      valB = stateB ? stateB.repetitions : 0;
+    } else if (sortBy === 'fails') {
+      valA = stateA ? (stateA.consecutiveFails || 0) : 0;
+      valB = stateB ? (stateB.consecutiveFails || 0) : 0;
+    }
+    
+    if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+    if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+    return 0;
   });
 
   return (
@@ -426,18 +459,54 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   </select>
                 </div>
               </div>
+
+              <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', color: 'var(--text-primary)', cursor: 'pointer', userSelect: 'none' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={searchAllDecks} 
+                    onChange={e => setSearchAllDecks(e.target.checked)} 
+                    style={{ width: '15px', height: '15px', cursor: 'pointer' }}
+                  />
+                  Search / Filter All Decks
+                </label>
+
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginLeft: 'auto' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>Sort By</span>
+                  <select 
+                    value={sortBy} 
+                    onChange={e => setSortBy(e.target.value)}
+                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', borderRadius: '6px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
+                  >
+                    <option value="">Default (None)</option>
+                    <option value="difficulty">Difficulty</option>
+                    <option value="stability">Stability</option>
+                    <option value="reps">Repetitions</option>
+                    <option value="fails">Lapses (Fails)</option>
+                  </select>
+
+                  <select 
+                    value={sortOrder} 
+                    onChange={e => setSortOrder(e.target.value)}
+                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', borderRadius: '6px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
+                  >
+                    <option value="asc">Ascending (Low to High)</option>
+                    <option value="desc">Descending (High to Low)</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
             {/* Cards List */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '550px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-              {filteredCards.length === 0 ? (
+              {sortedCards.length === 0 ? (
                 <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                   {Cards.filter(c => c.deckId === activeDeckId).length === 0 
                     ? "This deck is currently empty. Click the '+ Add New Card' button to create some flashcards!"
                     : "No cards match your search or filter criteria."}
                 </div>
               ) : (
-                filteredCards.map((card, idx) => {
+                sortedCards.map((card, idx) => {
                   const dueStatus = isDue(card);
                   return (
                     <div 
@@ -457,6 +526,11 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                           {idx + 1}. {card.question}
                         </p>
                         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                          {searchAllDecks && (
+                            <span style={{ fontSize: '0.75rem', color: '#c084fc', background: 'rgba(192, 132, 252, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>
+                              Deck: {Decks.find(d => d.id === card.deckId)?.title || "Unknown"}
+                            </span>
+                          )}
                           <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', background: 'rgba(139, 92, 246, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px' }}>
                             Concept: {card.concept}
                           </span>
