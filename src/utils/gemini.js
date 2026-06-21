@@ -141,12 +141,6 @@ Your "logicAnalysis" MUST briefly comment on this historical comparison (e.g. "Y
 
 ${isEli5 ? `[ELI5 REQUIREMENT] The student has failed to answer this card correctly ${consecutiveFails} times. You MUST explain the entire concept using an extreme "Explain Like I'm 5" (ELI5) style. Use an analogy appropriate for a 5-year-old child (e.g. playing with blocks, cakes, toy trucks) and simple vocabulary.` : ''}
 
-${customInstructions ? `
-[USER CUSTOM TUTOR INSTRUCTIONS / PREFERENCES]:
-You MUST strictly follow these user preferences for style, tone, grading criteria, and vocabulary:
-"${customInstructions}"
-` : ''}
-
 Based on the score:
 - score < 60: suggest "again"
 - score 60-75: suggest "hard"
@@ -161,7 +155,13 @@ You must respond with a JSON object conforming exactly to this schema:
   "logicAnalysis": string (direct advice on where to improve and brief comparison with history, 1-2 sentences),
   "correctExplanation": string (formatted in Markdown, under 150 words),
   "suggestedRating": "again" | "hard" | "good" | "easy"
-}`;
+}
+
+${customInstructions ? `
+[CRITICAL USER CUSTOM TUTOR INSTRUCTIONS / PREFERENCES]:
+You MUST strictly follow these user preferences for style, tone, language, and formatting. They take precedence over standard instruction formats (e.g. if the user requests pirate speech, speak like a pirate in both "logicAnalysis" and "correctExplanation"):
+"${customInstructions}"
+` : ''}`;
 
   const prompt = `
 Question: ${question}
@@ -172,6 +172,12 @@ User's Self-Reported Confidence: ${confidence}/5 (FYI ONLY - do NOT use this to 
 
 [CRITICAL RULE]: Your evaluation (score, strengths, weaknesses, suggestedRating) must be based SOLELY on the accuracy, correctness, and completeness of the User's Answer. Do NOT decrease the score or downgrade the rating if the user answered quickly, slowly, or had low/high confidence. The Time Spent and Confidence are only logged for the user's statistics.
 Please evaluate their response. Make sure to be constructive, pointing out exactly where their logic broke or what crucial elements they omitted.
+
+${customInstructions ? `
+[REMINDER: USER CUSTOM INSTRUCTIONS]:
+You must output your response complying strictly with these user-defined preferences:
+"${customInstructions}"
+` : ''}
 `;
 
   const trimmedKey = cleanApiKey(apiKey);
