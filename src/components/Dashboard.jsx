@@ -116,6 +116,59 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     };
   };
 
+  const filteredCards = Cards.filter(card => {
+    if (card.deckId !== activeDeckId) return false;
+    
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchQ = (card.question || '').toLowerCase().includes(q);
+      const matchC = (card.concept || '').toLowerCase().includes(q);
+      if (!matchQ && !matchC) return false;
+    }
+    
+    const state = card.state;
+    const d = state ? state.difficulty : 0;
+    const s = state ? state.stability : 0;
+    const reps = state ? state.repetitions : 0;
+    const fails = state ? (state.consecutiveFails || 0) : 0;
+    
+    if (difficultyFilter) {
+      if (difficultyFilter === 'new') {
+        if (state) return false;
+      } else {
+        if (!state) return false;
+        if (difficultyFilter === 'easy' && d >= 3) return false;
+        if (difficultyFilter === 'medium' && (d < 3 || d > 7)) return false;
+        if (difficultyFilter === 'hard' && d <= 7) return false;
+      }
+    }
+    
+    if (stabilityFilter) {
+      if (stabilityFilter === 'new') {
+        if (state) return false;
+      } else {
+        if (!state) return false;
+        if (stabilityFilter === 'low' && s >= 3) return false;
+        if (stabilityFilter === 'medium' && (s < 3 || s > 14)) return false;
+        if (stabilityFilter === 'high' && s <= 14) return false;
+      }
+    }
+    
+    if (repsFilter) {
+      if (repsFilter === 'zero' && reps > 0) return false;
+      if (repsFilter === 'few' && (reps === 0 || reps > 4)) return false;
+      if (repsFilter === 'many' && reps <= 4) return false;
+    }
+    
+    if (failsFilter) {
+      if (failsFilter === 'none' && fails > 0) return false;
+      if (failsFilter === 'some' && fails === 0) return false;
+      if (failsFilter === 'many' && fails < 3) return false;
+    }
+    
+    return true;
+  });
+
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* Top Header Section */}
