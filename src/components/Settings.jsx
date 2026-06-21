@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Save, ShieldAlert, ArrowLeft, RefreshCw, Download, Upload } from 'lucide-react';
 import { checkApiKey, cleanApiKey } from '../utils/gemini';
+import { sanitizeToken } from '../utils/githubSync';
 
 const getBestDefaultVoice = (voices) => {
   const preferredSubstrings = ["siri", "google us english", "google uk english", "natural", "neural", "samantha", "aria", "guy"];
@@ -344,7 +345,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
                 type={showPat ? 'text' : 'password'}
                 placeholder="ghp_..."
                 value={githubPAT}
-                onChange={(e) => setGithubPAT(e.target.value.trim())}
+                onChange={(e) => setGithubPAT(sanitizeToken(e.target.value))}
                 style={{ paddingRight: '2.5rem' }}
               />
               <button

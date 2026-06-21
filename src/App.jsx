@@ -5,7 +5,7 @@ import StudySession from './components/StudySession';
 import { calculateNextState } from './utils/srs';
 import { ShieldAlert, BookOpen, Layers, CloudOff, Cloud, RefreshCw } from 'lucide-react';
 import { cleanApiKey, cleanModelName } from './utils/gemini';
-import { pushToGist, pullFromGist } from './utils/githubSync';
+import { pushToGist, pullFromGist, sanitizeToken } from './utils/githubSync';
 
 // Pre-seeded structural engineering deck and cards
 const initialDecks = [
@@ -368,7 +368,7 @@ export default function App() {
             lastModified: now
           };
           const gistId = localSettings.syncCode;
-          const pat = localSettings.githubPAT;
+          const pat = sanitizeToken(localSettings.githubPAT);
           if (gistId && pat) {
             // sendBeacon is fire-and-forget, reliable on mobile tab switch & page close
             // But GitHub API requires auth headers sendBeacon can't set, so use keepalive fetch
@@ -568,14 +568,14 @@ export default function App() {
   };
 
   const handlePushSync = async (passedPat = null, passedSyncCode = null) => {
-    const patToUse = String(passedPat || settings.githubPAT || '').trim();
+    const patToUse = sanitizeToken(passedPat || settings.githubPAT || '');
     if (!patToUse) {
       alert("GitHub Personal Access Token (PAT) is required to push/create a Gist sync.");
       return null;
     }
     
     // Use explicitly passed syncCode (from Settings component) over stale state
-    const syncCodeToUse = String(passedSyncCode || settings.syncCode || '').trim();
+    const syncCodeToUse = sanitizeToken(passedSyncCode || settings.syncCode || '');
     
     setIsSyncing(true);
     try {
@@ -639,10 +639,10 @@ export default function App() {
   };
 
   const handlePullSync = async (code, passedPat = null) => {
-    const codeToUse = String(code || '').trim();
+    const codeToUse = sanitizeToken(code || '');
     if (!codeToUse) return false;
     
-    const patToUse = String(passedPat || settings.githubPAT || '').trim();
+    const patToUse = sanitizeToken(passedPat || settings.githubPAT || '');
     setIsSyncing(true);
     try {
       // Validate token structure before hitting GitHub

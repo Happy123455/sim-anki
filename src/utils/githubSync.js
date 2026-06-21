@@ -2,8 +2,26 @@
  * Utility for syncing SimAnki data via GitHub Gists using a Personal Access Token (PAT).
  */
 
+/**
+ * Deep-sanitize a token string to remove invisible Unicode characters
+ * that mobile browsers/keyboards/clipboard managers commonly inject.
+ * This includes: zero-width spaces, BOM, non-breaking spaces, soft hyphens,
+ * directional marks, carriage returns, newlines, and other control characters.
+ */
+export function sanitizeToken(raw) {
+  if (!raw) return '';
+  return String(raw)
+    // Remove all Unicode control chars, zero-width chars, BOM, directional marks, etc.
+    .replace(/[\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF\uFFF0-\uFFFF]/g, '')
+    // Remove non-breaking spaces (common on iOS)
+    .replace(/\u00A0/g, '')
+    // Collapse any remaining whitespace and trim
+    .replace(/\s+/g, '')
+    .trim();
+}
+
 export async function pushToGist(pat, gistId, payload) {
-  const cleanPat = String(pat || '').trim();
+  const cleanPat = sanitizeToken(pat);
   if (!cleanPat) {
     throw new Error("GitHub Personal Access Token (PAT) is required.");
   }
@@ -68,7 +86,7 @@ export async function pullFromGist(pat, gistId) {
     'X-GitHub-Api-Version': '2022-11-28'
   };
   
-  const cleanPat = String(pat || '').trim();
+  const cleanPat = sanitizeToken(pat);
   if (cleanPat) {
     headers['Authorization'] = `Bearer ${cleanPat}`;
   }
