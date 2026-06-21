@@ -40,6 +40,52 @@ const parseMarkdown = (markdown) => {
   return html;
 };
 
+const getYouTubeEmbedUrl = (url) => {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) 
+    ? `https://www.youtube.com/embed/${match[2]}` 
+    : null;
+};
+
+const renderCardMedia = (card) => {
+  if (!card) return null;
+  const embedUrl = getYouTubeEmbedUrl(card.youtubeUrl);
+  if (!card.imageUrl && !embedUrl) return null;
+  
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%', marginTop: '1rem', marginBottom: '1rem' }}>
+      {card.imageUrl && (
+        <img 
+          src={card.imageUrl} 
+          alt="Card attachment" 
+          style={{ 
+            maxWidth: '100%', 
+            maxHeight: '350px', 
+            objectFit: 'contain', 
+            borderRadius: '12px', 
+            border: '1px solid var(--border-light)',
+            alignSelf: 'flex-start'
+          }} 
+        />
+      )}
+      {embedUrl && (
+        <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', height: 0, borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border-light)' }}>
+          <iframe 
+            src={embedUrl} 
+            title="YouTube Video Player" 
+            frameBorder="0" 
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+            allowFullScreen
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const currentCard = DueCards[currentIndex];
@@ -233,6 +279,8 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             <InlineTTSButton text={currentCard.question} voiceURI={voiceURI} />
           </h2>
 
+          {renderCardMedia(currentCard)}
+
           {/* User Text Answer */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
             <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
@@ -322,6 +370,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               <div style={{ textAlign: 'left' }}>
                 <span className="badge badge-learn" style={{ marginBottom: '0.5rem' }}>AI Grade Report</span>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>{currentCard.question}</h2>
+                {renderCardMedia(currentCard)}
               </div>
               
               {/* Radial score gauge */}
@@ -353,7 +402,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               <div style={{ background: 'rgba(16, 185, 129, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
                 <h4 style={{ color: '#a7f3d0', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                   <CheckCircle size={16} /> Key Strengths
-                  <InlineTTSButton text={"Key Strengths: " + (evaluation.strengths || []).join('. ')} voiceURI={voiceURI} />
+                  <InlineTTSButton text={(evaluation.strengths || []).join('. ') || 'None noted.'} voiceURI={voiceURI} />
                 </h4>
                 <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   {evaluation.strengths.map((s, i) => <li key={i}>{s}</li>)}
@@ -364,7 +413,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               <div style={{ background: 'rgba(239, 68, 68, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
                 <h4 style={{ color: '#fca5a5', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                   <AlertTriangle size={16} /> Logical Gaps / Misconceptions
-                  <InlineTTSButton text={"Logical Gaps or Misconceptions: " + (evaluation.weaknesses || []).join('. ')} voiceURI={voiceURI} />
+                  <InlineTTSButton text={(evaluation.weaknesses || []).join('. ') || 'Perfect coverage!'} voiceURI={voiceURI} />
                 </h4>
                 <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   {evaluation.weaknesses.map((w, i) => <li key={i}>{w}</li>)}
@@ -376,7 +425,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', padding: '1rem 1.25rem', borderRadius: '12px' }}>
               <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                 <span>Logical Analysis</span>
-                <InlineTTSButton text={"Logical Analysis: " + (evaluation.logicAnalysis || '')} voiceURI={voiceURI} />
+                <InlineTTSButton text={evaluation.logicAnalysis || ''} voiceURI={voiceURI} />
               </h4>
               <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>{evaluation.logicAnalysis}</p>
             </div>

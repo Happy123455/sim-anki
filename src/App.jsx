@@ -559,6 +559,8 @@ export default function App() {
       deckId: targetDeckId,
       question: c.question,
       concept: c.concept,
+      imageUrl: c.imageUrl || "",
+      youtubeUrl: c.youtubeUrl || "",
       state: null
     }));
     
@@ -725,12 +727,14 @@ export default function App() {
   };
 
   // --- CARD MANAGEMENT HANDLERS ---
-  const handleAddCard = (deckId, question, concept) => {
+  const handleAddCard = (deckId, question, concept, imageUrl = "", youtubeUrl = "") => {
     const newCard = {
       id: `card-${Date.now()}`,
       deckId,
       question,
       concept,
+      imageUrl,
+      youtubeUrl,
       state: null
     };
     saveCards([...cards, newCard]);
