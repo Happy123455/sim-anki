@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle } from 'lucide-react';
+import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, Activity, ChevronDown, ChevronUp } from 'lucide-react';
 import { evaluateAnswer } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
 import HighlightingTTS from './HighlightingTTS';
@@ -107,6 +107,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
   // Copy Prompt State
   const [copySuccess, setCopySuccess] = useState(false);
+  const [showPastAnswers, setShowPastAnswers] = useState(false);
 
   // Start timer on question load
   useEffect(() => {
@@ -205,6 +206,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setUserAnswer('');
       setConfidence(3);
       setEvaluation(null);
+      setShowPastAnswers(false);
 
       if (currentIndex + 1 < DueCards.length) {
         setCurrentIndex(prev => prev + 1);
@@ -429,6 +431,66 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               </h4>
               <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>{evaluation.logicAnalysis}</p>
             </div>
+
+            {/* Compare with Past Answers Section */}
+            {currentCard.history && currentCard.history.length > 0 && (
+              <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '1rem 1.25rem' }}>
+                <div 
+                  onClick={() => setShowPastAnswers(!showPastAnswers)} 
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+                >
+                  <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.35rem', margin: 0 }}>
+                    <Activity size={16} style={{ color: 'var(--accent-primary)' }} />
+                    Compare with Past Answers ({currentCard.history.length})
+                  </h4>
+                  {showPastAnswers ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </div>
+
+                {showPastAnswers && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
+                    {/* Current Answer */}
+                    <div style={{ background: 'rgba(139, 92, 246, 0.03)', border: '1px solid rgba(139, 92, 246, 0.15)', borderRadius: '8px', padding: '0.75rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                        <strong style={{ color: 'var(--accent-primary)', fontSize: '0.8rem' }}>Current Answer (This Attempt)</strong>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)' }}>Score: {evaluation.score}%</span>
+                      </div>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0, whiteSpace: 'pre-line' }}>{userAnswer || "(Empty response)"}</p>
+                    </div>
+
+                    {/* Timeline of Past Answers */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                      {[...currentCard.history].reverse().map((past, idx) => {
+                        const scoreColor = past.score >= 80 ? 'var(--success)' : (past.score >= 60 ? 'var(--warning)' : 'var(--danger)');
+                        const reviewNum = currentCard.history.length - idx;
+                        return (
+                          <div key={idx} style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                              <strong style={{ color: 'var(--text-primary)', fontSize: '0.8rem' }}>Attempt #{reviewNum}</strong>
+                              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{new Date(past.date).toLocaleDateString()}</span>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: scoreColor }}>Score: {past.score}%</span>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.82rem' }}>
+                              <div>
+                                <span style={{ color: 'var(--text-muted)' }}>Answer: </span>
+                                <span style={{ color: 'var(--text-secondary)' }}>{past.userAnswer || "(No response recorded)"}</span>
+                              </div>
+                              {past.logicAnalysis && (
+                                <div>
+                                  <span style={{ color: 'var(--text-muted)' }}>Feedback: </span>
+                                  <span style={{ color: 'var(--text-secondary)' }}>{past.logicAnalysis}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* AI Explanation Content */}
             <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '1rem' }}>

@@ -52,6 +52,75 @@ function parseMarkdown(text) {
 export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
   const [expandedLogIdx, setExpandedLogIdx] = useState(null);
   const [activeSimLogIdx, setActiveSimLogIdx] = useState(null);
+  const [copyLogIdx, setCopyLogIdx] = useState(null);
+  const [copyAllSuccess, setCopyAllSuccess] = useState(false);
+  const [expandedExplanationIndices, setExpandedExplanationIndices] = useState([]);
+
+  const toggleExplanationExpand = (idx) => {
+    if (expandedExplanationIndices.includes(idx)) {
+      setExpandedExplanationIndices(prev => prev.filter(i => i !== idx));
+    } else {
+      setExpandedExplanationIndices(prev => [...prev, idx]);
+    }
+  };
+
+  const handleCopyFullHistory = () => {
+    let md = `# Flashcard: ${card.question}\n`;
+    md += `Concept Focus: ${card.concept || 'N/A'}\n\n`;
+    
+    if (card.state) {
+      md += `## Spaced Repetition (FSRS) Metrics:\n`;
+      md += `- Stability: ${card.state.stability}d\n`;
+      md += `- Difficulty: ${card.state.difficulty}/10\n`;
+      md += `- Repetitions: ${card.state.repetitions}\n`;
+      md += `- Consecutive Lapses/Fails: ${card.state.consecutiveFails || 0}\n\n`;
+    }
+    
+    md += `## Review Logs (${history.length}):\n\n`;
+    
+    history.forEach((log, idx) => {
+      md += `### Review #${idx + 1} - Date: ${new Date(log.date).toLocaleString()} | Score: ${log.score}% | Rating: ${log.rating || 'good'} | Time: ${log.timeSpent}s\n`;
+      md += `- **Your Answer**: "${log.userAnswer || '(Empty answer)'}"\n`;
+      if (log.logicAnalysis) {
+        md += `- **AI Feedback**: "${log.logicAnalysis}"\n`;
+      }
+      if (log.strengths && log.strengths.length > 0) {
+        md += `- **Strengths**:\n${log.strengths.map(s => `  * ${s}`).join('\n')}\n`;
+      }
+      if (log.weaknesses && log.weaknesses.length > 0) {
+        md += `- **Weaknesses**:\n${log.weaknesses.map(w => `  * ${w}`).join('\n')}\n`;
+      }
+      if (log.correctExplanation) {
+        md += `- **AI Explanation**:\n${log.correctExplanation.split('\n').map(line => `  ${line}`).join('\n')}\n`;
+      }
+      md += `\n--------------------------------------------------\n\n`;
+    });
+    
+    navigator.clipboard.writeText(md);
+    setCopyAllSuccess(true);
+    setTimeout(() => setCopyAllSuccess(false), 2000);
+  };
+
+  const handleCopyLogEntry = (log, idx) => {
+    let md = `### Review #${idx + 1} - Date: ${new Date(log.date).toLocaleString()} | Score: ${log.score}% | Rating: ${log.rating || 'good'} | Time: ${log.timeSpent}s\n`;
+    md += `- **Your Answer**: "${log.userAnswer || '(Empty answer)'}"\n`;
+    if (log.logicAnalysis) {
+      md += `- **AI Feedback**: "${log.logicAnalysis}"\n`;
+    }
+    if (log.strengths && log.strengths.length > 0) {
+      md += `- **Strengths**:\n${log.strengths.map(s => `  * ${s}`).join('\n')}\n`;
+    }
+    if (log.weaknesses && log.weaknesses.length > 0) {
+      md += `- **Weaknesses**:\n${log.weaknesses.map(w => `  * ${w}`).join('\n')}\n`;
+    }
+    if (log.correctExplanation) {
+      md += `- **AI Explanation**:\n${log.correctExplanation.split('\n').map(line => `  ${line}`).join('\n')}\n`;
+    }
+    
+    navigator.clipboard.writeText(md);
+    setCopyLogIdx(idx);
+    setTimeout(() => setCopyLogIdx(null), 2000);
+  };
 
   const history = card.history || [];
   const hasHistory = history.length > 0;
@@ -360,7 +429,18 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
 
         {/* Historical Review Log List */}
         <div>
-          <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.75rem' }}>Review Logs</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 600, margin: 0 }}>Review Logs</h3>
+            {hasHistory && (
+              <button
+                className="btn btn-secondary"
+                onClick={handleCopyFullHistory}
+                style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+              >
+                {copyAllSuccess ? 'Copied Full History!' : 'Copy Full History'}
+              </button>
+            )}
+          </div>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '0.25rem' }}>
             {history.map((log, idx) => {
@@ -463,14 +543,57 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
 
                           <div style={{ background: 'rgba(255, 255, 255, 0.015)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }}>
                             <strong style={{ color: 'var(--text-primary)', fontSize: '0.75rem', display: 'block', marginBottom: '0.35rem' }}>Explanation:</strong>
-                            <div style={{ fontSize: '0.8rem' }} dangerouslySetInnerHTML={{ __html: parseMarkdown(log.correctExplanation) }} />
+                            <div style={{ fontSize: '0.8rem' }}>
+                              {(() => {
+                                const exp = log.correctExplanation || '';
+                                const isLong = exp.length > 200;
+                                const isExpanded = expandedExplanationIndices.includes(idx);
+                                
+                                if (isLong && !isExpanded) {
+                                  const snippet = exp.slice(0, 180) + '...';
+                                  return (
+                                    <div>
+                                      <div dangerouslySetInnerHTML={{ __html: parseMarkdown(snippet) }} />
+                                      <button 
+                                        onClick={() => toggleExplanationExpand(idx)}
+                                        style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: '0.75rem', padding: 0, marginTop: '0.25rem', fontWeight: 600 }}
+                                      >
+                                        Read More
+                                      </button>
+                                    </div>
+                                  );
+                                }
+                                
+                                return (
+                                  <div>
+                                    <div dangerouslySetInnerHTML={{ __html: parseMarkdown(exp) }} />
+                                    {isLong && (
+                                      <button 
+                                        onClick={() => toggleExplanationExpand(idx)}
+                                        style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: '0.75rem', padding: 0, marginTop: '0.25rem', fontWeight: 600 }}
+                                      >
+                                        Show Less
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </div>
                           </div>
                         </div>
                       )}
 
-                      {/* Replay Simulation Action */}
-                      {log.simulation && (
-                        <div style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem' }}>
+                      {/* Actions Bar inside expanded log */}
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem', flexWrap: 'wrap' }}>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => handleCopyLogEntry(log, idx)}
+                          style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                        >
+                          {copyLogIdx === idx ? 'Copied Entry!' : 'Copy Entry Log'}
+                        </button>
+                        
+                        {log.simulation && (
                           <button
                             className="btn btn-secondary"
                             onClick={(e) => {
@@ -482,12 +605,12 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
                             <Layers size={12} /> 
                             {isSimActive ? 'Close Interactive Practice' : 'Replay Practice Simulation'}
                           </button>
-                          
-                          {isSimActive && (
-                            <div style={{ marginTop: '1rem', scale: '0.96', transformOrigin: 'top center', border: '1px solid rgba(139, 92, 246, 0.15)', borderRadius: '8px', overflow: 'hidden' }}>
-                              <SimulationRenderer simulation={log.simulation} voiceURI={voiceURI} />
-                            </div>
-                          )}
+                        )}
+                      </div>
+                      
+                      {log.simulation && isSimActive && (
+                        <div style={{ marginTop: '1rem', scale: '0.96', transformOrigin: 'top center', border: '1px solid rgba(139, 92, 246, 0.15)', borderRadius: '8px', overflow: 'hidden' }}>
+                          <SimulationRenderer simulation={log.simulation} voiceURI={voiceURI} />
                         </div>
                       )}
                     </div>
