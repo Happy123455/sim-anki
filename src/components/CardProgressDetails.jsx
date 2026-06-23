@@ -442,7 +442,7 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
             )}
           </div>
           
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '420px', overflowY: 'auto', paddingRight: '0.25rem' }}>
             {history.map((log, idx) => {
               const isExpanded = expandedLogIdx === idx;
               const isSimActive = activeSimLogIdx === idx;
@@ -499,7 +499,18 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
 
                   {/* Expanded Content Log details */}
                   {isExpanded && (
-                    <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid rgba(255,255,255,0.03)', display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.85rem' }}>
+                    <div style={{ 
+                      padding: '1rem', 
+                      background: 'rgba(0,0,0,0.2)', 
+                      borderTop: '1px solid rgba(255,255,255,0.03)', 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: '0.75rem', 
+                      fontSize: '0.85rem',
+                      maxHeight: '260px',
+                      overflowY: 'auto',
+                      borderBottom: '1px solid rgba(255,255,255,0.03)'
+                    }}>
                       <div>
                         <strong style={{ color: 'var(--text-primary)' }}>Your Answer:</strong>
                         <p style={{ color: 'var(--text-secondary)', marginTop: '0.2rem', background: 'rgba(0,0,0,0.1)', padding: '0.5rem', borderRadius: '6px', whiteSpace: 'pre-line' }}>
