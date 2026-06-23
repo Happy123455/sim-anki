@@ -418,7 +418,7 @@ Design a custom calculator or a decision scenario to help them visually/interact
  */
 export async function generateMindMap(apiKey, model, deckTitle, deckDescription, cardsList) {
   const systemPrompt = `You are an expert educator and visual learning designer. Your job is to create a structured conceptual mind map of a study deck.
-You will receive the deck title, deck description, and a list of cards (with their questions and concept focus areas).
+You will receive the deck title, deck description, and a list of cards (with their IDs, questions, and concept focus areas).
 Analyze the relationships, group related cards/topics into main subtopics, and organize them into a clean, hierarchical tree structure (up to 3-4 levels deep).
 
 The root of the tree should represent the overall deck theme.
@@ -426,9 +426,12 @@ Level 1: Main categories or chapters (e.g., "Structural Design", "Hydraulic Prin
 Level 2: Sub-topics under those categories.
 Level 3: Core concepts, questions, or key facts.
 
+[CRITICAL CARD ID MAPPING RULE]:
+If a node represents or links directly to a specific card in the deck, you MUST populate its "cardId" property with the exact "Card ID" provided in the card list. If a node is a high-level folder/category grouping multiple cards, leave "cardId" empty/null.
+
 You must respond with a JSON object representing the root node of this tree, conforming exactly to the requested schema. Ensure the mind map is cohesive, comprehensive, and logically structured.`;
 
-  const cardsSummary = (cardsList || []).map((c, idx) => `${idx + 1}. Q: "${c.question}" | Concept: "${c.concept || ''}"`).join('\n');
+  const cardsSummary = (cardsList || []).map((c, idx) => `Card ID: "${c.id}" | Q: "${c.question}" | Concept: "${c.concept || ''}"`).join('\n');
   const prompt = `
 Deck Title: ${deckTitle}
 Deck Description: ${deckDescription}
@@ -454,24 +457,28 @@ Please organize these cards into a logical conceptual mind map hierarchy. Return
           type: "OBJECT",
           properties: {
             label: { type: "STRING" },
+            cardId: { type: "STRING" },
             children: {
               type: "ARRAY",
               items: {
                 type: "OBJECT",
                 properties: {
                   label: { type: "STRING" },
+                  cardId: { type: "STRING" },
                   children: {
                     type: "ARRAY",
                     items: {
                       type: "OBJECT",
                       properties: {
                         label: { type: "STRING" },
+                        cardId: { type: "STRING" },
                         children: {
                           type: "ARRAY",
                           items: {
                             type: "OBJECT",
                             properties: {
-                              label: { type: "STRING" }
+                              label: { type: "STRING" },
+                              cardId: { type: "STRING" }
                             },
                             required: ["label"]
                           }

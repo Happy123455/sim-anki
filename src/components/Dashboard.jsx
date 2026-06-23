@@ -1306,7 +1306,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
                   {!isGeneratingMindMap && deck.mindMap && (
                     <div className="glass-panel" style={{ padding: '1.5rem 2rem', background: 'rgba(9, 9, 11, 0.2)' }}>
-                      <MindMapNode node={deck.mindMap} />
+                      <MindMapNode node={deck.mindMap} cards={Cards} onOpenCardDetails={setActiveCardDetails} />
                     </div>
                   )}
                 </div>
@@ -1545,9 +1545,32 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   );
 }
 
-function MindMapNode({ node }) {
+function MindMapNode({ node, cards, onOpenCardDetails }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const hasChildren = node.children && node.children.length > 0;
+  
+  const card = (node.cardId && cards) ? cards.find(c => c.id === node.cardId) : null;
+  
+  let score = null;
+  if (card) {
+    if (card.history && card.history.length > 0) {
+      score = card.history[card.history.length - 1].score;
+    } else if (card.state) {
+      score = (10 - card.state.difficulty) * 10;
+    }
+  }
+
+  // Red at HSL 0 (score=0), Green at HSL 120 (score=100)
+  const nodeColor = score !== null ? `hsl(${score * 1.2}, 85%, 60%)` : (hasChildren ? 'var(--text-primary)' : 'var(--text-secondary)');
+  
+  const handleNodeClick = (e) => {
+    if (card && onOpenCardDetails) {
+      e.stopPropagation();
+      onOpenCardDetails(card);
+    } else if (hasChildren) {
+      setIsCollapsed(!isCollapsed);
+    }
+  };
 
   return (
     <div style={{ paddingLeft: '1.25rem', textAlign: 'left', borderLeft: '1px dashed var(--border-light)', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
@@ -1556,29 +1579,48 @@ function MindMapNode({ node }) {
           display: 'flex', 
           alignItems: 'center', 
           gap: '0.4rem', 
-          cursor: hasChildren ? 'pointer' : 'default',
+          cursor: (hasChildren || card) ? 'pointer' : 'default',
           userSelect: 'none'
         }}
-        onClick={() => { if (hasChildren) setIsCollapsed(!isCollapsed); }}
+        onClick={handleNodeClick}
       >
         {hasChildren ? (
-          isCollapsed ? <ChevronRight size={14} style={{ color: 'var(--accent-primary)' }} /> : <ChevronDown size={14} style={{ color: 'var(--accent-primary)' }} />
+          <span onClick={(e) => {
+            if (card) {
+              e.stopPropagation();
+              setIsCollapsed(!isCollapsed);
+            }
+          }}>
+            {isCollapsed ? <ChevronRight size={14} style={{ color: 'var(--accent-primary)' }} /> : <ChevronDown size={14} style={{ color: 'var(--accent-primary)' }} />}
+          </span>
         ) : (
-          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--text-muted)', margin: '0 4px' }} />
+          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: score !== null ? nodeColor : 'var(--text-muted)', margin: '0 4px' }} />
         )}
-        <span style={{ 
-          fontWeight: hasChildren ? 600 : 400, 
-          fontSize: hasChildren ? '0.95rem' : '0.9rem',
-          color: hasChildren ? 'var(--text-primary)' : 'var(--text-secondary)'
-        }}>
+        <span 
+          style={{ 
+            fontWeight: hasChildren ? 600 : 400, 
+            fontSize: hasChildren ? '0.95rem' : '0.9rem',
+            color: nodeColor,
+            textDecoration: card ? 'underline' : 'none',
+            textDecorationColor: card ? 'rgba(255,255,255,0.2)' : 'transparent',
+            textDecorationStyle: 'dashed',
+            transition: 'all 0.2s ease'
+          }}
+          title={card ? "Click to view flashcard progress & history" : ""}
+        >
           {node.label}
+          {card && (
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, marginLeft: '0.4rem', color: 'var(--text-muted)' }}>
+              ({score !== null ? `${score}%` : 'New'})
+            </span>
+          )}
         </span>
       </div>
       
       {hasChildren && !isCollapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.25rem' }}>
           {node.children.map((child, idx) => (
-            <MindMapNode key={idx} node={child} />
+            <MindMapNode key={idx} node={child} cards={cards} onOpenCardDetails={onOpenCardDetails} />
           ))}
         </div>
       )}
