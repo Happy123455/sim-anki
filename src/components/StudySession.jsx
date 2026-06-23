@@ -198,7 +198,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
         evaluation.logicAnalysis || '',
         confidence,
         elapsedTime,
-        null // simulation removed — replaced by copy-prompt
+        evaluation // Pass the full evaluation object to archive the report
       );
       
       // Reset states for next card
@@ -267,7 +267,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             <span className="badge badge-learn" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
               <BrainCircuit size={12} /> Evaluate Concept
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            <div style={{ display: 'none', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
               <Clock size={16} />
               <span>{formatTime(elapsedTime)}</span>
             </div>

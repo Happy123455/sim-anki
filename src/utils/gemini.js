@@ -410,3 +410,93 @@ Design a custom calculator or a decision scenario to help them visually/interact
   const text = data.candidates[0].content.parts[0].text;
   return cleanAndParseJson(text);
 }
+
+/**
+ * Generates a conceptual mind map for the deck based on its cards.
+ * 
+ * @returns {Promise<Object>} The mind map tree structure.
+ */
+export async function generateMindMap(apiKey, model, deckTitle, deckDescription, cardsList) {
+  const systemPrompt = `You are an expert educator and visual learning designer. Your job is to create a structured conceptual mind map of a study deck.
+You will receive the deck title, deck description, and a list of cards (with their questions and concept focus areas).
+Analyze the relationships, group related cards/topics into main subtopics, and organize them into a clean, hierarchical tree structure (up to 3-4 levels deep).
+
+The root of the tree should represent the overall deck theme.
+Level 1: Main categories or chapters (e.g., "Structural Design", "Hydraulic Principles").
+Level 2: Sub-topics under those categories.
+Level 3: Core concepts, questions, or key facts.
+
+You must respond with a JSON object representing the root node of this tree, conforming exactly to the requested schema. Ensure the mind map is cohesive, comprehensive, and logically structured.`;
+
+  const cardsSummary = (cardsList || []).map((c, idx) => `${idx + 1}. Q: "${c.question}" | Concept: "${c.concept || ''}"`).join('\n');
+  const prompt = `
+Deck Title: ${deckTitle}
+Deck Description: ${deckDescription}
+
+Here is the list of cards in this deck:
+${cardsSummary}
+
+Please organize these cards into a logical conceptual mind map hierarchy. Return only the JSON object.`;
+
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        { role: "user", parts: [{ text: systemPrompt + "\n\n" + prompt }] }
+      ],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            label: { type: "STRING" },
+            children: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  label: { type: "STRING" },
+                  children: {
+                    type: "ARRAY",
+                    items: {
+                      type: "OBJECT",
+                      properties: {
+                        label: { type: "STRING" },
+                        children: {
+                          type: "ARRAY",
+                          items: {
+                            type: "OBJECT",
+                            properties: {
+                              label: { type: "STRING" }
+                            },
+                            required: ["label"]
+                          }
+                        }
+                      },
+                      required: ["label"]
+                    }
+                  }
+                },
+                required: ["label"]
+              }
+            }
+          },
+          required: ["label", "children"]
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gemini API error: ${response.statusText}. Details: ${errText}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates[0].content.parts[0].text;
+  return cleanAndParseJson(text);
+}

@@ -2,6 +2,53 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Award, Clock, Star, Layers, X, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
 import SimulationRenderer from './SimulationRenderer';
 
+function parseMarkdown(text) {
+  if (!text) return '';
+  let html = text;
+  
+  html = html
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  
+  html = html.replace(/^### (.*$)/gim, '<h4 style="margin-top: 0.5rem; margin-bottom: 0.25rem; font-weight: 600; color: var(--accent-primary)">$1</h4>');
+  html = html.replace(/^## (.*$)/gim, '<h3 style="margin-top: 0.75rem; margin-bottom: 0.35rem; font-weight: 600; color: var(--accent-primary)">$1</h3>');
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/^\s*[-*]\s+(.*$)/gim, '<li style="margin-left: 1rem; margin-top: 0.15rem; list-style-type: disc;">$1</li>');
+  
+  const lines = html.split('\n');
+  let inList = false;
+  let finalHtml = '';
+  
+  lines.forEach(line => {
+    if (line.trim().startsWith('<li')) {
+      if (!inList) {
+        finalHtml += '<ul style="margin-bottom: 0.5rem; padding-left: 0.5rem">';
+        inList = true;
+      }
+      finalHtml += line;
+    } else {
+      if (inList) {
+        finalHtml += '</ul>';
+        inList = false;
+      }
+      if (line.trim()) {
+        if (line.startsWith('<h') || line.startsWith('<ul') || line.startsWith('</ul')) {
+          finalHtml += line;
+        } else {
+          finalHtml += `<p style="margin-bottom: 0.5rem; line-height: 1.4;">${line}</p>`;
+        }
+      }
+    }
+  });
+  
+  if (inList) {
+    finalHtml += '</ul>';
+  }
+  
+  return finalHtml;
+}
+
 export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
   const [expandedLogIdx, setExpandedLogIdx] = useState(null);
   const [activeSimLogIdx, setActiveSimLogIdx] = useState(null);
@@ -384,6 +431,40 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
                         <div>
                           <strong style={{ color: '#fca5a5' }}>Logical Gaps / Logic Corrections:</strong>
                           <p style={{ color: 'var(--text-secondary)', marginTop: '0.2rem' }}>{log.logicAnalysis}</p>
+                        </div>
+                      )}
+
+                      {log.correctExplanation && (
+                        <div style={{ marginTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem' }}>
+                          <strong style={{ color: 'var(--accent-primary)', display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Archived AI Grade Report</strong>
+                          
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                            <div style={{ background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.15)', padding: '0.5rem 0.75rem', borderRadius: '6px' }}>
+                              <strong style={{ color: 'var(--success)', fontSize: '0.75rem', display: 'block', marginBottom: '0.2rem' }}>Strengths</strong>
+                              <ul style={{ paddingLeft: '1rem', margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                {log.strengths && log.strengths.length > 0 ? (
+                                  log.strengths.map((s, idx) => <li key={idx} style={{ marginTop: '0.15rem' }}>{s}</li>)
+                                ) : (
+                                  <li>None identified</li>
+                                )}
+                              </ul>
+                            </div>
+                            <div style={{ background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.15)', padding: '0.5rem 0.75rem', borderRadius: '6px' }}>
+                              <strong style={{ color: 'var(--danger)', fontSize: '0.75rem', display: 'block', marginBottom: '0.2rem' }}>Weaknesses</strong>
+                              <ul style={{ paddingLeft: '1rem', margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                {log.weaknesses && log.weaknesses.length > 0 ? (
+                                  log.weaknesses.map((w, idx) => <li key={idx} style={{ marginTop: '0.15rem' }}>{w}</li>)
+                                ) : (
+                                  <li>None identified</li>
+                                )}
+                              </ul>
+                            </div>
+                          </div>
+
+                          <div style={{ background: 'rgba(255, 255, 255, 0.015)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }}>
+                            <strong style={{ color: 'var(--text-primary)', fontSize: '0.75rem', display: 'block', marginBottom: '0.35rem' }}>Explanation:</strong>
+                            <div style={{ fontSize: '0.8rem' }} dangerouslySetInnerHTML={{ __html: parseMarkdown(log.correctExplanation) }} />
+                          </div>
                         </div>
                       )}
 

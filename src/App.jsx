@@ -799,8 +799,11 @@ export default function App() {
     setView('study');
   };
 
-  const handleRateCard = (cardId, rating, userAnswer, score, logicAnalysis, confidence, timeSpent, simulation = null) => {
+  const handleRateCard = (cardId, rating, userAnswer, score, logicAnalysis, confidence, timeSpent, evaluation = null) => {
     try {
+      // Outlier filtering: ignore readings over 120 seconds
+      const finalTimeSpent = timeSpent > 120 ? 0 : timeSpent;
+
       const updatedCards = cards.map(card => {
         if (card.id === cardId) {
           const nextState = calculateNextState(card, rating, settings.targetRetention);
@@ -812,9 +815,12 @@ export default function App() {
             score: score || 0,
             logicAnalysis: logicAnalysis || '',
             confidence: confidence || 3,
-            timeSpent: timeSpent || 0,
+            timeSpent: finalTimeSpent,
             rating: rating || 'good',
-            simulation: simulation || null
+            strengths: evaluation?.strengths || [],
+            weaknesses: evaluation?.weaknesses || [],
+            correctExplanation: evaluation?.correctExplanation || '',
+            simulation: evaluation?.simulation || null
           };
           
           return {
@@ -837,9 +843,12 @@ export default function App() {
             score: score || 0,
             logicAnalysis: logicAnalysis || '',
             confidence: confidence || 3,
-            timeSpent: timeSpent || 0,
+            timeSpent: finalTimeSpent,
             rating: rating || 'good',
-            simulation: simulation || null
+            strengths: evaluation?.strengths || [],
+            weaknesses: evaluation?.weaknesses || [],
+            correctExplanation: evaluation?.correctExplanation || '',
+            simulation: evaluation?.simulation || null
           };
           return {
             ...c,
@@ -855,15 +864,25 @@ export default function App() {
     }
   };
 
+  const handleUpdateDeckMindMap = (deckId, mindMap) => {
+    const updatedDecks = decks.map(d => {
+      if (d.id === deckId) {
+        return { ...d, mindMap };
+      }
+      return d;
+    });
+    saveDecks(updatedDecks);
+  };
+
   // Helper to filter currently due cards in selected deck
   const getDueCards = () => {
     const deckCards = cards.filter(c => c.deckId === activeDeckId);
     // We sort such that failed cards (due immediately) appear first
+    const now = new Date();
+    now.setHours(23, 59, 59, 999); // Due today includes cards due by midnight
     return deckCards.filter(card => {
       if (!card.state || !card.state.dueDate) return true;
       const due = new Date(card.state.dueDate);
-      const now = new Date();
-      now.setHours(23, 59, 59, 999); // Due today includes cards due by midnight
       return due <= now;
     });
   };
@@ -972,6 +991,7 @@ export default function App() {
           onImportCards={handleImportAnkiCards}
           onBulkDeleteCards={handleBulkDeleteCards}
           onMoveCards={handleMoveCards}
+          onUpdateDeckMindMap={handleUpdateDeckMindMap}
         />
       )}
 

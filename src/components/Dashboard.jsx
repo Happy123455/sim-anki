@@ -3,8 +3,9 @@ import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, Ale
 import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 import ImportModal from './ImportModal';
+import { generateMindMap } from '../utils/gemini';
 
-export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards }) {
+export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap }) {
   const [showCreateDeckModal, setShowCreateDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
@@ -36,11 +37,18 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
   const [selectedCardIds, setSelectedCardIds] = useState([]);
+  const [deckTab, setDeckTab] = useState('cards'); // 'cards' | 'mindmap'
+  const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
+  const [mindMapGenError, setMindMapGenError] = useState(null);
 
-  // Clear selection when deck, search, or filters change
+  // Clear selection and reset tab when deck, search, or filters change
   useEffect(() => {
     setSelectedCardIds([]);
   }, [activeDeckId, searchQuery, difficultyFilter, stabilityFilter, repsFilter, failsFilter, searchAllDecks]);
+
+  useEffect(() => {
+    setDeckTab('cards');
+  }, [activeDeckId]);
 
   const fileInputRef = useRef(null);
 
@@ -131,6 +139,81 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     };
   };
 
+  const getEstimatedStudyTime = (deckId) => {
+    const deckCards = Cards.filter(c => c.deckId === deckId);
+    const dueCards = deckCards.filter(isDue);
+    if (dueCards.length === 0) return null;
+
+    const buffer = 8; // 8 seconds buffer per card (for grading, voiceovers, etc.)
+    let totalEstimatedSeconds = 0;
+    let cardsWithHistory = 0;
+    let sumHistoricalTimes = 0;
+
+    dueCards.forEach(card => {
+      const history = card.history || [];
+      // Filter out outliers from history (reviews taking more than 120s)
+      const validHistory = history.filter(h => h.timeSpent && h.timeSpent > 0 && h.timeSpent <= 120);
+      
+      if (validHistory.length > 0) {
+        // Average of valid historical times for this card
+        const avgTime = validHistory.reduce((sum, h) => sum + h.timeSpent, 0) / validHistory.length;
+        totalEstimatedSeconds += avgTime + buffer;
+        sumHistoricalTimes += avgTime;
+        cardsWithHistory++;
+      } else {
+        // Default baseline for new or unreviewed cards: 20 seconds + buffer
+        totalEstimatedSeconds += 20 + buffer;
+      }
+    });
+
+    const averageAnswerTime = cardsWithHistory > 0 
+      ? Math.round(sumHistoricalTimes / cardsWithHistory) 
+      : 20;
+
+    const formattedTime = (seconds) => {
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.round(seconds % 60);
+      if (mins === 0) return `${secs}s`;
+      return `${mins}m ${secs}s`;
+    };
+
+    return {
+      total: formattedTime(totalEstimatedSeconds),
+      avg: `${averageAnswerTime}s`,
+      buffer: `${buffer}s`
+    };
+  };
+
+  const handleGenerateMindMap = async () => {
+    if (!settings.apiKey) {
+      setMindMapGenError("Gemini API Key is missing. Please set it in Settings.");
+      return;
+    }
+    const deck = Decks.find(d => d.id === activeDeckId);
+    if (!deck) return;
+
+    setIsGeneratingMindMap(true);
+    setMindMapGenError(null);
+
+    try {
+      const deckCards = Cards.filter(c => c.deckId === activeDeckId);
+      const mindMap = await generateMindMap(
+        settings.apiKey,
+        settings.model || 'gemini-3.5-flash',
+        deck.title,
+        deck.description || '',
+        deckCards
+      );
+      
+      onUpdateDeckMindMap(activeDeckId, mindMap);
+    } catch (err) {
+      console.error("Failed to generate mind map:", err);
+      setMindMapGenError(err.message || "Failed to generate mind map. Please check your API key and try again.");
+    } finally {
+      setIsGeneratingMindMap(false);
+    }
+  };
+
   const filteredCards = Cards.filter(card => {
     if (!searchAllDecks && card.deckId !== activeDeckId) return false;
     
@@ -205,6 +288,9 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     } else if (sortBy === 'fails') {
       valA = stateA ? (stateA.consecutiveFails || 0) : 0;
       valB = stateB ? (stateB.consecutiveFails || 0) : 0;
+    } else if (sortBy === 'recent') {
+      valA = a.history && a.history.length > 0 ? new Date(a.history[a.history.length - 1].date).getTime() : 0;
+      valB = b.history && b.history.length > 0 ? new Date(b.history[b.history.length - 1].date).getTime() : 0;
     }
     
     if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
@@ -316,6 +402,29 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   <span className="badge badge-new">{stats.new} New</span>
                   <span className="badge badge-learn" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}>{stats.total} Total</span>
                 </div>
+
+                {stats.due > 0 && (() => {
+                  const est = getEstimatedStudyTime(deck.id);
+                  if (!est) return null;
+                  return (
+                    <div style={{ 
+                      fontSize: '0.75rem', 
+                      color: 'var(--text-secondary)', 
+                      background: 'rgba(255, 255, 255, 0.02)', 
+                      border: '1px solid var(--border-light)', 
+                      borderRadius: '6px', 
+                      padding: '0.4rem 0.6rem', 
+                      marginTop: '-0.75rem', 
+                      marginBottom: '1rem',
+                      display: 'flex', 
+                      justifyContent: 'space-between',
+                      alignItems: 'center' 
+                    }}>
+                      <span>Estimated: <strong style={{ color: 'var(--accent-primary)' }}>{est.total}</strong></span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Avg: {est.avg} (+{est.buffer} buffer)</span>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Action Buttons */}
@@ -715,7 +824,56 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', alignItems: 'stretch' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {/* Tab Switcher */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '0.5rem', 
+              borderBottom: '1px solid var(--border-light)', 
+              paddingBottom: '0.5rem' 
+            }}>
+              <button 
+                onClick={() => setDeckTab('cards')} 
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: deckTab === 'cards' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  borderBottom: deckTab === 'cards' ? '2px solid var(--accent-primary)' : 'none',
+                  padding: '0.5rem 1rem',
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem'
+                }}
+              >
+                <Layers size={16} /> Cards List
+              </button>
+              <button 
+                onClick={() => setDeckTab('mindmap')} 
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: deckTab === 'mindmap' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  borderBottom: deckTab === 'mindmap' ? '2px solid var(--accent-primary)' : 'none',
+                  padding: '0.5rem 1rem',
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem'
+                }}
+              >
+                <Activity size={16} /> AI Mind Map
+              </button>
+            </div>
+
+            {deckTab === 'cards' && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ fontSize: '1.2rem', textAlign: 'left', margin: 0 }}>
                 Existing Cards ({Cards.filter(c => c.deckId === activeDeckId).length})
               </h3>
@@ -850,6 +1008,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                     <option value="stability">Stability</option>
                     <option value="reps">Repetitions</option>
                     <option value="fails">Lapses (Fails)</option>
+                    <option value="recent">Recently Reviewed</option>
                   </select>
 
                   <select 
@@ -1071,6 +1230,88 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 })
               )}
             </div>
+            </>
+            )}
+
+            {deckTab === 'mindmap' && (() => {
+              const deck = Decks.find(d => d.id === activeDeckId);
+              if (!deck) return null;
+              
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', textAlign: 'left' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Conceptual Mind Map</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
+                        Visual outline of concepts and subtopics in this deck.
+                      </p>
+                    </div>
+                    {deck.mindMap && (
+                      <button 
+                        className="btn btn-secondary" 
+                        onClick={handleGenerateMindMap}
+                        disabled={isGeneratingMindMap}
+                        style={{ fontSize: '0.85rem', padding: '0.5rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                      >
+                        <Activity size={16} /> {isGeneratingMindMap ? 'Generating...' : 'Regenerate Mind Map'}
+                      </button>
+                    )}
+                  </div>
+
+                  {isGeneratingMindMap && (
+                    <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                      <div className="animate-spin" style={{ width: '32px', height: '32px', border: '3px solid var(--border-light)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%' }} />
+                      <p style={{ fontSize: '0.95rem' }}>Generating conceptual mind map with Gemini AI...</p>
+                    </div>
+                  )}
+
+                  {mindMapGenError && (
+                    <div style={{ 
+                      padding: '1rem', 
+                      background: 'rgba(239, 68, 68, 0.1)', 
+                      border: '1px solid rgba(239, 68, 68, 0.3)', 
+                      borderRadius: '8px', 
+                      color: '#f87171', 
+                      fontSize: '0.9rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}>
+                      <AlertTriangle size={16} />
+                      <span>{mindMapGenError}</span>
+                    </div>
+                  )}
+
+                  {!isGeneratingMindMap && !deck.mindMap && (
+                    <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                      <Activity size={48} style={{ color: 'var(--text-muted)' }} />
+                      <p style={{ fontSize: '1rem', maxWidth: '400px' }}>
+                        No conceptual mind map has been generated for this deck yet. Generate one to see a hierarchical view of the concepts.
+                      </p>
+                      {!settings.apiKey ? (
+                        <p style={{ color: 'var(--warning)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <AlertTriangle size={14} /> Please add your Gemini API Key in Settings to enable AI Mind Maps.
+                        </p>
+                      ) : (
+                        <button 
+                          className="btn btn-primary" 
+                          onClick={handleGenerateMindMap}
+                          style={{ fontSize: '0.9rem', padding: '0.6rem 1.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                        >
+                          <Activity size={16} /> Generate Mind Map
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {!isGeneratingMindMap && deck.mindMap && (
+                    <div className="glass-panel" style={{ padding: '1.5rem 2rem', background: 'rgba(9, 9, 11, 0.2)' }}>
+                      <MindMapNode node={deck.mindMap} />
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1299,6 +1540,47 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           onImportCards={onImportCards}
           onClose={() => setShowImportModal(false)}
         />
+      )}
+    </div>
+  );
+}
+
+function MindMapNode({ node }) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const hasChildren = node.children && node.children.length > 0;
+
+  return (
+    <div style={{ paddingLeft: '1.25rem', textAlign: 'left', borderLeft: '1px dashed var(--border-light)', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+      <div 
+        style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '0.4rem', 
+          cursor: hasChildren ? 'pointer' : 'default',
+          userSelect: 'none'
+        }}
+        onClick={() => { if (hasChildren) setIsCollapsed(!isCollapsed); }}
+      >
+        {hasChildren ? (
+          isCollapsed ? <ChevronRight size={14} style={{ color: 'var(--accent-primary)' }} /> : <ChevronDown size={14} style={{ color: 'var(--accent-primary)' }} />
+        ) : (
+          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--text-muted)', margin: '0 4px' }} />
+        )}
+        <span style={{ 
+          fontWeight: hasChildren ? 600 : 400, 
+          fontSize: hasChildren ? '0.95rem' : '0.9rem',
+          color: hasChildren ? 'var(--text-primary)' : 'var(--text-secondary)'
+        }}>
+          {node.label}
+        </span>
+      </div>
+      
+      {hasChildren && !isCollapsed && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.25rem' }}>
+          {node.children.map((child, idx) => (
+            <MindMapNode key={idx} node={child} />
+          ))}
+        </div>
       )}
     </div>
   );
