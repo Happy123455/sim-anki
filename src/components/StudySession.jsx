@@ -133,6 +133,52 @@ export function highlightAnswerText(userAnswer, highlights) {
   );
 }
 
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function getCleanHint(concept) {
+  if (!concept) return "";
+  
+  const lowerConcept = concept.toLowerCase();
+  
+  // 1. If it has a Mnemonic, use it! It's the best non-obvious hint.
+  const mnemonicMatch = concept.match(/mnemonic:\s*(.+)/i);
+  if (mnemonicMatch && mnemonicMatch[1]) {
+    return mnemonicMatch[1].trim();
+  }
+  
+  // 2. If it contains "Correct Answer: XXX", let's extract the answer to make sure we don't show it.
+  let answerText = "";
+  const answerMatch = concept.match(/correct answer:\s*(.+?)(?=\.\s*(?:focus|mnemonic)|$)/i);
+  if (answerMatch && answerMatch[1]) {
+    answerText = answerMatch[1].trim();
+  }
+  
+  // 3. If there is a Focus, use it but hide the answer
+  const focusMatch = concept.match(/focus:\s*(.+?)(?=\.\s*(?:mnemonic)|$)/i);
+  if (focusMatch && focusMatch[1]) {
+    let focusText = focusMatch[1].trim();
+    if (answerText && focusText.toLowerCase().includes(answerText.toLowerCase())) {
+      // Redact the answer from the focus text
+      const regex = new RegExp(escapeRegExp(answerText), 'gi');
+      focusText = focusText.replace(regex, '___');
+    }
+    return focusText;
+  }
+  
+  // 4. Default fallback: if it contains "Correct Answer:", strip it
+  if (lowerConcept.includes("correct answer:")) {
+    const parts = concept.split(/[.;]/);
+    const cleanParts = parts.filter(p => !p.toLowerCase().includes("correct answer") && p.trim().length > 0);
+    if (cleanParts.length > 0) {
+      return cleanParts.join(". ").trim();
+    }
+  }
+  
+  return concept;
+}
+
 const getYouTubeEmbedUrl = (url) => {
   if (!url) return null;
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -414,7 +460,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                   color: 'var(--text-secondary)'
                 }}
               >
-                <strong>Concept Focus Hint:</strong> {currentCard.concept}
+                <strong>Concept Focus Hint:</strong> {getCleanHint(currentCard.concept)}
               </div>
             )}
           </div>
