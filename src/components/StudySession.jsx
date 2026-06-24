@@ -133,51 +133,6 @@ export function highlightAnswerText(userAnswer, highlights) {
   );
 }
 
-function escapeRegExp(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-export function getCleanHint(concept) {
-  if (!concept) return "";
-  
-  const lowerConcept = concept.toLowerCase();
-  
-  // 1. If it has a Mnemonic, use it! It's the best non-obvious hint.
-  const mnemonicMatch = concept.match(/mnemonic:\s*(.+)/i);
-  if (mnemonicMatch && mnemonicMatch[1]) {
-    return mnemonicMatch[1].trim();
-  }
-  
-  // 2. If it contains "Correct Answer: XXX", let's extract the answer to make sure we don't show it.
-  let answerText = "";
-  const answerMatch = concept.match(/correct answer:\s*(.+?)(?=\.\s*(?:focus|mnemonic)|$)/i);
-  if (answerMatch && answerMatch[1]) {
-    answerText = answerMatch[1].trim();
-  }
-  
-  // 3. If there is a Focus, use it but hide the answer
-  const focusMatch = concept.match(/focus:\s*(.+?)(?=\.\s*(?:mnemonic)|$)/i);
-  if (focusMatch && focusMatch[1]) {
-    let focusText = focusMatch[1].trim();
-    if (answerText && focusText.toLowerCase().includes(answerText.toLowerCase())) {
-      // Redact the answer from the focus text
-      const regex = new RegExp(escapeRegExp(answerText), 'gi');
-      focusText = focusText.replace(regex, '___');
-    }
-    return focusText;
-  }
-  
-  // 4. Default fallback: if it contains "Correct Answer:", strip it
-  if (lowerConcept.includes("correct answer:")) {
-    const parts = concept.split(/[.;]/);
-    const cleanParts = parts.filter(p => !p.toLowerCase().includes("correct answer") && p.trim().length > 0);
-    if (cleanParts.length > 0) {
-      return cleanParts.join(". ").trim();
-    }
-  }
-  
-  return concept;
-}
 
 const getYouTubeEmbedUrl = (url) => {
   if (!url) return null;
@@ -247,7 +202,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   // Copy Prompt State
   const [copySuccess, setCopySuccess] = useState(false);
   const [showPastAnswers, setShowPastAnswers] = useState(false);
-  const [showHint, setShowHint] = useState(false);
+
 
 
   // Start timer on question load
@@ -348,7 +303,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setConfidence(3);
       setEvaluation(null);
       setShowPastAnswers(false);
-      setShowHint(false);
+
 
 
       if (currentIndex + 1 < DueCards.length) {
@@ -426,44 +381,6 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
           {renderCardMedia(currentCard)}
 
-          {/* Collapsible Hint Block */}
-          <div style={{ textAlign: 'left', marginTop: '-0.25rem', marginBottom: '0.75rem' }}>
-            <button
-              type="button"
-              className="btn-text"
-              onClick={() => setShowHint(!showHint)}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--accent-primary)',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                padding: 0,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.25rem'
-              }}
-            >
-              {showHint ? 'Hide Hint' : 'Show Hint'}
-            </button>
-            {showHint && (
-              <div 
-                className="animate-fade-in" 
-                style={{ 
-                  marginTop: '0.5rem', 
-                  padding: '0.75rem 1rem', 
-                  background: 'rgba(255, 255, 255, 0.02)', 
-                  border: '1px solid var(--border-light)', 
-                  borderRadius: '8px',
-                  fontSize: '0.85rem',
-                  color: 'var(--text-secondary)'
-                }}
-              >
-                <strong>Concept Focus Hint:</strong> {getCleanHint(currentCard.concept)}
-              </div>
-            )}
-          </div>
 
 
           {/* User Text Answer */}
