@@ -40,6 +40,99 @@ const parseMarkdown = (markdown) => {
   return html;
 };
 
+// Word Highlighting segmenter function
+export function highlightAnswerText(userAnswer, highlights) {
+  if (!userAnswer) return <span style={{ color: 'var(--text-muted)' }}>(Empty response)</span>;
+  if (!highlights || highlights.length === 0) return <span>{userAnswer}</span>;
+
+  let segments = [{ text: userAnswer, isMatch: false }];
+  const sortedHighlights = [...highlights].sort((a, b) => b.text.length - a.text.length);
+
+  sortedHighlights.forEach(hl => {
+    const hlText = hl.text;
+    if (!hlText || !hlText.trim()) return;
+
+    let newSegments = [];
+    segments.forEach(seg => {
+      if (seg.isMatch) {
+        newSegments.push(seg);
+        return;
+      }
+
+      const lowerSegText = seg.text.toLowerCase();
+      const lowerHlText = hlText.toLowerCase();
+      let startIdx = lowerSegText.indexOf(lowerHlText);
+
+      if (startIdx === -1) {
+        newSegments.push(seg);
+        return;
+      }
+
+      let lastIdx = 0;
+      while (startIdx !== -1) {
+        if (startIdx > lastIdx) {
+          newSegments.push({ text: seg.text.substring(lastIdx, startIdx), isMatch: false });
+        }
+
+        newSegments.push({
+          text: seg.text.substring(startIdx, startIdx + hlText.length),
+          isMatch: true,
+          color: hl.color,
+          reason: hl.reason
+        });
+
+        lastIdx = startIdx + hlText.length;
+        startIdx = lowerSegText.indexOf(lowerHlText, lastIdx);
+      }
+
+      if (lastIdx < seg.text.length) {
+        newSegments.push({ text: seg.text.substring(lastIdx), isMatch: false });
+      }
+    });
+
+    segments = newSegments;
+  });
+
+  return (
+    <span>
+      {segments.map((seg, idx) => {
+        if (!seg.isMatch) return <span key={idx}>{seg.text}</span>;
+
+        let bg = 'rgba(16, 185, 129, 0.18)'; // green
+        let border = 'rgba(16, 185, 129, 0.35)';
+        let textCol = '#a7f3d0';
+        if (seg.color === 'red') {
+          bg = 'rgba(239, 68, 68, 0.18)'; // red
+          border = 'rgba(239, 68, 68, 0.35)';
+          textCol = '#fca5a5';
+        } else if (seg.color === 'yellow') {
+          bg = 'rgba(245, 158, 11, 0.18)'; // yellow
+          border = 'rgba(245, 158, 11, 0.35)';
+          textCol = '#fde047';
+        }
+
+        return (
+          <span 
+            key={idx} 
+            style={{ 
+              background: bg, 
+              border: `1px solid ${border}`,
+              borderRadius: '4px',
+              padding: '0.1rem 0.25rem',
+              margin: '0 0.05rem',
+              color: textCol,
+              cursor: 'help'
+            }}
+            title={seg.reason}
+          >
+            {seg.text}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
 const getYouTubeEmbedUrl = (url) => {
   if (!url) return null;
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -399,6 +492,27 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               </div>
             </div>
 
+            {/* Answer & Reference Comparison Box */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', textAlign: 'left' }}>
+              <div style={{ background: 'rgba(255, 255, 255, 0.01)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                <h4 style={{ color: 'var(--text-primary)', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  Your Answer
+                </h4>
+                <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
+                  {highlightAnswerText(userAnswer, evaluation.highlights)}
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(255, 255, 255, 0.01)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                <h4 style={{ color: 'var(--text-primary)', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  Reference Answer (Original Concept)
+                </h4>
+                <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
+                  {currentCard.concept}
+                </div>
+              </div>
+            </div>
+
             {/* Strengths & Weaknesses (Split columns) */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', textAlign: 'left' }}>
               <div style={{ background: 'rgba(16, 185, 129, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
@@ -454,7 +568,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                         <strong style={{ color: 'var(--accent-primary)', fontSize: '0.8rem' }}>Current Answer (This Attempt)</strong>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)' }}>Score: {evaluation.score}%</span>
                       </div>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0, whiteSpace: 'pre-line' }}>{userAnswer || "(Empty response)"}</p>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0, whiteSpace: 'pre-line', lineHeight: '1.5' }}>
+                        {highlightAnswerText(userAnswer, evaluation.highlights)}
+                      </div>
                     </div>
 
                     {/* Timeline of Past Answers */}
@@ -474,7 +590,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.82rem' }}>
                               <div>
                                 <span style={{ color: 'var(--text-muted)' }}>Answer: </span>
-                                <span style={{ color: 'var(--text-secondary)' }}>{past.userAnswer || "(No response recorded)"}</span>
+                                <span style={{ color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                                  {highlightAnswerText(past.userAnswer, past.highlights)}
+                                </span>
                               </div>
                               {past.logicAnalysis && (
                                 <div>

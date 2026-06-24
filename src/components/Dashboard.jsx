@@ -1547,26 +1547,45 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
 function MindMapNode({ node, cards, onOpenCardDetails }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const hasChildren = node.children && node.children.length > 0;
-  
-  const card = (node.cardId && cards) ? cards.find(c => c.id === node.cardId) : null;
-  
-  let score = null;
-  if (card) {
-    if (card.history && card.history.length > 0) {
-      score = card.history[card.history.length - 1].score;
-    } else if (card.state) {
-      score = (10 - card.state.difficulty) * 10;
-    }
+
+  // Support both cardIds array and legacy cardId
+  let associatedCardIds = [];
+  if (Array.isArray(node.cardIds)) {
+    associatedCardIds = node.cardIds;
+  } else if (node.cardId) {
+    associatedCardIds = [node.cardId];
   }
 
+  const associatedCards = (associatedCardIds.length > 0 && cards)
+    ? cards.filter(c => associatedCardIds.includes(c.id))
+    : [];
+
+  const getCardScore = (c) => {
+    if (c.history && c.history.length > 0) {
+      return c.history[c.history.length - 1].score;
+    } else if (c.state) {
+      return (10 - c.state.difficulty) * 10;
+    }
+    return null;
+  };
+
+  let averageScore = null;
+  const scores = associatedCards.map(getCardScore).filter(s => s !== null);
+  if (scores.length > 0) {
+    averageScore = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+  }
+
+  const hasChildren = (node.children && node.children.length > 0) || associatedCards.length > 1;
+
   // Red at HSL 0 (score=0), Green at HSL 120 (score=100)
-  const nodeColor = score !== null ? `hsl(${score * 1.2}, 85%, 60%)` : (hasChildren ? 'var(--text-primary)' : 'var(--text-secondary)');
-  
+  const nodeColor = averageScore !== null 
+    ? `hsl(${averageScore * 1.2}, 85%, 60%)` 
+    : (node.children && node.children.length > 0 ? 'var(--text-primary)' : 'var(--text-secondary)');
+
   const handleNodeClick = (e) => {
-    if (card && onOpenCardDetails) {
+    if (associatedCards.length === 1 && onOpenCardDetails) {
       e.stopPropagation();
-      onOpenCardDetails(card);
+      onOpenCardDetails(associatedCards[0]);
     } else if (hasChildren) {
       setIsCollapsed(!isCollapsed);
     }
@@ -1579,14 +1598,14 @@ function MindMapNode({ node, cards, onOpenCardDetails }) {
           display: 'flex', 
           alignItems: 'center', 
           gap: '0.4rem', 
-          cursor: (hasChildren || card) ? 'pointer' : 'default',
+          cursor: (hasChildren || associatedCards.length === 1) ? 'pointer' : 'default',
           userSelect: 'none'
         }}
         onClick={handleNodeClick}
       >
         {hasChildren ? (
           <span onClick={(e) => {
-            if (card) {
+            if (associatedCards.length === 1) {
               e.stopPropagation();
               setIsCollapsed(!isCollapsed);
             }
@@ -1594,24 +1613,29 @@ function MindMapNode({ node, cards, onOpenCardDetails }) {
             {isCollapsed ? <ChevronRight size={14} style={{ color: 'var(--accent-primary)' }} /> : <ChevronDown size={14} style={{ color: 'var(--accent-primary)' }} />}
           </span>
         ) : (
-          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: score !== null ? nodeColor : 'var(--text-muted)', margin: '0 4px' }} />
+          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: averageScore !== null ? nodeColor : 'var(--text-muted)', margin: '0 4px' }} />
         )}
         <span 
           style={{ 
             fontWeight: hasChildren ? 600 : 400, 
             fontSize: hasChildren ? '0.95rem' : '0.9rem',
             color: nodeColor,
-            textDecoration: card ? 'underline' : 'none',
-            textDecorationColor: card ? 'rgba(255,255,255,0.2)' : 'transparent',
+            textDecoration: associatedCards.length === 1 ? 'underline' : 'none',
+            textDecorationColor: associatedCards.length === 1 ? 'rgba(255,255,255,0.2)' : 'transparent',
             textDecorationStyle: 'dashed',
             transition: 'all 0.2s ease'
           }}
-          title={card ? "Click to view flashcard progress & history" : ""}
+          title={associatedCards.length === 1 ? "Click to view flashcard progress & history" : ""}
         >
           {node.label}
-          {card && (
+          {associatedCards.length === 1 && (
             <span style={{ fontSize: '0.7rem', opacity: 0.7, marginLeft: '0.4rem', color: 'var(--text-muted)' }}>
-              ({score !== null ? `${score}%` : 'New'})
+              ({averageScore !== null ? `${Math.round(averageScore)}%` : 'New'})
+            </span>
+          )}
+          {associatedCards.length > 1 && (
+            <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: '0.4rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+              ({associatedCards.length} cards, Avg: {averageScore !== null ? `${Math.round(averageScore)}%` : 'New'})
             </span>
           )}
         </span>
@@ -1619,9 +1643,45 @@ function MindMapNode({ node, cards, onOpenCardDetails }) {
       
       {hasChildren && !isCollapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', marginTop: '0.25rem' }}>
-          {node.children.map((child, idx) => (
+          {node.children && node.children.map((child, idx) => (
             <MindMapNode key={idx} node={child} cards={cards} onOpenCardDetails={onOpenCardDetails} />
           ))}
+          
+          {associatedCards.length > 1 && associatedCards.map((c, idx) => {
+            const cScore = getCardScore(c);
+            const cColor = cScore !== null ? `hsl(${cScore * 1.2}, 85%, 60%)` : 'var(--text-muted)';
+            return (
+              <div 
+                key={c.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onOpenCardDetails) onOpenCardDetails(c);
+                }}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.4rem', 
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  color: cColor,
+                  textDecoration: 'underline',
+                  textDecorationColor: 'rgba(255,255,255,0.15)',
+                  textDecorationStyle: 'dashed',
+                  paddingLeft: '1.25rem',
+                  marginTop: '0.15rem'
+                }}
+                title="Click to view flashcard progress & history"
+              >
+                <span style={{ color: 'var(--text-muted)' }}>↳</span>
+                <span>
+                  Card Ref #{idx + 1}: {c.question.length > 55 ? `${c.question.substring(0, 52)}...` : c.question}
+                </span>
+                <span style={{ fontSize: '0.7rem', opacity: 0.7, color: 'var(--text-muted)' }}>
+                  ({cScore !== null ? `${cScore}%` : 'New'})
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

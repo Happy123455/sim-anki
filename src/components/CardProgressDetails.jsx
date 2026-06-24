@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Award, Clock, Star, Layers, X, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
 import SimulationRenderer from './SimulationRenderer';
+import { highlightAnswerText } from './StudySession';
+
 
 function parseMarkdown(text) {
   if (!text) return '';
@@ -511,11 +513,11 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
                       overflowY: 'auto',
                       borderBottom: '1px solid rgba(255,255,255,0.03)'
                     }}>
-                      <div>
+                       <div>
                         <strong style={{ color: 'var(--text-primary)' }}>Your Answer:</strong>
-                        <p style={{ color: 'var(--text-secondary)', marginTop: '0.2rem', background: 'rgba(0,0,0,0.1)', padding: '0.5rem', borderRadius: '6px', whiteSpace: 'pre-line' }}>
-                          {log.userAnswer || "(No text response recorded)"}
-                        </p>
+                        <div style={{ color: 'var(--text-secondary)', marginTop: '0.2rem', background: 'rgba(0,0,0,0.1)', padding: '0.5rem', borderRadius: '6px', whiteSpace: 'pre-line', fontSize: '0.85rem', lineHeight: '1.5' }}>
+                          {highlightAnswerText(log.userAnswer, log.highlights)}
+                        </div>
                       </div>
                       
                       {log.logicAnalysis && (

@@ -147,6 +147,17 @@ Based on the score:
 - score 75-90: suggest "good"
 - score > 90: suggest "easy"
 
+[HIGHLIGHTING REQUIREMENT]:
+Analyze the student's answer text ("User's Answer"). Identify specific words or short phrases that are:
+- Correct and accurate (color: "green", reason: "Short tooltip explanation why it is correct")
+- Spelling/typo errors or slightly off wording (color: "yellow", reason: "Spelling correction or minor rewording advice")
+- Incorrect facts, logical gaps, or wrong concepts (color: "red", reason: "Correction of the misconception/error")
+You must return these in the "highlights" array. Every highlight object in this array MUST contain:
+1. "text": the exact substring from the student's answer to highlight (case-sensitive match).
+2. "color": "green" | "yellow" | "red"
+3. "reason": a short explanation of the color grading.
+Ensure that the substrings are exact slices of their answer so they can be parsed programmatically.
+
 You must respond with a JSON object conforming exactly to this schema:
 {
   "score": number (0 to 100),
@@ -154,7 +165,8 @@ You must respond with a JSON object conforming exactly to this schema:
   "weaknesses": string[],
   "logicAnalysis": string (direct advice on where to improve and brief comparison with history, 1-2 sentences),
   "correctExplanation": string (formatted in Markdown, under 150 words),
-  "suggestedRating": "again" | "hard" | "good" | "easy"
+  "suggestedRating": "again" | "hard" | "good" | "easy",
+  "highlights": Array<{ text: string, color: "green" | "yellow" | "red", reason: string }>
 }
 
 ${customInstructions ? `
@@ -220,9 +232,21 @@ You must output your response complying strictly with these user-defined prefere
               suggestedRating: { 
                 type: "STRING", 
                 enum: ["again", "hard", "good", "easy"] 
+              },
+              highlights: {
+                type: "ARRAY",
+                items: {
+                  type: "OBJECT",
+                  properties: {
+                    text: { type: "STRING" },
+                    color: { type: "STRING", enum: ["green", "yellow", "red"] },
+                    reason: { type: "STRING" }
+                  },
+                  required: ["text", "color", "reason"]
+                }
               }
             },
-            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating"]
+            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights"]
           }
         }
       })
@@ -427,7 +451,8 @@ Level 2: Sub-topics under those categories.
 Level 3: Core concepts, questions, or key facts.
 
 [CRITICAL CARD ID MAPPING RULE]:
-If a node represents or links directly to a specific card in the deck, you MUST populate its "cardId" property with the exact "Card ID" provided in the card list. If a node is a high-level folder/category grouping multiple cards, leave "cardId" empty/null.
+Every single card in the provided list MUST be represented in the tree. You can map one or more card IDs to a leaf node by populating its "cardIds" array. If a node is a high-level folder/category that groups multiple sub-branches, leave "cardIds" empty or null.
+Ensure that every single Card ID from the input list is assigned to at least one node's "cardIds" array, so no cards are omitted from the mind map. If multiple cards talk about the same sub-topic or have similar concepts, group their card IDs together in the same "cardIds" array.
 
 You must respond with a JSON object representing the root node of this tree, conforming exactly to the requested schema. Ensure the mind map is cohesive, comprehensive, and logically structured.`;
 
@@ -457,28 +482,40 @@ Please organize these cards into a logical conceptual mind map hierarchy. Return
           type: "OBJECT",
           properties: {
             label: { type: "STRING" },
-            cardId: { type: "STRING" },
+            cardIds: {
+              type: "ARRAY",
+              items: { type: "STRING" }
+            },
             children: {
               type: "ARRAY",
               items: {
                 type: "OBJECT",
                 properties: {
                   label: { type: "STRING" },
-                  cardId: { type: "STRING" },
+                  cardIds: {
+                    type: "ARRAY",
+                    items: { type: "STRING" }
+                  },
                   children: {
                     type: "ARRAY",
                     items: {
                       type: "OBJECT",
                       properties: {
                         label: { type: "STRING" },
-                        cardId: { type: "STRING" },
+                        cardIds: {
+                          type: "ARRAY",
+                          items: { type: "STRING" }
+                        },
                         children: {
                           type: "ARRAY",
                           items: {
                             type: "OBJECT",
                             properties: {
                               label: { type: "STRING" },
-                              cardId: { type: "STRING" }
+                              cardIds: {
+                                type: "ARRAY",
+                                items: { type: "STRING" }
+                              }
                             },
                             required: ["label"]
                           }
