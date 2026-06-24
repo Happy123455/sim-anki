@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import StudySession from './components/StudySession';
-import { calculateNextState } from './utils/srs';
+import { calculateNextState, mergeDecksAndCards } from './utils/srs';
 import { ShieldAlert, BookOpen, Layers, CloudOff, Cloud, RefreshCw } from 'lucide-react';
 import { cleanApiKey, cleanModelName } from './utils/gemini';
 import { pushToGist, pullFromGist, sanitizeToken } from './utils/githubSync';
@@ -187,6 +187,14 @@ export default function App() {
     const saved = localStorage.getItem('simanki_last_modified');
     return saved ? Number(saved) : 0;
   });
+  const [cloudBackups, setCloudBackups] = useState(() => {
+    try {
+      const saved = localStorage.getItem('simanki_cloud_backups');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
 
   const autoPushTimeoutRef = useRef(null);
 
@@ -198,6 +206,156 @@ export default function App() {
       }
     };
   }, []);
+
+  const saveLocalBackup = (currentDecks, currentCards) => {
+    try {
+      let nextIdx = Number(localStorage.getItem('simanki_backup_index') || 0) + 1;
+      if (nextIdx > 3) nextIdx = 1;
+      localStorage.setItem('simanki_backup_index', String(nextIdx));
+
+      const backupData = {
+        timestamp: Date.now(),
+        decks: currentDecks,
+        cards: currentCards
+      };
+      localStorage.setItem(`simanki_local_backup_${nextIdx}`, JSON.stringify(backupData));
+    } catch (e) {
+      console.error("Failed to save local backup:", e);
+    }
+  };
+
+  const createNewCloudBackup = (currentDecks, currentCards, currentCloudBackups) => {
+    const newBackup = {
+      timestamp: Date.now(),
+      decks: currentDecks,
+      cards: currentCards
+    };
+    const cleaned = (currentCloudBackups || []).filter(b => b.timestamp !== newBackup.timestamp);
+    const updated = [newBackup, ...cleaned].slice(0, 3);
+    localStorage.setItem('simanki_cloud_backups', JSON.stringify(updated));
+    return updated;
+  };
+
+  const handleRestoreBackup = (backup) => {
+    if (backup && backup.decks && backup.cards) {
+      saveDecks(backup.decks);
+      saveCards(backup.cards);
+      alert("Backup restored successfully!");
+    } else {
+      alert("Failed to restore backup: invalid data.");
+    }
+  };
+
+  const performMergeSync = async (cloudData, patToUse, codeToUse, cloudLastModified) => {
+    try {
+      if (!cloudData || !cloudData.decks || !cloudData.cards) {
+        console.error("Invalid cloud data format received in performMergeSync");
+        return false;
+      }
+
+      const localDecks = JSON.parse(localStorage.getItem('simanki_decks') || '[]');
+      const localCards = JSON.parse(localStorage.getItem('simanki_cards') || '[]');
+      const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
+      const localTS = Number(localStorage.getItem('simanki_last_modified')) || 0;
+      const localCloudBackups = JSON.parse(localStorage.getItem('simanki_cloud_backups') || '[]');
+
+      const targetRetention = localSettings.targetRetention || 90;
+      const { decks: mergedDecks, cards: mergedCards } = mergeDecksAndCards(
+        localDecks,
+        localCards,
+        cloudData.decks,
+        cloudData.cards,
+        targetRetention
+      );
+
+      const allCloudBackups = [...(cloudData.backups || []), ...localCloudBackups];
+      const seenBackupTS = new Set();
+      const mergedCloudBackups = [];
+      allCloudBackups.forEach(b => {
+        if (b && b.timestamp && !seenBackupTS.has(b.timestamp)) {
+          seenBackupTS.add(b.timestamp);
+          mergedCloudBackups.push(b);
+        }
+      });
+      mergedCloudBackups.sort((a, b) => b.timestamp - a.timestamp);
+      const finalCloudBackups = mergedCloudBackups.slice(0, 3);
+
+      const mergedSettings = {
+        ...localSettings,
+        ...(cloudData.settings || {}),
+        apiKey: localSettings.apiKey || '',
+        githubPAT: patToUse,
+        syncCode: codeToUse
+      };
+
+      const localDecksStr = JSON.stringify(localDecks);
+      const localCardsStr = JSON.stringify(localCards);
+      const cloudDecksStr = JSON.stringify(cloudData.decks);
+      const cloudCardsStr = JSON.stringify(cloudData.cards);
+      
+      const mergedDecksStr = JSON.stringify(mergedDecks);
+      const mergedCardsStr = JSON.stringify(mergedCards);
+
+      const localHasChanges = (mergedDecksStr !== localDecksStr || mergedCardsStr !== localCardsStr);
+      const cloudHasChanges = (mergedDecksStr !== cloudDecksStr || mergedCardsStr !== cloudCardsStr);
+
+      const now = Date.now();
+
+      if (localHasChanges) {
+        setDecks(mergedDecks);
+        setCards(mergedCards);
+        setSettings(mergedSettings);
+        setCloudBackups(finalCloudBackups);
+
+        localStorage.setItem('simanki_decks', mergedDecksStr);
+        localStorage.setItem('simanki_cards', mergedCardsStr);
+        localStorage.setItem('simanki_settings', JSON.stringify(mergedSettings));
+        localStorage.setItem('simanki_cloud_backups', JSON.stringify(finalCloudBackups));
+        
+        saveLocalBackup(mergedDecks, mergedCards);
+      } else {
+        setSettings(mergedSettings);
+        setCloudBackups(finalCloudBackups);
+        localStorage.setItem('simanki_settings', JSON.stringify(mergedSettings));
+        localStorage.setItem('simanki_cloud_backups', JSON.stringify(finalCloudBackups));
+      }
+
+      if (cloudHasChanges) {
+        const finalTS = now;
+        localStorage.setItem('simanki_last_modified', String(finalTS));
+        setLastModified(finalTS);
+
+        const payload = {
+          decks: mergedDecks,
+          cards: mergedCards,
+          settings: {
+            model: mergedSettings.model,
+            targetRetention: mergedSettings.targetRetention,
+            customInstructions: mergedSettings.customInstructions,
+            voiceURI: mergedSettings.voiceURI,
+            syncCode: codeToUse
+          },
+          backups: finalCloudBackups,
+          lastModified: finalTS
+        };
+
+        await pushToGist(patToUse, codeToUse, payload);
+        console.log("Self-healing Sync: Pushed merged changes and backups to Gist successfully!");
+      } else {
+        const finalTS = Math.max(localTS, cloudLastModified);
+        localStorage.setItem('simanki_last_modified', String(finalTS));
+        setLastModified(finalTS);
+      }
+
+      setLastSyncTime(new Date());
+      setSyncError(null);
+      return true;
+    } catch (err) {
+      setSyncError(err.message);
+      console.error("performMergeSync failed:", err);
+      throw err;
+    }
+  };
 
   // Trigger MathJax typesetting whenever view or cards change
   useEffect(() => {
@@ -258,37 +416,8 @@ export default function App() {
           const pat = settings.githubPAT || (localStorage.getItem('simanki_settings') ? JSON.parse(localStorage.getItem('simanki_settings')).githubPAT : '');
           const data = await pullFromGist(pat, activeSyncCode);
           const cloudLastModified = Number(data.lastModified) || 0;
-          const localSaved = localStorage.getItem('simanki_last_modified');
-          const localTS = localSaved ? Number(localSaved) : 0;
-
-          if (cloudLastModified > localTS && data.decks && data.cards) {
-            setDecks(data.decks);
-            localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
-            setCards(data.cards);
-            localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
-            if (data.settings) {
-              const savedSettings = localStorage.getItem('simanki_settings');
-              const parsed = savedSettings ? JSON.parse(savedSettings) : {};
-              const merged = { 
-                ...parsed, 
-                ...data.settings, 
-                apiKey: parsed.apiKey || '', 
-                githubPAT: parsed.githubPAT || '',
-                syncCode: activeSyncCode 
-              };
-              setSettings(merged);
-              localStorage.setItem('simanki_settings', JSON.stringify(merged));
-            }
-            setLastModified(cloudLastModified);
-            localStorage.setItem('simanki_last_modified', String(cloudLastModified));
-            console.log("Auto-sync: Silently updated state from cloud Gist on startup!", cloudLastModified, localTS);
-            setLastSyncTime(new Date());
-            setSyncError(null);
-          } else {
-            console.log("Auto-sync: Startup Gist check - local state is already newer or up to date.", localTS, cloudLastModified);
-            setLastSyncTime(new Date());
-            setSyncError(null);
-          }
+          await performMergeSync(data, pat, activeSyncCode, cloudLastModified);
+          console.log("Auto-sync: Silent startup merge-sync completed.");
         } catch (e) {
           console.error("Auto-sync silent startup Gist pull failed:", e);
         }
@@ -311,36 +440,9 @@ export default function App() {
         const localTS = localSaved ? Number(localSaved) : 0;
 
         if (cloudLastModified > localTS) {
-          console.log("Auto-sync: Cloud Gist data is newer. Pulling automatically...", cloudLastModified, localTS);
-          
-          if (data.decks) {
-            setDecks(data.decks);
-            localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
-          }
-          if (data.cards) {
-            setCards(data.cards);
-            localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
-          }
-          if (data.settings) {
-            const savedSettings = localStorage.getItem('simanki_settings');
-            const parsed = savedSettings ? JSON.parse(savedSettings) : {};
-            const merged = { 
-              ...parsed, 
-              ...data.settings, 
-              apiKey: parsed.apiKey || '', 
-              githubPAT: parsed.githubPAT || '',
-              syncCode: settings.syncCode 
-            };
-            setSettings(merged);
-            localStorage.setItem('simanki_settings', JSON.stringify(merged));
-          }
-          
-          setLastModified(cloudLastModified);
-          localStorage.setItem('simanki_last_modified', String(cloudLastModified));
-          setLastSyncTime(new Date());
-          setSyncError(null);
+          console.log("Auto-sync: Cloud Gist data is newer. Pulling and merging automatically...", cloudLastModified, localTS);
+          await performMergeSync(data, settings.githubPAT, settings.syncCode, cloudLastModified);
         } else {
-          // Even if no update, record successful check
           setLastSyncTime(new Date());
           setSyncError(null);
         }
@@ -360,11 +462,11 @@ export default function App() {
     // When user switches away or closes tab → push local changes
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'hidden') {
-        // Use sendBeacon for reliable push on tab close (fire-and-forget)
         try {
           const localDecks = JSON.parse(localStorage.getItem('simanki_decks') || '[]');
           const localCards = JSON.parse(localStorage.getItem('simanki_cards') || '[]');
           const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
+          const localCloudBackups = JSON.parse(localStorage.getItem('simanki_cloud_backups') || '[]');
           const now = Date.now();
           const payload = {
             decks: localDecks,
@@ -376,13 +478,12 @@ export default function App() {
               voiceURI: localSettings.voiceURI,
               syncCode: localSettings.syncCode
             },
+            backups: localCloudBackups,
             lastModified: now
           };
           const gistId = localSettings.syncCode;
           const pat = sanitizeToken(localSettings.githubPAT);
           if (gistId && pat) {
-            // sendBeacon is fire-and-forget, reliable on mobile tab switch & page close
-            // But GitHub API requires auth headers sendBeacon can't set, so use keepalive fetch
             fetch(`https://api.github.com/gists/${gistId}`, {
               method: 'PATCH',
               headers: {
@@ -394,7 +495,7 @@ export default function App() {
               body: JSON.stringify({
                 files: { "simanki_backup.json": { content: JSON.stringify(payload) } }
               }),
-              keepalive: true  // ensures request completes even if page is unloading
+              keepalive: true
             }).catch(() => {});
             localStorage.setItem('simanki_last_modified', String(now));
           }
@@ -414,26 +515,8 @@ export default function App() {
           const localTS = Number(localStorage.getItem('simanki_last_modified')) || 0;
 
           if (cloudTS > localTS && data.decks && data.cards) {
-            setDecks(data.decks);
-            localStorage.setItem('simanki_decks', JSON.stringify(data.decks));
-            setCards(data.cards);
-            localStorage.setItem('simanki_cards', JSON.stringify(data.cards));
-            if (data.settings) {
-              const merged = { 
-                ...localSettings, 
-                ...data.settings, 
-                apiKey: localSettings.apiKey || '', 
-                githubPAT: pat, 
-                syncCode: code 
-              };
-              setSettings(merged);
-              localStorage.setItem('simanki_settings', JSON.stringify(merged));
-            }
-            setLastModified(cloudTS);
-            localStorage.setItem('simanki_last_modified', String(cloudTS));
-            setLastSyncTime(new Date());
-            setSyncError(null);
-            console.log('Auto-sync: Pulled newer data on tab focus', cloudTS, localTS);
+            await performMergeSync(data, pat, code, cloudTS);
+            console.log('Auto-sync: Merged newer data on tab focus', cloudTS, localTS);
           }
         } catch (e) {
           console.error('Auto-sync pull on focus failed:', e);
@@ -445,10 +528,11 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [settings.syncCode, settings.githubPAT]);
 
-  const triggerAutoPush = (newDecks, newCards, customSettings = null, timestamp = null) => {
+  const triggerAutoPush = (newDecks, newCards, customCloudBackups = null, customSettings = null, timestamp = null) => {
     const activeSettings = customSettings || settings;
     if (!activeSettings.githubPAT || !activeSettings.syncCode) return;
     const ts = timestamp || Date.now();
+    const activeBackups = customCloudBackups || cloudBackups;
 
     if (autoPushTimeoutRef.current) {
       clearTimeout(autoPushTimeoutRef.current);
@@ -467,6 +551,7 @@ export default function App() {
             voiceURI: activeSettings.voiceURI,
             syncCode: activeSettings.syncCode
           },
+          backups: activeBackups,
           lastModified: ts
         };
         await pushToGist(activeSettings.githubPAT, activeSettings.syncCode, payload);
@@ -489,8 +574,14 @@ export default function App() {
     const now = Date.now();
     setLastModified(now);
     localStorage.setItem('simanki_last_modified', String(now));
+
+    // Update cloud backups and save local snapshot
+    const updatedCloudBackups = createNewCloudBackup(newDecks, cards, cloudBackups);
+    setCloudBackups(updatedCloudBackups);
+    saveLocalBackup(newDecks, cards);
+
     if (!skipAutoPush) {
-      triggerAutoPush(newDecks, cards, null, now);
+      triggerAutoPush(newDecks, cards, updatedCloudBackups, null, now);
     }
   };
 
@@ -501,8 +592,14 @@ export default function App() {
       const now = Date.now();
       setLastModified(now);
       localStorage.setItem('simanki_last_modified', String(now));
+
+      // Update cloud backups and save local snapshot
+      const updatedCloudBackups = createNewCloudBackup(decks, newCards, cloudBackups);
+      setCloudBackups(updatedCloudBackups);
+      saveLocalBackup(decks, newCards);
+
       if (!skipAutoPush) {
-        triggerAutoPush(decks, newCards, null, now);
+        triggerAutoPush(decks, newCards, updatedCloudBackups, null, now);
       }
     } catch (err) {
       console.error('saveCards error:', err);
@@ -637,6 +734,7 @@ export default function App() {
           voiceURI: updatedSettings.voiceURI,
           syncCode: syncCodeToUse
         },
+        backups: cloudBackups,
         lastModified: now
       };
 
@@ -695,25 +793,10 @@ export default function App() {
       localStorage.setItem('simanki_settings', JSON.stringify(preSavedSettings));
 
       const data = await pullFromGist(patToUse, codeToUse);
-      
-      if (data.decks && data.cards) {
-        saveDecks(data.decks, true);
-        saveCards(data.cards, true);
-        
-        const mergedSettings = {
-          ...preSavedSettings,
-          ...(data.settings || {}),
-          apiKey: preSavedSettings.apiKey || '',
-          githubPAT: patToUse,
-          syncCode: codeToUse
-        };
-        setSettings(mergedSettings);
-        localStorage.setItem('simanki_settings', JSON.stringify(mergedSettings));
-        
-        const cloudLastModified = Number(data.lastModified) || Date.now();
-        setLastModified(cloudLastModified);
-        localStorage.setItem('simanki_last_modified', String(cloudLastModified));
-        alert('Data synchronized successfully from GitHub Gist!');
+      const cloudTS = Number(data.lastModified) || Date.now();
+      const success = await performMergeSync(data, patToUse, codeToUse, cloudTS);
+      if (success) {
+        alert('Data synchronized and merged successfully from GitHub Gist!');
         return true;
       } else {
         throw new Error('Invalid cloud data format.');
@@ -1011,6 +1094,8 @@ export default function App() {
           onPushSync={handlePushSync}
           onPullSync={handlePullSync}
           isSyncing={isSyncing}
+          onRestoreBackup={handleRestoreBackup}
+          cloudBackups={cloudBackups}
         />
       )}
 

@@ -227,3 +227,83 @@ export function getFriendlyInterval(card, ratingStr, targetRetention = 90) {
   const months = Math.round(days / 30);
   return `${months}m`;
 }
+
+/**
+ * Chronologically merges local and cloud reviews to prevent split-brain review losses,
+ * and reconstructs the correct final FSRS parameters.
+ */
+export function mergeDecksAndCards(localDecks, localCards, cloudDecks, cloudCards, targetRetention = 90) {
+  // 1. Merge Decks
+  const mergedDecks = [...localDecks];
+  const localDeckIds = new Set(localDecks.map(d => d.id));
+  cloudDecks.forEach(cloudDeck => {
+    if (!localDeckIds.has(cloudDeck.id)) {
+      mergedDecks.push(cloudDeck);
+    } else {
+      const localIdx = mergedDecks.findIndex(d => d.id === cloudDeck.id);
+      // Merge mindMap if cloud has it and local doesn't
+      if (cloudDeck.mindMap && !mergedDecks[localIdx].mindMap) {
+        mergedDecks[localIdx] = { ...mergedDecks[localIdx], mindMap: cloudDeck.mindMap };
+      }
+    }
+  });
+
+  // 2. Merge Cards
+  const localCardsMap = new Map(localCards.map(c => [c.id, c]));
+  const cloudCardsMap = new Map(cloudCards.map(c => [c.id, c]));
+
+  const mergedCards = [];
+
+  // Add and merge local cards
+  localCards.forEach(localCard => {
+    const cloudCard = cloudCardsMap.get(localCard.id);
+    if (!cloudCard) {
+      mergedCards.push(localCard);
+    } else {
+      // Merge local and cloud histories (removing duplicate timestamp reviews)
+      const mergedHistory = [];
+      const seenDates = new Set();
+      const allLogs = [...(localCard.history || []), ...(cloudCard.history || [])];
+      
+      // Chronological sort
+      allLogs.sort((a, b) => new Date(a.date) - new Date(b.date));
+      
+      allLogs.forEach(log => {
+        if (!seenDates.has(log.date)) {
+          seenDates.add(log.date);
+          mergedHistory.push(log);
+        }
+      });
+
+      if (mergedHistory.length === 0) {
+        mergedCards.push({ ...localCard, state: null, history: [] });
+      } else {
+        // Step through chronological history to reconstruct the correct final FSRS parameters
+        let tempCard = { ...localCard, state: null };
+        let currentState = null;
+        
+        mergedHistory.forEach(log => {
+          const nextState = calculateNextState(tempCard, log.rating, targetRetention);
+          currentState = nextState;
+          tempCard.state = nextState;
+        });
+
+        mergedCards.push({
+          ...localCard,
+          state: currentState,
+          history: mergedHistory
+        });
+      }
+    }
+  });
+
+  // Add cloud cards that aren't in local storage
+  cloudCards.forEach(cloudCard => {
+    if (!localCardsMap.has(cloudCard.id)) {
+      mergedCards.push(cloudCard);
+    }
+  });
+
+  return { decks: mergedDecks, cards: mergedCards };
+}
+

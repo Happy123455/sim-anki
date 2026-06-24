@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, Save, ShieldAlert, ArrowLeft, RefreshCw, Download, Upload } from 'lucide-react';
+import { Eye, EyeOff, Save, ShieldAlert, ArrowLeft, RefreshCw, Download, Upload, Layers } from 'lucide-react';
 import { checkApiKey, cleanApiKey } from '../utils/gemini';
 import { sanitizeToken } from '../utils/githubSync';
 
@@ -15,7 +15,7 @@ const getBestDefaultVoice = (voices) => {
   return englishVoices[0];
 };
 
-export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData, onImportAnkiCards, onPushSync, onPullSync, isSyncing }) {
+export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData, onImportAnkiCards, onPushSync, onPullSync, isSyncing, onRestoreBackup, cloudBackups }) {
   const [apiKey, setApiKey] = useState(settings.apiKey || '');
   const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState(settings.model || 'gemini-3.5-flash');
@@ -29,6 +29,20 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [syncCode, setSyncCode] = useState(settings.syncCode || '');
   const [githubPAT, setGithubPAT] = useState(settings.githubPAT || '');
   const [showPat, setShowPat] = useState(false);
+  const [backups, setBackups] = useState([]);
+
+  useEffect(() => {
+    const loaded = [];
+    for (let i = 1; i <= 3; i++) {
+      const data = localStorage.getItem(`simanki_local_backup_${i}`);
+      if (data) {
+        try {
+          loaded.push({ index: i, ...JSON.parse(data) });
+        } catch (e) {}
+      }
+    }
+    setBackups(loaded);
+  }, []);
 
   useEffect(() => {
     if (!window.speechSynthesis) return;
@@ -419,7 +433,111 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
                </div>
             )}
           </div>
-        </div>
+        {/* Local & Cloud Backups & Recovery */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left', background: 'rgba(139, 92, 246, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(139, 92, 246, 0.15)', marginTop: '1rem' }}>
+          <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Layers size={20} style={{ color: 'var(--accent-primary)' }} /> Backups & Recovery
+          </h3>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            SimAnki automatically saves rolling cloud and local backups when reviews are submitted or decks are modified.
+          </p>
+
+          {/* Cloud Backups */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--accent-primary)' }}>☁ Cloud Backups (Synced via Gist)</h4>
+            {!cloudBackups || cloudBackups.length === 0 ? (
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '0.5rem' }}>
+                No cloud backups found in Gist.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {cloudBackups.map((b, idx) => (
+                  <div 
+                    key={`cloud-${idx}`} 
+                    style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      padding: '0.65rem 0.85rem', 
+                      background: 'rgba(139, 92, 246, 0.05)', 
+                      border: '1px solid rgba(139, 92, 246, 0.15)', 
+                      borderRadius: '8px' 
+                    }}
+                  >
+                    <div>
+                      <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>Cloud Backup #{idx + 1}</strong>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+                        ({new Date(b.timestamp).toLocaleString()})
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '1rem' }}>
+                        Decks: {b.decks?.length || 0} | Cards: {b.cards?.length || 0}
+                      </span>
+                    </div>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        if (confirm(`Restore Cloud Backup #${idx + 1}? This will overwrite your current active cards and decks.`)) {
+                          onRestoreBackup(b);
+                        }
+                      }}
+                      style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
+                    >
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Local Backups */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-secondary)' }}>💻 Local Backups (This Browser)</h4>
+            {backups.length === 0 ? (
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '0.5rem' }}>
+                No local backups found in this browser.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {backups.map((b) => (
+                  <div 
+                    key={`local-${b.index}`} 
+                    style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      padding: '0.65rem 0.85rem', 
+                      background: 'rgba(255, 255, 255, 0.01)', 
+                      border: '1px solid var(--border-light)', 
+                      borderRadius: '8px' 
+                    }}
+                  >
+                    <div>
+                      <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>Local Backup #{b.index}</strong>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+                        ({new Date(b.timestamp).toLocaleString()})
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '1rem' }}>
+                        Decks: {b.decks?.length || 0} | Cards: {b.cards?.length || 0}
+                      </span>
+                    </div>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        if (confirm(`Restore Local Backup #${b.index}? This will overwrite your current active cards and decks.`)) {
+                          onRestoreBackup(b);
+                        }
+                      }}
+                      style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
+                    >
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div> </div>
 
         <hr style={{ borderColor: 'var(--border-light)', margin: '1rem 0' }} />
 
