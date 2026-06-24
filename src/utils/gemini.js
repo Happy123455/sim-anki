@@ -106,7 +106,8 @@ export async function checkApiKey(apiKey, model = "gemini-3.5-flash") {
  * @returns {Promise<Object>} The graded report JSON object.
  */
 export async function evaluateAnswer(apiKey, model, question, concept, userAnswer, timeSpent, confidence, consecutiveFails = 0, history = [], customInstructions = "", onStatusUpdate = () => {}) {
-  const isEli5 = consecutiveFails >= 4;
+  const isNewCard = !history || history.length === 0;
+  const isEli5 = consecutiveFails >= 4 || isNewCard;
 
   // Format previous history for Gemini
   let formattedHistory = "";
@@ -139,7 +140,8 @@ Take into account how long it has been since their last review (today is ${new D
 Your "logicAnalysis" MUST briefly comment on this historical comparison (e.g. "You are still making the same mistake of..." or "You corrected your previous error about X, but you made a new mistake in Y.").
 ` : ''}
 
-${isEli5 ? `[ELI5 REQUIREMENT] The student has failed to answer this card correctly ${consecutiveFails} times. You MUST explain the entire concept using an extreme "Explain Like I'm 5" (ELI5) style. Use an analogy appropriate for a 5-year-old child (e.g. playing with blocks, cakes, toy trucks) and simple vocabulary.` : ''}
+${isNewCard ? `[ELI5 REQUIREMENT] This is a brand new concept the student is learning for the first time. You MUST explain the entire concept using an extreme "Explain Like I'm 5" (ELI5) style. Use an analogy appropriate for a 5-year-old child (e.g. playing with blocks, cakes, toy trucks) and simple vocabulary to introduce the concept clearly.` : 
+  (isEli5 ? `[ELI5 REQUIREMENT] The student has failed to answer this card correctly ${consecutiveFails} times. You MUST explain the entire concept using an extreme "Explain Like I'm 5" (ELI5) style. Use an analogy appropriate for a 5-year-old child (e.g. playing with blocks, cakes, toy trucks) and simple vocabulary.` : '')}
 
 Based on the score:
 - score < 60: suggest "again"

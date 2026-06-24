@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Download } from 'lucide-react';
 import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
+
 import ImportModal from './ImportModal';
 import { generateMindMap } from '../utils/gemini';
 
@@ -212,6 +213,41 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     } finally {
       setIsGeneratingMindMap(false);
     }
+  };
+
+  const handleCopySelectedCards = () => {
+    const selected = Cards.filter(c => selectedCardIds.includes(c.id));
+    let text = "";
+    selected.forEach((c, idx) => {
+      text += `--- Card #${idx + 1} ---\n`;
+      text += `Question: ${c.question}\n`;
+      text += `Concept: ${c.concept}\n`;
+      if (c.imageUrl) text += `Image URL: ${c.imageUrl}\n`;
+      if (c.youtubeUrl) text += `YouTube URL: ${c.youtubeUrl}\n`;
+      text += `\n`;
+    });
+    navigator.clipboard.writeText(text);
+    alert(`Copied data of ${selected.length} selected cards to clipboard.`);
+  };
+
+  const handleExportSelectedCards = () => {
+    const selected = Cards.filter(c => selectedCardIds.includes(c.id));
+    let text = "";
+    selected.forEach((c, idx) => {
+      text += `--- Card #${idx + 1} ---\n`;
+      text += `Question: ${c.question}\n`;
+      text += `Concept: ${c.concept}\n`;
+      if (c.imageUrl) text += `Image URL: ${c.imageUrl}\n`;
+      if (c.youtubeUrl) text += `YouTube URL: ${c.youtubeUrl}\n`;
+      text += `\n`;
+    });
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `simanki-selected-cards-${new Date().toISOString().slice(0, 10)}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const filteredCards = Cards.filter(card => {
@@ -1097,6 +1133,36 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                         ))}
                       </select>
                     </div>
+
+                    {/* Copy Selected Button */}
+                    <button 
+                      className="btn btn-secondary" 
+                      onClick={handleCopySelectedCards}
+                      style={{ 
+                        padding: '0.35rem 0.75rem', 
+                        fontSize: '0.75rem', 
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem'
+                      }}
+                    >
+                      <Copy size={12} /> Copy Selected
+                    </button>
+
+                    {/* Export Selected Button */}
+                    <button 
+                      className="btn btn-secondary" 
+                      onClick={handleExportSelectedCards}
+                      style={{ 
+                        padding: '0.35rem 0.75rem', 
+                        fontSize: '0.75rem', 
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem'
+                      }}
+                    >
+                      <Download size={12} /> Export Selected (.txt)
+                    </button>
 
                     {/* Delete Selected Button */}
                     <button 
