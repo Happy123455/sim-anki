@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Sliders, HelpCircle, RefreshCw, ChevronRight, CheckCircle2, AlertCircle, Volume2, Square } from 'lucide-react';
+import { cleanTextForTTS } from '../utils/tts';
 import { playSuccess, playFailure, playClick, playSimWin } from '../utils/sound';
 
 
@@ -96,7 +97,7 @@ export default function SimulationRenderer({ simulation, voiceURI = "" }) {
       textToRead += `. Visual Diagram: ${simulation.svgDescription}`;
     }
     
-    const utterance = new SpeechSynthesisUtterance(textToRead);
+    const utterance = new SpeechSynthesisUtterance(cleanTextForTTS(textToRead));
     if (voiceURI) {
       const selectedVoice = window.speechSynthesis.getVoices().find(v => v.voiceURI === voiceURI);
       if (selectedVoice) utterance.voice = selectedVoice;

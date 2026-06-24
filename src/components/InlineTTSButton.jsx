@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Volume2, Square } from 'lucide-react';
+import { cleanTextForTTS } from '../utils/tts';
 
 const getBestDefaultVoice = (voices) => {
   const preferredSubstrings = ["siri", "google us english", "google uk english", "natural", "neural", "samantha", "aria", "guy"];
@@ -39,8 +40,8 @@ export default function InlineTTSButton({ text, voiceURI = "" }) {
     }
     
     setIsPlaying(true);
-    // Strip markdown characters before reading
-    const plainText = text.replace(/\*\*|###|##|#/g, '');
+    // Strip markdown and math symbols before reading
+    const plainText = cleanTextForTTS(text);
     const utterance = new SpeechSynthesisUtterance(plainText);
     
     utterance.onend = () => setIsPlaying(false);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Volume2, Square, Play, Pause } from 'lucide-react';
+import { cleanTextForTTS } from '../utils/tts';
 
 // Tokenize text into words and non-words, tracking absolute character positions
 const tokenizeText = (text) => {
@@ -69,8 +70,8 @@ export default function HighlightingTTS({ text, voiceURI = "" }) {
     stopSpeech(); // Cancel any ongoing speech first
     setIsPlaying(true);
 
-    // Create a plain-text version for the Speech API (without custom markdown tags if any)
-    const plainText = text.replace(/\*\*|###|##|#/g, '');
+    // Create a plain-text version for the Speech API (without custom markdown or math tags)
+    const plainText = cleanTextForTTS(text);
     
     // We need to re-tokenize the clean plainText to sync boundary indexes
     tokens.current = tokenizeText(plainText);
@@ -183,7 +184,7 @@ export default function HighlightingTTS({ text, voiceURI = "" }) {
             );
           })
         ) : (
-          <span style={{ color: 'var(--text-secondary)' }}>{text.replace(/\*\*|###|##|#/g, '')}</span>
+          <span style={{ color: 'var(--text-secondary)' }}>{cleanTextForTTS(text)}</span>
         )}
       </div>
     </div>
