@@ -821,7 +821,8 @@ export default function App() {
             weaknesses: evaluation?.weaknesses || [],
             correctExplanation: evaluation?.correctExplanation || '',
             simulation: evaluation?.simulation || null,
-            highlights: evaluation?.highlights || []
+            highlights: evaluation?.highlights || [],
+            conceptHighlights: evaluation?.conceptHighlights || []
           };
           
           return {
@@ -850,7 +851,8 @@ export default function App() {
             weaknesses: evaluation?.weaknesses || [],
             correctExplanation: evaluation?.correctExplanation || '',
             simulation: evaluation?.simulation || null,
-            highlights: evaluation?.highlights || []
+            highlights: evaluation?.highlights || [],
+            conceptHighlights: evaluation?.conceptHighlights || []
           };
           return {
             ...c,

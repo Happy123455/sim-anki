@@ -133,6 +133,105 @@ export function highlightAnswerText(userAnswer, highlights) {
   );
 }
 
+export function highlightConceptText(concept, conceptHighlights) {
+  if (!concept) return <span style={{ color: 'var(--text-muted)' }}>(Empty concept)</span>;
+  if (!conceptHighlights || conceptHighlights.length === 0) return <span>{concept}</span>;
+
+  let segments = [{ text: concept, isMatch: false }];
+  const sortedHighlights = [...conceptHighlights].sort((a, b) => b.text.length - a.text.length);
+
+  sortedHighlights.forEach(hl => {
+    const hlText = hl.text;
+    if (!hlText || !hlText.trim()) return;
+
+    let newSegments = [];
+    segments.forEach(seg => {
+      if (seg.isMatch) {
+        newSegments.push(seg);
+        return;
+      }
+
+      const lowerSegText = seg.text.toLowerCase();
+      const lowerHlText = hlText.toLowerCase();
+      let startIdx = lowerSegText.indexOf(lowerHlText);
+
+      if (startIdx === -1) {
+        newSegments.push(seg);
+        return;
+      }
+
+      let lastIdx = 0;
+      while (startIdx !== -1) {
+        if (startIdx > lastIdx) {
+          newSegments.push({ text: seg.text.substring(lastIdx, startIdx), isMatch: false });
+        }
+
+        newSegments.push({
+          text: seg.text.substring(startIdx, startIdx + hlText.length),
+          isMatch: true,
+          type: hl.type, // 'main' | 'missed'
+          reason: hl.reason
+        });
+
+        lastIdx = startIdx + hlText.length;
+        startIdx = lowerSegText.indexOf(lowerHlText, lastIdx);
+      }
+
+      if (lastIdx < seg.text.length) {
+        newSegments.push({ text: seg.text.substring(lastIdx), isMatch: false });
+      }
+    });
+
+    segments = newSegments;
+  });
+
+  return (
+    <span>
+      {segments.map((seg, idx) => {
+        if (!seg.isMatch) return <span key={idx}>{seg.text}</span>;
+
+        if (seg.type === 'main') {
+          // Bold Italic style
+          return (
+            <strong 
+              key={idx} 
+              style={{ 
+                fontStyle: 'italic',
+                fontWeight: 800,
+                color: 'var(--text-primary)' 
+              }}
+              title={seg.reason || "Main keyword"}
+            >
+              {seg.text}
+            </strong>
+          );
+        } else if (seg.type === 'missed') {
+          // Green highlight style (words the user missed)
+          return (
+            <span 
+              key={idx} 
+              style={{ 
+                background: 'rgba(16, 185, 129, 0.25)', 
+                border: '1px solid rgba(16, 185, 129, 0.45)',
+                borderRadius: '4px',
+                padding: '0.1rem 0.25rem',
+                margin: '0 0.05rem',
+                color: '#a7f3d0',
+                cursor: 'help'
+              }}
+              title={seg.reason || "Missed concept"}
+            >
+              {seg.text}
+            </span>
+          );
+        }
+
+        return <span key={idx}>{seg.text}</span>;
+      })}
+    </span>
+  );
+}
+
 
 const getYouTubeEmbedUrl = (url) => {
   if (!url) return null;
@@ -515,7 +614,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                   Reference Answer (Original Concept)
                 </h4>
                 <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
-                  {currentCard.concept}
+                  {highlightConceptText(currentCard.concept, evaluation.conceptHighlights)}
                 </div>
               </div>
             </div>

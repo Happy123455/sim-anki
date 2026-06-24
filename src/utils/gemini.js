@@ -150,15 +150,16 @@ Based on the score:
 - score > 90: suggest "easy"
 
 [HIGHLIGHTING REQUIREMENT]:
-Analyze the student's answer text ("User's Answer"). Identify specific words or short phrases that are:
+1. Analyze the student's answer text ("User's Answer"). Identify specific words or short phrases that are:
 - Correct and accurate (color: "green", reason: "Short tooltip explanation why it is correct")
 - Spelling/typo errors or slightly off wording (color: "yellow", reason: "Spelling correction or minor rewording advice")
 - Incorrect facts, logical gaps, or wrong concepts (color: "red", reason: "Correction of the misconception/error")
-You must return these in the "highlights" array. Every highlight object in this array MUST contain:
-1. "text": the exact substring from the student's answer to highlight (case-sensitive match).
-2. "color": "green" | "yellow" | "red"
-3. "reason": a short explanation of the color grading.
-Ensure that the substrings are exact slices of their answer so they can be parsed programmatically.
+You must return these in the "highlights" array. Every highlight object in this array MUST contain "text" (exact substring from student's answer), "color" ("green"|"yellow"|"red"), and "reason".
+
+2. Analyze the card's original reference concept text ("Concept Focus"). Identify specific words or phrases that are:
+- The main key words or central concepts (type: "main", reason: "Why this keyword is central to the concept")
+- Crucial words or details in the reference concept that the student completely missed or failed to include in their answer (type: "missed", reason: "Why this missed word/detail is important to correct their answer")
+You must return these in the "conceptHighlights" array. Every object in this array MUST contain "text" (exact case-sensitive substring from the "Concept Focus" reference concept), "type" ("main"|"missed"), and "reason".
 
 You must respond with a JSON object conforming exactly to this schema:
 {
@@ -168,7 +169,8 @@ You must respond with a JSON object conforming exactly to this schema:
   "logicAnalysis": string (direct advice on where to improve and brief comparison with history, 1-2 sentences),
   "correctExplanation": string (formatted in Markdown, under 150 words),
   "suggestedRating": "again" | "hard" | "good" | "easy",
-  "highlights": Array<{ text: string, color: "green" | "yellow" | "red", reason: string }>
+  "highlights": Array<{ text: string, color: "green" | "yellow" | "red", reason: string }>,
+  "conceptHighlights": Array<{ text: string, type: "main" | "missed", reason: string }>
 }
 
 ${customInstructions ? `
@@ -246,9 +248,21 @@ You must output your response complying strictly with these user-defined prefere
                   },
                   required: ["text", "color", "reason"]
                 }
+              },
+              conceptHighlights: {
+                type: "ARRAY",
+                items: {
+                  type: "OBJECT",
+                  properties: {
+                    text: { type: "STRING" },
+                    type: { type: "STRING", enum: ["main", "missed"] },
+                    reason: { type: "STRING" }
+                  },
+                  required: ["text", "type", "reason"]
+                }
               }
             },
-            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights"]
+            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights", "conceptHighlights"]
           }
         }
       })

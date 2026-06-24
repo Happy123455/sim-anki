@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Award, Clock, Star, Layers, X, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
 import SimulationRenderer from './SimulationRenderer';
-import { highlightAnswerText } from './StudySession';
+import { highlightAnswerText, highlightConceptText } from './StudySession';
 
 
 function parseMarkdown(text) {
@@ -520,6 +520,13 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose }) {
                         </div>
                       </div>
                       
+                      <div>
+                        <strong style={{ color: 'var(--text-primary)' }}>Reference Answer:</strong>
+                        <div style={{ color: 'var(--text-secondary)', marginTop: '0.2rem', background: 'rgba(0,0,0,0.1)', padding: '0.5rem', borderRadius: '6px', whiteSpace: 'pre-line', fontSize: '0.85rem', lineHeight: '1.5' }}>
+                          {highlightConceptText(card.concept, log.conceptHighlights)}
+                        </div>
+                      </div>
+
                       {log.logicAnalysis && (
                         <div>
                           <strong style={{ color: '#fca5a5' }}>Logical Gaps / Logic Corrections:</strong>
