@@ -457,11 +457,21 @@ export default function App() {
 
   // Background polling for auto-sync
   useEffect(() => {
-    if (!settings.syncCode || !settings.githubPAT) return;
+    const pat = settings.githubPAT;
+    const code = settings.syncCode;
+    
+    // Only poll if credentials look valid to avoid background noise/failures during editing/setup
+    const isPatValid = pat && (pat.startsWith('ghp_') || pat.startsWith('github_pat_'));
+    const isCodeValid = code && code.length >= 20;
+    
+    if (!isPatValid || !isCodeValid || isSyncing) return;
 
     const interval = setInterval(async () => {
+      // Skip background sync operations if the tab is not currently visible
+      if (document.visibilityState === 'hidden') return;
+      
       try {
-        const data = await pullFromGist(settings.githubPAT, settings.syncCode);
+        const data = await pullFromGist(pat, code);
         const cloudLastModified = Number(data.lastModified) || 0;
         
         // Load local lastModified from localStorage directly to avoid stale state closures
@@ -470,7 +480,7 @@ export default function App() {
 
         if (cloudLastModified > localTS) {
           console.log("Auto-sync: Cloud Gist data is newer. Pulling and merging automatically...", cloudLastModified, localTS);
-          await performMergeSync(data, settings.githubPAT, settings.syncCode, cloudLastModified);
+          await performMergeSync(data, pat, code, cloudLastModified);
         } else {
           setLastSyncTime(new Date());
           setSyncError(null);
@@ -486,7 +496,7 @@ export default function App() {
     }, 25000); // Poll every 25 seconds
 
     return () => clearInterval(interval);
-  }, [settings.syncCode, settings.githubPAT]);
+  }, [settings.syncCode, settings.githubPAT, isSyncing]);
 
   // Anki-like auto-sync: push on tab hide / page close, pull on tab return
   useEffect(() => {

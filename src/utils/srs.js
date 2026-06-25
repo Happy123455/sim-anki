@@ -119,7 +119,7 @@ function computeNextForgetStability(d, s, r, weights) {
  * @param {number} targetRetention - Requested retention (typically 70-95, default 90).
  * @returns {Object} Updated FSRS state properties for the card.
  */
-export function calculateNextState(card, ratingStr, targetRetention = 90) {
+export function calculateNextState(card, ratingStr, targetRetention = 90, reviewDate = null) {
   const ratingMap = { again: 1, hard: 2, good: 3, easy: 4 };
   const normalizedRating = String(ratingStr || 'good').toLowerCase();
   const G = ratingMap[normalizedRating] || 3;
@@ -140,10 +140,12 @@ export function calculateNextState(card, ratingStr, targetRetention = 90) {
   let repetitions = currentState.repetitions;
   let consecutiveFails = currentState.consecutiveFails || 0;
   
+  const now = reviewDate ? new Date(reviewDate) : new Date();
+  
   // Calculate elapsed days since last review
   let t = 0;
   if (currentState.lastReviewDate) {
-    const elapsedMs = new Date() - new Date(currentState.lastReviewDate);
+    const elapsedMs = now - new Date(currentState.lastReviewDate);
     t = Math.max(0, Math.round(elapsedMs / (1000 * 60 * 60 * 24)));
   }
 
@@ -184,7 +186,7 @@ export function calculateNextState(card, ratingStr, targetRetention = 90) {
     interval = 1;
   }
 
-  const dueDate = new Date();
+  const dueDate = new Date(now);
   dueDate.setDate(dueDate.getDate() + interval);
   dueDate.setHours(0, 0, 0, 0);
 
@@ -193,7 +195,7 @@ export function calculateNextState(card, ratingStr, targetRetention = 90) {
     stability: Number(nextStability.toFixed(2)),
     repetitions,
     consecutiveFails,
-    lastReviewDate: new Date().toISOString(),
+    lastReviewDate: now.toISOString(),
     dueDate: dueDate.toISOString(),
     interval
   };
@@ -283,7 +285,7 @@ export function mergeDecksAndCards(localDecks, localCards, cloudDecks, cloudCard
         let currentState = null;
         
         mergedHistory.forEach(log => {
-          const nextState = calculateNextState(tempCard, log.rating, targetRetention);
+          const nextState = calculateNextState(tempCard, log.rating, targetRetention, log.date);
           currentState = nextState;
           tempCard.state = nextState;
         });
