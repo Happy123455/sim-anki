@@ -1049,6 +1049,13 @@ export default function App() {
       {settings.syncCode && settings.githubPAT && (
         <div
           title={syncError ? `Error: ${syncError}` : lastSyncTime ? `Last synced: ${lastSyncTime.toLocaleTimeString()}` : 'Auto-sync enabled'}
+          onClick={() => {
+            if (syncError) {
+              alert(`Auto-Sync Error Details:\n\n${syncError}\n\nTroubleshooting tips:\n1. Check your internet connection.\n2. Verify that your GitHub PAT is valid and has 'gist' scope permissions.\n3. Verify your Gist ID (Sync Code).\n4. Adblockers/VPNs might be blocking requests to api.github.com.`);
+            } else {
+              alert(`SimAnki Sync Status:\n\nStatus: Connected & active\nLast synced: ${lastSyncTime ? lastSyncTime.toLocaleTimeString() : 'Never'}`);
+            }
+          }}
           style={{
             position: 'fixed',
             bottom: '1rem',
@@ -1069,7 +1076,7 @@ export default function App() {
             fontWeight: 500,
             color: syncError ? '#fca5a5' : isSyncing ? '#c4b5fd' : '#86efac',
             zIndex: 1000,
-            cursor: 'default',
+            cursor: 'pointer',
             transition: 'all 0.3s ease',
             userSelect: 'none'
           }}
