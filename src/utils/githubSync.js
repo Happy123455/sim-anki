@@ -139,9 +139,7 @@ export async function pullFromGist(pat, gistId) {
   // GitHub truncates large gist files — if truncated, fetch from raw_url
   let content = file.content;
   if (file.truncated && file.raw_url) {
-    const rawRes = await fetch(file.raw_url, {
-      headers: cleanPat ? { 'Authorization': `Bearer ${cleanPat}` } : {}
-    });
+    const rawRes = await fetch(file.raw_url);
     if (!rawRes.ok) {
       throw new Error(`Failed to fetch full Gist content (${rawRes.status})`);
     }
