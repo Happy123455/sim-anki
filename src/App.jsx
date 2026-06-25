@@ -5,7 +5,7 @@ import StudySession from './components/StudySession';
 import { calculateNextState, mergeDecksAndCards } from './utils/srs';
 import { ShieldAlert, BookOpen, Layers, CloudOff, Cloud, RefreshCw } from 'lucide-react';
 import { cleanApiKey, cleanModelName } from './utils/gemini';
-import { pushToGist, pullFromGist, sanitizeToken } from './utils/githubSync';
+import { pushToGist, pullFromGist, sanitizeToken, sanitizeGistId } from './utils/githubSync';
 
 // Pre-seeded structural engineering deck and cards
 const initialDecks = [
@@ -388,6 +388,8 @@ export default function App() {
       const savedSettings = localStorage.getItem('simanki_settings');
       if (savedSettings) {
         const parsed = JSON.parse(savedSettings);
+        let needsSave = false;
+
         // Automatically migrate deprecated model names to gemini-3.5-flash
         if (parsed.model && (
           parsed.model.includes('1.5') || 
@@ -396,12 +398,22 @@ export default function App() {
           parsed.model === 'gemini-pro'
         )) {
           parsed.model = 'gemini-3.5-flash';
+          needsSave = true;
+        }
+
+        if (parsed.syncCode) {
+          const cleanCode = sanitizeGistId(parsed.syncCode);
+          if (cleanCode !== parsed.syncCode) {
+            parsed.syncCode = cleanCode;
+            needsSave = true;
+          }
+          activeSyncCode = cleanCode;
+        }
+
+        if (needsSave) {
           localStorage.setItem('simanki_settings', JSON.stringify(parsed));
         }
         setSettings(parsed);
-        if (parsed.syncCode) {
-          activeSyncCode = parsed.syncCode;
-        }
       }
     } catch (e) {
       console.error("Error loading settings from localStorage:", e);
@@ -502,7 +514,7 @@ export default function App() {
             backups: localCloudBackups,
             lastModified: now
           };
-          const gistId = localSettings.syncCode;
+          const gistId = sanitizeGistId(localSettings.syncCode);
           const pat = sanitizeToken(localSettings.githubPAT);
           if (gistId && pat) {
             fetch(`https://api.github.com/gists/${gistId}`, {
@@ -527,8 +539,8 @@ export default function App() {
         // Tab came back → pull latest from cloud
         try {
           const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
-          const pat = localSettings.githubPAT;
-          const code = localSettings.syncCode;
+          const pat = sanitizeToken(localSettings.githubPAT);
+          const code = sanitizeGistId(localSettings.syncCode);
           if (!pat || !code) return;
           
           const data = await pullFromGist(pat, code);
@@ -633,7 +645,9 @@ export default function App() {
     const cleaned = {
       ...newSettings,
       apiKey: cleanApiKey(newSettings.apiKey),
-      model: cleanModelName(newSettings.model)
+      model: cleanModelName(newSettings.model),
+      githubPAT: sanitizeToken(newSettings.githubPAT),
+      syncCode: sanitizeGistId(newSettings.syncCode)
     };
     setSettings(cleaned);
     localStorage.setItem('simanki_settings', JSON.stringify(cleaned));
@@ -714,7 +728,7 @@ export default function App() {
     }
     
     // Use explicitly passed syncCode (from Settings component) over stale state
-    const syncCodeToUse = sanitizeToken(passedSyncCode || settings.syncCode || '');
+    const syncCodeToUse = sanitizeGistId(passedSyncCode || settings.syncCode || '');
     
     setIsSyncing(true);
     try {
@@ -783,7 +797,7 @@ export default function App() {
   };
 
   const handlePullSync = async (code, passedPat = null) => {
-    const codeToUse = sanitizeToken(code || '');
+    const codeToUse = sanitizeGistId(code || '');
     if (!codeToUse) return false;
     
     const patToUse = sanitizeToken(passedPat || settings.githubPAT || '');

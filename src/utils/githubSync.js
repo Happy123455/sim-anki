@@ -20,6 +20,34 @@ export function sanitizeToken(raw) {
     .trim();
 }
 
+/**
+ * Robustly extracts the Gist ID from a full Gist URL or raw text input.
+ * Handles patterns like:
+ * - https://gist.github.com/username/gist_id
+ * - https://gist.github.com/username/gist_id#file-simanki_backup-json
+ * - https://gist.github.com/gist_id
+ * - gist_id
+ */
+export function sanitizeGistId(raw) {
+  if (!raw) return '';
+  let cleaned = String(raw).trim();
+  
+  if (cleaned.includes('/')) {
+    // Separate out hash fragments and query strings
+    cleaned = cleaned.split('#')[0].split('?')[0];
+    
+    // Split by slashes and find the last non-empty segment
+    const parts = cleaned.split('/').filter(Boolean);
+    if (parts.length > 0) {
+      cleaned = parts[parts.length - 1];
+    }
+  } else {
+    cleaned = cleaned.split('#')[0].split('?')[0];
+  }
+  
+  return sanitizeToken(cleaned);
+}
+
 export async function pushToGist(pat, gistId, payload) {
   const cleanPat = sanitizeToken(pat);
   if (!cleanPat) {
@@ -42,9 +70,11 @@ export async function pushToGist(pat, gistId, payload) {
     }
   };
 
-  if (gistId) {
+  const cleanGistId = sanitizeGistId(gistId);
+
+  if (cleanGistId) {
     // Update existing Gist
-    const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+    const res = await fetch(`https://api.github.com/gists/${cleanGistId}`, {
       method: 'PATCH',
       headers,
       body: JSON.stringify(body)
@@ -77,7 +107,8 @@ export async function pushToGist(pat, gistId, payload) {
 }
 
 export async function pullFromGist(pat, gistId) {
-  if (!gistId) {
+  const cleanGistId = sanitizeGistId(gistId);
+  if (!cleanGistId) {
     throw new Error("Gist ID (Sync Code) is required.");
   }
   
@@ -91,7 +122,7 @@ export async function pullFromGist(pat, gistId) {
     headers['Authorization'] = `Bearer ${cleanPat}`;
   }
 
-  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+  const res = await fetch(`https://api.github.com/gists/${cleanGistId}`, {
     method: 'GET',
     headers
   });
