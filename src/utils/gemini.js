@@ -161,6 +161,8 @@ You must return these in the "highlights" array. Every highlight object in this 
 - Crucial words or details in the reference concept that the student completely missed or failed to include in their answer (type: "missed", reason: "Why this missed word/detail is important to correct their answer")
 You must return these in the "conceptHighlights" array. Every object in this array MUST contain "text" (exact case-sensitive substring from the "Concept Focus" reference concept), "type" ("main"|"missed"), and "reason".
 
+3. Identify 1 to 3 specific key words, formulas, numbers, units, or exact terms from the reference concept focus that the student completely missed or failed to include in their answer. These should be returned in the "omittedItems" array (maximum of 3 items). Keep them very short (1-3 words max, e.g. "precipitation", "evaporation", "12x10^3 unit") so they can be checked off in an interactive progress checklist. Do not return broad sentences, but simple, concrete tokens or concepts.
+
 You must respond with a JSON object conforming exactly to this schema:
 {
   "score": number (0 to 100),
@@ -170,7 +172,8 @@ You must respond with a JSON object conforming exactly to this schema:
   "correctExplanation": string (formatted in Markdown, under 150 words),
   "suggestedRating": "again" | "hard" | "good" | "easy",
   "highlights": Array<{ text: string, color: "green" | "yellow" | "red", reason: string }>,
-  "conceptHighlights": Array<{ text: string, type: "main" | "missed", reason: string }>
+  "conceptHighlights": Array<{ text: string, type: "main" | "missed", reason: string }>,
+  "omittedItems": string[]
 }
 
 ${customInstructions ? `
@@ -260,9 +263,13 @@ You must output your response complying strictly with these user-defined prefere
                   },
                   required: ["text", "type", "reason"]
                 }
+              },
+              omittedItems: {
+                type: "ARRAY",
+                items: { type: "STRING" }
               }
             },
-            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights", "conceptHighlights"]
+            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights", "conceptHighlights", "omittedItems"]
           }
         }
       })
@@ -559,4 +566,93 @@ Please organize these cards into a logical conceptual mind map hierarchy. Return
   const data = await response.json();
   const text = data.candidates[0].content.parts[0].text;
   return cleanAndParseJson(text);
+}
+
+/**
+ * Handles a single step in the interactive tutor chat.
+ */
+export async function chatTutorStep(apiKey, model, question, concept, userAnswer, currentItem, chatHistory = [], userMessage = "") {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const formattedHistory = chatHistory.map(msg => 
+    `${msg.sender === 'user' ? 'Student' : 'Tutor'}: "${msg.text}"`
+  ).join("\n");
+
+  const systemPrompt = `You are a friendly, encouraging AI tutor helping a student learn a concept step-by-step.
+The student recently tried to answer a flashcard question and omitted some key information. We are helping them recall/learn the missing parts.
+
+[Context]:
+- Question: ${question}
+- Reference Answer (Concept): ${concept}
+- Student's Initial Answer: "${userAnswer}"
+${currentItem ? `- The current missing word/number/concept they need to explain or recall: "${currentItem}"` : '- The student has completed all omissions or has a general question/comment. Help them clarify their thoughts or answer their question in a friendly tutor way.'}
+
+[Chat History]:
+${formattedHistory || "None (First message)"}
+
+[Student's New Comment/Explanation]:
+"${userMessage}"
+
+[Task]:
+1. Respond to the student's explanation in a friendly, constructive, extremely short one-line response (under 25 words).
+2. Assess if the student's comment correctly explains, recalls, or shows understanding of the current missing word/number/concept ("${currentItem}").
+   - If they successfully explained/recalled it or answered why correctly, set "resolved" to true.
+   - If they are still missing it, confused, or got it wrong, keep "resolved" as false.
+   - If there is no active missing item, default "resolved" to true.
+3. Highlight words in the student's explanation if appropriate. Specifically, return a list of "highlights" that map exact substrings in the STUDENT'S new message to colors:
+   - "green" for correct explanations or accurate key terms.
+   - "red" for wrong assumptions, incorrect facts, or logic errors.
+   - "yellow" for minor errors or spelling.
+   Each highlight object must have "text" (the exact substring from the user's message), "color" ("green"|"yellow"|"red"), and "reason".
+
+You must respond with a JSON object conforming exactly to this schema:
+{
+  "response": string (short one-line guidance/feedback, under 25 words),
+  "resolved": boolean (true if the student successfully recalled/explained this specific item, false otherwise),
+  "highlights": Array<{ text: string, color: "green" | "yellow" | "red", reason: string }>
+}
+`;
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        { role: "user", parts: [{ text: systemPrompt }] }
+      ],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            response: { type: "STRING" },
+            resolved: { type: "BOOLEAN" },
+            highlights: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  text: { type: "STRING" },
+                  color: { type: "STRING", enum: ["green", "yellow", "red"] },
+                  reason: { type: "STRING" }
+                },
+                required: ["text", "color", "reason"]
+              }
+            }
+          },
+          required: ["response", "resolved", "highlights"]
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Tutor Chat failed: ${response.statusText} (${errText})`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates[0].content.parts[0].text;
+  return cleanAndParseJson(rawText);
 }

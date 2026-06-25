@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, Activity, ChevronDown, ChevronUp } from 'lucide-react';
-import { evaluateAnswer } from '../utils/gemini';
+import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, Activity, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { evaluateAnswer, chatTutorStep } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
 import HighlightingTTS from './HighlightingTTS';
 import InlineTTSButton from './InlineTTSButton';
@@ -302,6 +302,13 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [copySuccess, setCopySuccess] = useState(false);
   const [showPastAnswers, setShowPastAnswers] = useState(false);
 
+  // Chat tutor states
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [interactiveOmittedItems, setInteractiveOmittedItems] = useState([]);
+  const [currentOmittedIndex, setCurrentOmittedIndex] = useState(0);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+
 
 
   // Start timer on question load
@@ -359,6 +366,31 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setEvaluation(result);
       setStep('grading');
 
+      // Initialize interactive chatbot states
+      const oItems = result.omittedItems || [];
+      const initItems = oItems.map(item => ({ text: item, status: 'unresolved' }));
+      setInteractiveOmittedItems(initItems);
+      setCurrentOmittedIndex(0);
+      
+      if (initItems.length > 0) {
+        setChatMessages([
+          { 
+            sender: 'tutor', 
+            text: `Hi there! I notice you missed some key parts in your answer. Let's review them one by one to help you remember. First, what were you thinking about "${initItems[0].text}"?`, 
+            highlights: [] 
+          }
+        ]);
+      } else {
+        setChatMessages([
+          { 
+            sender: 'tutor', 
+            text: `Great job! You didn't omit any key concepts in your answer. Feel free to ask me anything or share your thoughts on this card!`, 
+            highlights: [] 
+          }
+        ]);
+      }
+      setChatInput('');
+
       // Play audio feedback based on AI score threshold
       if (result.score >= 60) {
         playSuccess();
@@ -372,6 +404,76 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       alert(`Grading Error:\n\n${errMsg}`);
     } finally {
       setIsGradingLoading(false);
+    }
+  };
+
+  const handleSendChatMessage = async () => {
+    if (!chatInput.trim() || isChatLoading) return;
+
+    const userText = chatInput;
+    setChatInput('');
+    setIsChatLoading(true);
+
+    const newMsg = { sender: 'user', text: userText, highlights: [] };
+    const updatedHistory = [...chatMessages, newMsg];
+    setChatMessages(updatedHistory);
+
+    try {
+      const activeItem = interactiveOmittedItems[currentOmittedIndex]?.text || '';
+      const result = await chatTutorStep(
+        apiKey,
+        model,
+        currentCard.question,
+        currentCard.concept,
+        userAnswer,
+        activeItem,
+        chatMessages,
+        userText
+      );
+
+      const updatedMessages = [...updatedHistory];
+      updatedMessages[updatedMessages.length - 1].highlights = result.highlights || [];
+      
+      const tutorMsg = { sender: 'tutor', text: result.response, highlights: [] };
+      updatedMessages.push(tutorMsg);
+      setChatMessages(updatedMessages);
+
+      if (result.resolved && activeItem) {
+        const updatedItems = interactiveOmittedItems.map((item, idx) => {
+          if (idx === currentOmittedIndex) {
+            return { ...item, status: 'resolved' };
+          }
+          return item;
+        });
+        setInteractiveOmittedItems(updatedItems);
+
+        const nextIdx = currentOmittedIndex + 1;
+        if (nextIdx < updatedItems.length) {
+          setCurrentOmittedIndex(nextIdx);
+          const nextItemText = updatedItems[nextIdx].text;
+          setTimeout(() => {
+            setChatMessages(prev => [
+              ...prev,
+              { sender: 'tutor', text: `Excellent! You've grasped that. Now, let's focus on the next missing concept: "${nextItemText}". What can you tell me about it, or why was it omitted?`, highlights: [] }
+            ]);
+          }, 1000);
+        } else {
+          setTimeout(() => {
+            setChatMessages(prev => [
+              ...prev,
+              { sender: 'tutor', text: `Fantastic! You've resolved all the logical gaps and recalled all the missing parts. You are ready to move on!`, highlights: [] }
+            ]);
+          }, 1000);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      setChatMessages(prev => [
+        ...prev,
+        { sender: 'tutor', text: `Sorry, I encountered an error: ${e.message}`, highlights: [] }
+      ]);
+    } finally {
+      setIsChatLoading(false);
     }
   };
 
@@ -642,6 +744,180 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                   {evaluation.weaknesses.length === 0 && <li>Perfect coverage!</li>}
                 </ul>
               </div>
+            </div>
+
+            {/* Interactive Concept Tutor */}
+            <div className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', textAlign: 'left' }}>
+              
+              {/* Header */}
+              <div>
+                <span className="badge badge-learn" style={{ marginBottom: '0.5rem' }}>Interactive Study Assistant</span>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                  <BrainCircuit size={20} style={{ color: 'var(--accent-primary)' }} />
+                  Step-by-Step Concept Recall & Discussion
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.35rem', marginBottom: 0 }}>
+                  Discuss what you were thinking while answering. Explain or recall the missing elements to turn the checklist green.
+                </p>
+              </div>
+
+              {/* Omitted Items Progression Bar */}
+              {interactiveOmittedItems.length > 0 && (
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.75rem' }}>
+                    Omissions Progression Checklist
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {interactiveOmittedItems.map((item, idx) => {
+                      const isCurrent = idx === currentOmittedIndex;
+                      const isResolved = item.status === 'resolved';
+                      
+                      let bgCol = 'rgba(239, 68, 68, 0.08)'; // red unresolved
+                      let borderCol = 'rgba(239, 68, 68, 0.3)';
+                      let textCol = '#fca5a5';
+                      let icon = '🔴';
+
+                      if (isResolved) {
+                        bgCol = 'rgba(16, 185, 129, 0.08)'; // green resolved
+                        borderCol = 'rgba(16, 185, 129, 0.3)';
+                        textCol = '#a7f3d0';
+                        icon = '🟢';
+                      } else if (isCurrent) {
+                        bgCol = 'rgba(245, 158, 11, 0.08)'; // yellow current
+                        borderCol = 'var(--warning)';
+                        textCol = '#fde047';
+                        icon = '⚡';
+                      }
+
+                      return (
+                        <React.Fragment key={idx}>
+                          <div 
+                            style={{
+                              background: bgCol,
+                              border: `1px solid ${borderCol}`,
+                              borderRadius: '8px',
+                              padding: '0.4rem 0.75rem',
+                              fontSize: '0.85rem',
+                              fontWeight: isCurrent ? 700 : 500,
+                              color: textCol,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
+                              boxShadow: isCurrent ? '0 0 10px rgba(245, 158, 11, 0.2)' : 'none'
+                            }}
+                          >
+                            <span>{icon}</span>
+                            <span>{item.text}</span>
+                          </div>
+                          {idx < interactiveOmittedItems.length - 1 && (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>➔</span>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Chat Conversation Log */}
+              <div 
+                style={{ 
+                  background: 'rgba(0, 0, 0, 0.15)', 
+                  border: '1px solid var(--border-light)', 
+                  borderRadius: '12px', 
+                  padding: '1.25rem', 
+                  height: '240px', 
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem'
+                }}
+              >
+                {chatMessages.map((msg, idx) => {
+                  const isTutor = msg.sender === 'tutor';
+                  return (
+                    <div 
+                      key={idx} 
+                      style={{ 
+                        alignSelf: isTutor ? 'flex-start' : 'flex-end',
+                        maxWidth: '85%',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem', paddingLeft: isTutor ? '0.25rem' : 0, paddingRight: isTutor ? 0 : '0.25rem', textAlign: isTutor ? 'left' : 'right' }}>
+                        {isTutor ? '🤖 AI Tutor' : '👤 You'}
+                      </div>
+                      <div 
+                        style={{ 
+                          background: isTutor ? 'rgba(255, 255, 255, 0.03)' : 'rgba(139, 92, 246, 0.12)', 
+                          border: isTutor ? '1px solid var(--border-light)' : '1px solid rgba(139, 92, 246, 0.25)', 
+                          color: isTutor ? 'var(--text-primary)' : '#e0dbff',
+                          padding: '0.65rem 0.95rem',
+                          borderRadius: isTutor ? '0 12px 12px 12px' : '12px 0 12px 12px',
+                          fontSize: '0.88rem',
+                          lineHeight: '1.4'
+                        }}
+                      >
+                        {isTutor ? msg.text : highlightAnswerText(msg.text, msg.highlights)}
+                      </div>
+                    </div>
+                  );
+                })}
+                {isChatLoading && (
+                  <div style={{ alignSelf: 'flex-start', maxWidth: '85%' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>
+                      🤖 AI Tutor
+                    </div>
+                    <div 
+                      style={{ 
+                        background: 'rgba(255, 255, 255, 0.03)', 
+                        border: '1px solid var(--border-light)', 
+                        padding: '0.65rem 0.95rem', 
+                        borderRadius: '0 12px 12px 12px',
+                        fontSize: '0.88rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        color: 'var(--text-muted)'
+                      }}
+                    >
+                      <RefreshCw className="animate-float" size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                      Thinking...
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Input Form */}
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendChatMessage();
+                }}
+                style={{ display: 'flex', gap: '0.5rem', margin: 0 }}
+              >
+                <input
+                  type="text"
+                  placeholder={
+                    interactiveOmittedItems.length > 0 && currentOmittedIndex < interactiveOmittedItems.length
+                      ? `Explain what you were thinking or recall "${interactiveOmittedItems[currentOmittedIndex].text}"...`
+                      : "Type your comment or follow-up question..."
+                  }
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  disabled={isChatLoading}
+                  style={{ flex: 1, background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-light)', borderRadius: '8px', color: 'var(--text-primary)', padding: '0.5rem 0.75rem', fontSize: '0.9rem' }}
+                />
+                <button 
+                  type="submit" 
+                  className="btn btn-primary"
+                  disabled={!chatInput.trim() || isChatLoading}
+                  style={{ padding: '0 1.5rem', borderRadius: '8px' }}
+                >
+                  Send
+                </button>
+              </form>
+
             </div>
 
             <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', padding: '1rem 1.25rem', borderRadius: '12px' }}>
