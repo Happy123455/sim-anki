@@ -182,9 +182,37 @@ const getDefaultDeviceName = () => {
   return 'Browser Client';
 };
 
+const getSettingsPayload = (s) => {
+  if (!s) return {};
+  return {
+    model: s.model,
+    targetRetention: s.targetRetention,
+    customInstructions: s.customInstructions,
+    voiceURI: s.voiceURI,
+    syncCode: s.syncCode,
+    relaxedMode: s.relaxedMode || false,
+    stressMode: s.stressMode || false,
+    xp: s.xp || 0,
+    streak: s.streak || 0,
+    lastStudyDate: s.lastStudyDate || ''
+  };
+};
+
 export default function App() {
   const [view, setView] = useState('dashboard'); // 'dashboard' | 'settings' | 'study'
-  const [settings, setSettings] = useState({ apiKey: '', model: 'gemini-3.5-flash', targetRetention: 90, customInstructions: '', voiceURI: '', deviceName: '' });
+  const [settings, setSettings] = useState({ 
+    apiKey: '', 
+    model: 'gemini-3.5-flash', 
+    targetRetention: 90, 
+    customInstructions: '', 
+    voiceURI: '', 
+    deviceName: '',
+    relaxedMode: false,
+    stressMode: false,
+    xp: 0,
+    streak: 0,
+    lastStudyDate: ''
+  });
   const [decks, setDecks] = useState(initialDecks);
   const [cards, setCards] = useState(initialCards);
   const [activeDeckId, setActiveDeckId] = useState(null);
@@ -302,7 +330,12 @@ export default function App() {
         ...(cloudData.settings || {}),
         apiKey: localSettings.apiKey || '',
         githubPAT: patToUse,
-        syncCode: codeToUse
+        syncCode: codeToUse,
+        relaxedMode: cloudData.settings?.relaxedMode !== undefined ? cloudData.settings.relaxedMode : (localSettings.relaxedMode || false),
+        stressMode: cloudData.settings?.stressMode !== undefined ? cloudData.settings.stressMode : (localSettings.stressMode || false),
+        xp: Math.max(cloudData.settings?.xp || 0, localSettings.xp || 0),
+        streak: Math.max(cloudData.settings?.streak || 0, localSettings.streak || 0),
+        lastStudyDate: (cloudData.lastModified || 0) > localTS ? (cloudData.settings?.lastStudyDate || localSettings.lastStudyDate || '') : (localSettings.lastStudyDate || cloudData.settings?.lastStudyDate || '')
       };
 
       const localDecksStr = JSON.stringify(localDecks);
@@ -345,13 +378,7 @@ export default function App() {
         const payload = {
           decks: mergedDecks,
           cards: mergedCards,
-          settings: {
-            model: mergedSettings.model,
-            targetRetention: mergedSettings.targetRetention,
-            customInstructions: mergedSettings.customInstructions,
-            voiceURI: mergedSettings.voiceURI,
-            syncCode: codeToUse
-          },
+          settings: getSettingsPayload(mergedSettings),
           backups: finalCloudBackups,
           lastModified: finalTS
         };
@@ -522,13 +549,7 @@ export default function App() {
           const payload = {
             decks: localDecks,
             cards: localCards,
-            settings: {
-              model: localSettings.model,
-              targetRetention: localSettings.targetRetention,
-              customInstructions: localSettings.customInstructions,
-              voiceURI: localSettings.voiceURI,
-              syncCode: localSettings.syncCode
-            },
+            settings: getSettingsPayload(localSettings),
             backups: localCloudBackups,
             lastModified: now
           };
@@ -594,13 +615,7 @@ export default function App() {
         const payload = {
           decks: newDecks,
           cards: newCards,
-          settings: {
-            model: activeSettings.model,
-            targetRetention: activeSettings.targetRetention,
-            customInstructions: activeSettings.customInstructions,
-            voiceURI: activeSettings.voiceURI,
-            syncCode: activeSettings.syncCode
-          },
+          settings: getSettingsPayload(activeSettings),
           backups: activeBackups,
           lastModified: ts
         };
@@ -779,13 +794,7 @@ export default function App() {
       const payload = {
         decks,
         cards,
-        settings: {
-          model: updatedSettings.model,
-          targetRetention: updatedSettings.targetRetention,
-          customInstructions: updatedSettings.customInstructions,
-          voiceURI: updatedSettings.voiceURI,
-          syncCode: syncCodeToUse
-        },
+        settings: getSettingsPayload(updatedSettings),
         backups: cloudBackups,
         lastModified: now
       };
@@ -946,9 +955,50 @@ export default function App() {
       // Outlier filtering: ignore readings over 120 seconds
       const finalTimeSpent = timeSpent > 120 ? 0 : timeSpent;
 
+      let finalRating = rating;
+      if (settings.relaxedMode && rating === 'again') {
+        finalRating = 'hard';
+      }
+
+      // Calculate XP Gain
+      let xpGain = 5; // Fail gets +5 XP for effort
+      if (finalRating === 'hard') xpGain = 10;
+      else if (finalRating === 'good') xpGain = 15;
+      else if (finalRating === 'easy') xpGain = 20;
+
+      const currentXp = settings.xp || 0;
+      const newXp = currentXp + xpGain;
+
+      // Calculate Streak
+      const todayStr = new Date().toLocaleDateString('en-CA');
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toLocaleDateString('en-CA');
+
+      let newStreak = settings.streak || 0;
+      const lastDate = settings.lastStudyDate || '';
+
+      if (lastDate !== todayStr) {
+        if (lastDate === yesterdayStr) {
+          newStreak += 1;
+        } else {
+          newStreak = 1; // reset/new streak
+        }
+      }
+
+      const updatedSettings = {
+        ...settings,
+        xp: newXp,
+        streak: newStreak,
+        lastStudyDate: todayStr
+      };
+
+      setSettings(updatedSettings);
+      localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
+
       const updatedCards = cards.map(card => {
         if (card.id === cardId) {
-          const nextState = calculateNextState(card, rating, settings.targetRetention);
+          const nextState = calculateNextState(card, finalRating, settings.targetRetention);
           
           // Log history entry
           const historyEntry = {
@@ -958,7 +1008,7 @@ export default function App() {
             logicAnalysis: logicAnalysis || '',
             confidence: confidence || 3,
             timeSpent: finalTimeSpent,
-            rating: rating || 'good',
+            rating: finalRating,
             strengths: evaluation?.strengths || [],
             weaknesses: evaluation?.weaknesses || [],
             correctExplanation: evaluation?.correctExplanation || '',
@@ -980,7 +1030,7 @@ export default function App() {
       // Update local sessionCards to keep stable indices
       setSessionCards(prev => prev.map(c => {
         if (c.id === cardId) {
-          const nextState = calculateNextState(c, rating, settings.targetRetention);
+          const nextState = calculateNextState(c, finalRating, settings.targetRetention);
           const historyEntry = {
             date: new Date().toISOString(),
             userAnswer: userAnswer || '',
@@ -988,7 +1038,7 @@ export default function App() {
             logicAnalysis: logicAnalysis || '',
             confidence: confidence || 3,
             timeSpent: finalTimeSpent,
-            rating: rating || 'good',
+            rating: finalRating,
             strengths: evaluation?.strengths || [],
             weaknesses: evaluation?.weaknesses || [],
             correctExplanation: evaluation?.correctExplanation || '',
@@ -1004,6 +1054,9 @@ export default function App() {
         }
         return c;
       }));
+
+      // Trigger sync with updated settings
+      triggerAutoPush(decks, updatedCards, null, updatedSettings);
     } catch (err) {
       console.error('handleRateCard error:', err);
       alert('Error saving card progress: ' + err.message);
@@ -1200,6 +1253,7 @@ export default function App() {
               voiceURI={settings.voiceURI || ''}
               onRateCard={handleRateCard}
               onClose={() => setView('dashboard')}
+              settings={settings}
             />
           );
         })()

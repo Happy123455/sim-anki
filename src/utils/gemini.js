@@ -656,3 +656,48 @@ You must respond with a JSON object conforming exactly to this schema:
   const rawText = data.candidates[0].content.parts[0].text;
   return cleanAndParseJson(rawText);
 }
+
+/**
+ * Generates a creative, memorable mnemonic device (story, rhyme, or visual shape association)
+ * for a card's question, concept, and any numbers/formulas.
+ * 
+ * @returns {Promise<string>} The generated mnemonic text.
+ */
+export async function generateMnemonic(apiKey, model, question, concept) {
+  const systemPrompt = `You are a memory expert specializing in mnemonic systems (like the Major System, Number-Shape System, visual associations, and creative stories).
+Your task is to take a concept, question, and any numbers/formulas, and generate a fun, vivid, highly-memorable mnemonic device (memory hook) to help the student remember it easily.
+Make the explanation very short (under 60 words). Use rich visual descriptions, weird or funny associations, or simple rhymes.
+If there are numbers involved, explicitly suggest a visual shape connection (e.g. 0 = donut, 1 = candle, 2 = swan, 3 = butterfly, 4 = sailboat, 5 = hook, 6 = cherry, 7 = boomerang, 8 = snowman, 9 = balloon) or a quick word association.
+Keep the tone warm, friendly, and encouraging. Respond in plain text or simple markdown.`;
+
+  const prompt = `
+Question: ${question}
+Concept Focus: ${concept}
+`;
+
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        { role: "user", parts: [{ text: systemPrompt + "\n\n" + prompt }] }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Mnemonic generation failed: ${response.status} - ${errText}`);
+  }
+
+  const result = await response.json();
+  const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("Empty response from Gemini API");
+  }
+  return text.trim();
+}
+

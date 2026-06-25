@@ -31,6 +31,8 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [showPat, setShowPat] = useState(false);
   const [backups, setBackups] = useState([]);
   const [deviceName, setDeviceName] = useState(settings.deviceName || '');
+  const [relaxedMode, setRelaxedMode] = useState(settings.relaxedMode || false);
+  const [stressMode, setStressMode] = useState(settings.stressMode || false);
 
   useEffect(() => {
     const loaded = [];
@@ -82,11 +84,13 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       setSyncCode(settings.syncCode || '');
       setGithubPAT(settings.githubPAT || '');
       setDeviceName(settings.deviceName || '');
+      setRelaxedMode(settings.relaxedMode || false);
+      setStressMode(settings.stressMode || false);
     }
   }, [settings]);
 
   const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode });
     setSaveStatus(true);
     setTimeout(() => setSaveStatus(false), 2000);
   };
@@ -97,12 +101,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode });
     const code = await onPushSync(githubPAT, syncCode);
     if (code) {
       setSyncCode(code);
       // Save again with the returned gist ID
-      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName });
+      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName, relaxedMode, stressMode });
     }
   };
 
@@ -115,7 +119,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode });
     await onPullSync(syncCode, githubPAT);
   };
 
@@ -299,6 +303,47 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
             **85% to 90% is the optimal range.** 
             Higher retention targets (e.g. 95%) will schedule reviews much sooner (tougher pacing) to guarantee memory retention.
           </p>
+        </div>
+
+        {/* Cognitive & Pacing Support Modes */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '1.5rem 0', flexWrap: 'wrap' }}>
+          {/* Relaxed Mode Toggle */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', textAlign: 'left' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input 
+                type="checkbox"
+                id="relaxedModeToggle"
+                checked={relaxedMode}
+                onChange={(e) => setRelaxedMode(e.target.checked)}
+                style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#10b981' }}
+              />
+              <label htmlFor="relaxedModeToggle" style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
+                🧘 Relaxed Mode
+              </label>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, paddingLeft: '1.6rem', lineHeight: '1.4' }}>
+              Failed cards are rescheduled as **HARD** instead of **AGAIN** to prevent lapses and severe card progress resets.
+            </p>
+          </div>
+
+          {/* Gentle AI / Stress Mode Toggle */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', textAlign: 'left' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input 
+                type="checkbox"
+                id="stressModeToggle"
+                checked={stressMode}
+                onChange={(e) => setStressMode(e.target.checked)}
+                style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#ec4899' }}
+              />
+              <label htmlFor="stressModeToggle" style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
+                🌸 Gentle AI Mode
+              </label>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, paddingLeft: '1.6rem', lineHeight: '1.4' }}>
+              Instructs the AI to give ultra-short (under 30 words), comforting explanations and visual number analogies.
+            </p>
+          </div>
         </div>
 
         {/* Custom AI Tutor Instructions */}

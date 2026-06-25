@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Download } from 'lucide-react';
+import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Download, Trophy, Flame, Sparkles } from 'lucide-react';
 import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 
@@ -392,6 +392,60 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           </button>
         </div>
       </div>
+
+      {/* ──── Player Stats & Leveling Card ──── */}
+      {(() => {
+        const xp = settings.xp || 0;
+        const level = Math.floor(xp / 100) + 1;
+        const xpInCurrentLevel = xp % 100;
+        const xpPercentage = (xpInCurrentLevel / 100) * 100;
+        const streak = settings.streak || 0;
+
+        return (
+          <div className="glass-panel animate-fade-in" style={{ padding: '1.5rem 2rem', background: 'rgba(20, 15, 45, 0.45)', border: '1px solid rgba(139, 92, 246, 0.2)', display: 'grid', gridTemplateColumns: '1fr auto', gap: '2rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <Trophy size={20} style={{ color: '#fbbf24' }} />
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                  Player Profile (Level {level})
+                </h3>
+                {settings.relaxedMode && (
+                  <span className="badge animate-float" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', fontSize: '0.7rem', padding: '0.2rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                    🧘 Relaxed Mode
+                  </span>
+                )}
+                {settings.stressMode && (
+                  <span className="badge animate-float" style={{ background: 'rgba(236, 72, 153, 0.15)', color: '#f472b6', border: '1px solid rgba(236, 72, 153, 0.3)', fontSize: '0.7rem', padding: '0.2rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                    🌸 Gentle AI
+                  </span>
+                )}
+              </div>
+
+              {/* Progress bar and XP details */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  <span>Progress to Level {level + 1}</span>
+                  <span>{xpInCurrentLevel} / 100 XP (Total: {xp} XP)</span>
+                </div>
+                <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '999px', overflow: 'hidden' }}>
+                  <div style={{ width: `${xpPercentage}%`, height: '100%', background: 'linear-gradient(90deg, #c084fc, #f472b6)', borderRadius: '999px', transition: 'width 0.5s ease-out' }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Streak Column */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(249, 115, 22, 0.06)', border: '1px solid rgba(249, 115, 22, 0.15)', padding: '0.75rem 1.5rem', borderRadius: '16px', minWidth: '150px', justifyContent: 'center' }}>
+              <Flame size={28} fill={streak > 0 ? '#f97316' : 'none'} color={streak > 0 ? '#f97316' : 'var(--text-muted)'} />
+              <div style={{ textAlign: 'left' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Study Streak</span>
+                <span style={{ fontSize: '1.25rem', fontWeight: 800, color: streak > 0 ? '#f97316' : 'var(--text-secondary)' }}>
+                  {streak} {streak === 1 ? 'Day' : 'Days'}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Decks Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem' }}>

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, Activity, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
-import { evaluateAnswer, chatTutorStep } from '../utils/gemini';
+import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
+import { evaluateAnswer, chatTutorStep, generateMnemonic } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
 import HighlightingTTS from './HighlightingTTS';
 import InlineTTSButton from './InlineTTSButton';
-import { playSuccess, playFailure } from '../utils/sound';
+import { playSuccess, playFailure, playSimWin } from '../utils/sound';
 
 
 // Simple markdown parsing helper
@@ -279,14 +279,109 @@ const renderCardMedia = (card) => {
   );
 };
 
-export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose }) {
+// Lightweight canvas-based confetti animation
+function ConfettiCanvas() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let animationFrameId;
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const colors = ['#a78bfa', '#ec4899', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+    const confettiCount = 120;
+    const confetti = [];
+
+    for (let i = 0; i < confettiCount; i++) {
+      confetti.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height - canvas.height,
+        r: Math.random() * 5 + 4,
+        d: Math.random() * canvas.height,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        tilt: Math.random() * 10 - 5,
+        tiltAngleIncremental: Math.random() * 0.07 + 0.02,
+        tiltAngle: 0
+      });
+    }
+
+    function draw() {
+      if (!canvas) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      let remaining = false;
+      confetti.forEach((p, index) => {
+        p.tiltAngle += p.tiltAngleIncremental;
+        p.y += (Math.cos(p.d) + 3 + p.r / 2) / 2.5;
+        p.x += Math.sin(p.tiltAngle) * 0.5;
+        p.tilt = Math.sin(p.tiltAngle - index / 3) * 15;
+
+        if (p.y <= canvas.height) {
+          remaining = true;
+        }
+
+        ctx.beginPath();
+        ctx.lineWidth = p.r;
+        ctx.strokeStyle = p.color;
+        ctx.moveTo(p.x + p.tilt + p.r / 2, p.y);
+        ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 2);
+        ctx.stroke();
+      });
+
+      if (remaining) {
+        animationFrameId = requestAnimationFrame(draw);
+      }
+    }
+
+    draw();
+
+    const handleResize = () => {
+      if (canvas) {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex: 9999
+      }}
+    />
+  );
+}
+
+export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {} }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const currentCard = DueCards[currentIndex];
 
-  const [step, setStep] = useState('question'); // 'question' | 'grading' | 'simulation'
+  const [step, setStep] = useState('question'); // 'question' | 'grading' | 'simulation' | 'completed'
   const [userAnswer, setUserAnswer] = useState('');
   const [confidence, setConfidence] = useState(3);
   const [hoverConfidence, setHoverConfidence] = useState(null);
+  
+  // Mnemonic assistance states
+  const [mnemonicText, setMnemonicText] = useState('');
+  const [isMnemonicLoading, setIsMnemonicLoading] = useState(false);
+  const [mnemonicError, setMnemonicError] = useState(null);
   
   // Timer State
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -348,6 +443,17 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     setEvaluation(null);
     setGradingStatus('Initializing grading request...');
 
+    // Custom instructions for Gentle AI / Stress Mode
+    let finalCustomInstructions = customInstructions;
+    if (settings.stressMode) {
+      finalCustomInstructions = `[GENTLE AI MODE ACTIVE]: The student is feeling burnt out or stressed. 
+1. Use an extremely comforting, warm, encouraging, and supportive tone.
+2. Keep the Concept Correction & Explanation ("correctExplanation") ultra-brief (under 40 words total) with a simple real-world analogy.
+3. Be highly forgiving. In logicAnalysis, provide a brief 1-sentence supportive comment.
+4. If there are numbers or formulas, explain them using visual shape analogies (e.g. 1 = candle, 2 = swan) or a quick visual association.
+` + (customInstructions ? `\n` + customInstructions : '');
+    }
+
     try {
       const result = await evaluateAnswer(
         apiKey,
@@ -359,7 +465,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
         confidence,
         currentCard.state?.consecutiveFails || 0,
         currentCard.history || [],
-        customInstructions,
+        finalCustomInstructions,
         (status) => setGradingStatus(status)
       );
       
@@ -404,6 +510,22 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       alert(`Grading Error:\n\n${errMsg}`);
     } finally {
       setIsGradingLoading(false);
+    }
+  };
+
+  const handleGenerateMnemonic = async () => {
+    if (!currentCard) return;
+    setIsMnemonicLoading(true);
+    setMnemonicError(null);
+    setMnemonicText('');
+    try {
+      const text = await generateMnemonic(apiKey, model, currentCard.question, currentCard.concept);
+      setMnemonicText(text);
+    } catch (err) {
+      console.error(err);
+      setMnemonicError(err.message || 'Failed to generate mnemonic. Please check API settings.');
+    } finally {
+      setIsMnemonicLoading(false);
     }
   };
 
@@ -504,20 +626,94 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setConfidence(3);
       setEvaluation(null);
       setShowPastAnswers(false);
-
-
+      setMnemonicText('');
+      setIsMnemonicLoading(false);
+      setMnemonicError(null);
 
       if (currentIndex + 1 < DueCards.length) {
         setCurrentIndex(prev => prev + 1);
         setStep('question');
       } else {
-        onClose(); // End session when all due cards reviewed
+        setStep('completed');
+        playSimWin();
       }
     } catch (err) {
       console.error('Save & Proceed error:', err);
       alert('Error saving progress: ' + err.message);
     }
   };
+
+  if (step === 'completed') {
+    const xp = settings.xp || 0;
+    const level = Math.floor(xp / 100) + 1;
+    const xpInCurrentLevel = xp % 100;
+    const xpPercentage = (xpInCurrentLevel / 100) * 100;
+    const streak = settings.streak || 0;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '70vh', position: 'relative' }}>
+        <ConfettiCanvas />
+        
+        <div className="glass-panel animate-fade-in" style={{ padding: '3.5rem 2.5rem', border: '1px solid rgba(139, 92, 246, 0.3)', borderRadius: '24px', textAlign: 'center', width: '100%', maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '2rem', boxShadow: '0 0 50px rgba(139, 92, 246, 0.15)', background: 'rgba(15, 10, 30, 0.65)', backdropFilter: 'blur(20px)' }}>
+          <div>
+            <div style={{ display: 'inline-flex', background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(236, 72, 153, 0.2))', padding: '1.25rem', borderRadius: '50%', border: '1px solid rgba(245, 158, 11, 0.4)', marginBottom: '1rem' }}>
+              <Trophy size={48} style={{ color: '#fbbf24' }} />
+            </div>
+            <h2 style={{ background: 'linear-gradient(135deg, #a78bfa, #f472b6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '2rem', fontWeight: 800, margin: 0 }}>
+              Session Complete!
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginTop: '0.5rem' }}>
+              Amazing effort! You completed all the due cards in this deck.
+            </p>
+          </div>
+
+          {/* Stats Box */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '1rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cards Studied</span>
+              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0.25rem 0 0 0' }}>{DueCards.length}</p>
+            </div>
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '1rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>XP Earned</span>
+              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#34d399', margin: '0.25rem 0 0 0' }}>+{DueCards.length * 15} XP</p>
+            </div>
+          </div>
+
+          {/* Level Progress */}
+          <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', borderRadius: '16px', padding: '1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <Sparkles size={16} /> Level {level}
+              </span>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                {xpInCurrentLevel} / 100 XP
+              </span>
+            </div>
+            
+            {/* Progress bar container */}
+            <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '999px', overflow: 'hidden' }}>
+              <div style={{ width: `${xpPercentage}%`, height: '100%', background: 'linear-gradient(90deg, #c084fc, #f472b6)', borderRadius: '999px', transition: 'width 1s ease-out' }} />
+            </div>
+            
+            {streak > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.85rem', fontSize: '0.85rem', color: '#f97316', fontWeight: 600 }}>
+                <Flame size={16} fill="#f97316" />
+                <span>{streak} Day Streak! Keep it up!</span>
+              </div>
+            )}
+          </div>
+
+          <button 
+            className="btn btn-primary" 
+            onClick={onClose}
+            style={{ width: '100%', padding: '0.85rem', fontSize: '1rem', fontWeight: 700, borderRadius: '12px', gap: '0.5rem' }}
+          >
+            Awesome! Return to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentCard) {
     return (
@@ -1003,6 +1199,49 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 style={{ fontSize: '0.92rem', color: 'var(--text-secondary)' }}
               />
               <HighlightingTTS text={evaluation.correctExplanation} voiceURI={voiceURI} />
+
+              {/* Memory Mnemonic assistance */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleGenerateMnemonic}
+                  disabled={isMnemonicLoading}
+                  style={{
+                    alignSelf: 'flex-start',
+                    background: 'rgba(236, 72, 153, 0.1)',
+                    border: '1px solid rgba(236, 72, 153, 0.3)',
+                    color: '#f472b6',
+                    gap: '0.5rem',
+                    fontSize: '0.85rem',
+                    padding: '0.5rem 1.25rem',
+                    borderRadius: '8px',
+                    cursor: isMnemonicLoading ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  <BrainCircuit size={16} /> 
+                  {isMnemonicLoading ? 'Generating Memory Hook...' : '🧠 Generate Memory Hook'}
+                </button>
+
+                {mnemonicError && (
+                  <div style={{ color: 'var(--danger)', fontSize: '0.82rem', textAlign: 'left', marginTop: '0.25rem' }}>
+                    {mnemonicError}
+                  </div>
+                )}
+
+                {mnemonicText && (
+                  <div className="glass-panel animate-fade-in" style={{ padding: '1.25rem', background: 'rgba(236, 72, 153, 0.04)', border: '1px solid rgba(236, 72, 153, 0.15)', borderRadius: '10px', textAlign: 'left', marginTop: '0.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '0.8rem', color: '#f472b6', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <Sparkles size={14} /> AI Memory Hook
+                      </span>
+                      <InlineTTSButton text={mnemonicText} voiceURI={voiceURI} />
+                    </div>
+                    <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
+                      {mnemonicText}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Suggested Rating Badging */}
@@ -1062,25 +1301,38 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           </div>
 
           {/* FSRS Auto-Scheduling Summary & Save Button */}
-          <div className="glass-panel" style={{ padding: '1.5rem 2rem', display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', marginTop: '1rem' }}>
-            <div style={{ textAlign: 'center' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>FSRS Auto-Scheduled Interval</span>
-              <h4 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-primary)', marginTop: '0.15rem' }}>
-                Next Review: {getFriendlyInterval(currentCard, String(evaluation.suggestedRating || 'good').toLowerCase(), targetRetention)}
-              </h4>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                Automatically calculated based on your score of {evaluation.score}% (FSRS status: {String(evaluation.suggestedRating || 'good').toUpperCase()}).
-              </p>
-            </div>
+          {(() => {
+            const suggestedRating = String(evaluation.suggestedRating || 'good').toLowerCase();
+            const finalRating = (settings.relaxedMode && suggestedRating === 'again') ? 'hard' : suggestedRating;
             
-            <button 
-              className="btn btn-primary" 
-              onClick={() => handleScheduleRating(String(evaluation.suggestedRating || 'good').toLowerCase())}
-              style={{ width: '100%', maxWidth: '280px', gap: '0.5rem' }}
-            >
-              Save & Proceed <ArrowRight size={16} />
-            </button>
-          </div>
+            return (
+              <div className="glass-panel" style={{ padding: '1.5rem 2rem', display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', marginTop: '1rem' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>FSRS Auto-Scheduled Interval</span>
+                  <h4 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-primary)', marginTop: '0.15rem' }}>
+                    Next Review: {getFriendlyInterval(currentCard, finalRating, targetRetention)}
+                  </h4>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                    {settings.relaxedMode && suggestedRating === 'again' ? (
+                      <span style={{ color: '#34d399', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontWeight: 600 }}>
+                        <Sparkles size={12} /> 🧘 Relaxed Mode Active: Rescheduled as HARD to prevent penalty.
+                      </span>
+                    ) : (
+                      `Automatically calculated based on your score of ${evaluation.score}% (FSRS status: ${finalRating.toUpperCase()}).`
+                    )}
+                  </p>
+                </div>
+                
+                <button 
+                  className="btn btn-primary" 
+                  onClick={() => handleScheduleRating(finalRating)}
+                  style={{ width: '100%', maxWidth: '280px', gap: '0.5rem' }}
+                >
+                  Save & Proceed <ArrowRight size={16} />
+                </button>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
