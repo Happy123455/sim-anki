@@ -403,6 +403,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [interactiveOmittedItems, setInteractiveOmittedItems] = useState([]);
   const [currentOmittedIndex, setCurrentOmittedIndex] = useState(0);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const isTutoringComplete = interactiveOmittedItems.length === 0 || interactiveOmittedItems.every(item => item.status === 'resolved');
 
 
 
@@ -897,7 +898,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             </div>
 
             {/* Answer & Reference Comparison Box */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', textAlign: 'left' }}>
+            {isTutoringComplete && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', textAlign: 'left' }}>
               <div style={{ background: 'rgba(255, 255, 255, 0.01)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
                 <h4 style={{ color: 'var(--text-primary)', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                   Your Answer
@@ -941,6 +944,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 </ul>
               </div>
             </div>
+
+              </>
+            )}
 
             {/* Interactive Concept Tutor */}
             <div className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', textAlign: 'left' }}>
@@ -1116,7 +1122,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
             </div>
 
-            <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', padding: '1rem 1.25rem', borderRadius: '12px' }}>
+            {isTutoringComplete && (
+              <>
+                <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', padding: '1rem 1.25rem', borderRadius: '12px' }}>
               <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                 <span>Logical Analysis</span>
                 <InlineTTSButton text={evaluation.logicAnalysis || ''} voiceURI={voiceURI} />
@@ -1298,10 +1306,12 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 onClick={(e) => e.target.select()}
               />
             </div>
+              </>
+            )}
           </div>
 
           {/* FSRS Auto-Scheduling Summary & Save Button */}
-          {(() => {
+          {isTutoringComplete && (() => {
             const suggestedRating = String(evaluation.suggestedRating || 'good').toLowerCase();
             const finalRating = (settings.relaxedMode && suggestedRating === 'again') ? 'hard' : suggestedRating;
             
