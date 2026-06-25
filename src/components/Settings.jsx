@@ -30,6 +30,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [githubPAT, setGithubPAT] = useState(settings.githubPAT || '');
   const [showPat, setShowPat] = useState(false);
   const [backups, setBackups] = useState([]);
+  const [deviceName, setDeviceName] = useState(settings.deviceName || '');
 
   useEffect(() => {
     const loaded = [];
@@ -80,11 +81,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       setVoiceURI(settings.voiceURI || '');
       setSyncCode(settings.syncCode || '');
       setGithubPAT(settings.githubPAT || '');
+      setDeviceName(settings.deviceName || '');
     }
   }, [settings]);
 
   const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName });
     setSaveStatus(true);
     setTimeout(() => setSaveStatus(false), 2000);
   };
@@ -95,12 +97,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName });
     const code = await onPushSync(githubPAT, syncCode);
     if (code) {
       setSyncCode(code);
       // Save again with the returned gist ID
-      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT });
+      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName });
     }
   };
 
@@ -113,7 +115,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName });
     await onPullSync(syncCode, githubPAT);
   };
 
@@ -313,6 +315,21 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
           </p>
         </div>
 
+        {/* Device Name Configuration */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
+          <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Device Name (For Cloud & Local Backups)</label>
+          <input
+            type="text"
+            placeholder="e.g. Macbook Pro, My iPhone, iPad Air"
+            value={deviceName}
+            onChange={(e) => setDeviceName(e.target.value)}
+            style={{ fontSize: '0.9rem' }}
+          />
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            Give this device a recognizable name so you know where each backup snapshot originated from.
+          </p>
+        </div>
+
         {/* Action Button */}
         <button className="btn btn-primary" onClick={handleSave} style={{ alignSelf: 'flex-start', gap: '0.5rem' }}>
           <Save size={18} /> {saveStatus ? 'Settings Saved!' : 'Save Configurations'}
@@ -465,7 +482,9 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
                     }}
                   >
                     <div>
-                      <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>Cloud Backup #{idx + 1}</strong>
+                      <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>
+                        Cloud Backup #{idx + 1} {b.deviceName ? `[${b.deviceName}]` : ''}
+                      </strong>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
                         ({new Date(b.timestamp).toLocaleString()})
                       </span>
@@ -513,7 +532,9 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
                     }}
                   >
                     <div>
-                      <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>Local Backup #{b.index}</strong>
+                      <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>
+                        Local Backup #{b.index} {b.deviceName ? `[${b.deviceName}]` : ''}
+                      </strong>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
                         ({new Date(b.timestamp).toLocaleString()})
                       </span>

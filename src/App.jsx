@@ -173,9 +173,18 @@ const initialCards = [
   }
 ];
 
+const getDefaultDeviceName = () => {
+  const ua = navigator.userAgent.toLowerCase();
+  if (ua.includes('ipad') || ua.includes('iphone')) return 'iOS Device';
+  if (ua.includes('android')) return 'Android Device';
+  if (ua.includes('macintosh') || ua.includes('mac os')) return 'Mac';
+  if (ua.includes('windows')) return 'Windows PC';
+  return 'Browser Client';
+};
+
 export default function App() {
   const [view, setView] = useState('dashboard'); // 'dashboard' | 'settings' | 'study'
-  const [settings, setSettings] = useState({ apiKey: '', model: 'gemini-3.5-flash', targetRetention: 90, customInstructions: '', voiceURI: '' });
+  const [settings, setSettings] = useState({ apiKey: '', model: 'gemini-3.5-flash', targetRetention: 90, customInstructions: '', voiceURI: '', deviceName: '' });
   const [decks, setDecks] = useState(initialDecks);
   const [cards, setCards] = useState(initialCards);
   const [activeDeckId, setActiveDeckId] = useState(null);
@@ -213,8 +222,12 @@ export default function App() {
       if (nextIdx > 3) nextIdx = 1;
       localStorage.setItem('simanki_backup_index', String(nextIdx));
 
+      const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
+      const deviceName = localSettings.deviceName || getDefaultDeviceName();
+
       const backupData = {
         timestamp: Date.now(),
+        deviceName,
         decks: currentDecks,
         cards: currentCards
       };
@@ -225,8 +238,12 @@ export default function App() {
   };
 
   const createNewCloudBackup = (currentDecks, currentCards, currentCloudBackups) => {
+    const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
+    const deviceName = localSettings.deviceName || getDefaultDeviceName();
+
     const newBackup = {
       timestamp: Date.now(),
+      deviceName,
       decks: currentDecks,
       cards: currentCards
     };
@@ -447,7 +464,11 @@ export default function App() {
           setSyncError(null);
         }
       } catch (e) {
-        setSyncError(e.message);
+        let msg = e.message;
+        if (msg && msg.toLowerCase().includes("failed to fetch")) {
+          msg = "Failed to fetch. Mobile browser content blockers or VPNs might be blocking Gist API queries.";
+        }
+        setSyncError(msg);
         console.error("Auto-sync Gist background poll failed:", e);
       }
     }, 25000); // Poll every 25 seconds
@@ -750,7 +771,11 @@ export default function App() {
       return gistId;
     } catch (err) {
       console.error(err);
-      alert(`Sync failed: ${err.message}`);
+      let friendlyMessage = err.message;
+      if (err.message && err.message.toLowerCase().includes("failed to fetch")) {
+        friendlyMessage = `Failed to fetch (CORS/Network error).\n\nOn mobile devices, this usually means a Safari Content Blocker, AdBlocker, or VPN is blocking requests to api.github.com.\n\nPlease check your content blockers and ensure you have an active network connection.`;
+      }
+      alert(`Sync failed: ${friendlyMessage}`);
       return null;
     } finally {
       setIsSyncing(false);
@@ -803,7 +828,11 @@ export default function App() {
       }
     } catch (err) {
       console.error(err);
-      alert(`Sync Pull failed: ${err.message}`);
+      let friendlyMessage = err.message;
+      if (err.message && err.message.toLowerCase().includes("failed to fetch")) {
+        friendlyMessage = `Failed to fetch (CORS/Network error).\n\nOn mobile devices, this usually means a Safari Content Blocker, AdBlocker, or VPN is blocking requests to api.github.com.\n\nPlease:\n1. Turn off any mobile adblockers or content filters.\n2. Check that both Gist ID and GitHub PAT are set correctly (Secret Gists require authentication!).\n3. Verify your internet connection.`;
+      }
+      alert(`Sync Pull failed: ${friendlyMessage}`);
       return false;
     } finally {
       setIsSyncing(false);
