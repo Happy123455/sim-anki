@@ -57,7 +57,6 @@ export async function pushToGist(pat, gistId, payload) {
   const headers = {
     'Accept': 'application/vnd.github+json',
     'Authorization': `Bearer ${cleanPat}`,
-    'X-GitHub-Api-Version': '2022-11-28',
     'Content-Type': 'application/json'
   };
 
@@ -113,8 +112,7 @@ export async function pullFromGist(pat, gistId) {
   }
   
   const headers = {
-    'Accept': 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28'
+    'Accept': 'application/vnd.github+json'
   };
   
   const cleanPat = sanitizeToken(pat);

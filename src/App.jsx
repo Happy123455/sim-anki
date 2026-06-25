@@ -368,9 +368,13 @@ export default function App() {
       setSyncError(null);
       return true;
     } catch (err) {
-      setSyncError(err.message);
+      const msg = err.message || '';
+      // Don't set sticky syncError for transient network failures
+      if (!msg.toLowerCase().includes("failed to fetch") && !msg.toLowerCase().includes("networkerror")) {
+        setSyncError(msg);
+      }
       console.error("performMergeSync failed:", err);
-      throw err;
+      return false;
     }
   };
 
@@ -486,17 +490,21 @@ export default function App() {
           setSyncError(null);
         }
       } catch (e) {
-        let msg = e.message;
-        if (msg && msg.toLowerCase().includes("failed to fetch")) {
-          msg = "Failed to fetch. Mobile browser content blockers or VPNs might be blocking Gist API queries.";
+        const msg = e.message || '';
+        // Silently ignore transient network errors (e.g. phone sleeping, wifi switching).
+        // These resolve themselves on the next poll cycle. Only show persistent errors for
+        // genuine API failures (auth issues, missing gist, etc.)
+        if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("networkerror")) {
+          console.warn("Auto-sync poll: transient network error, will retry next cycle.", msg);
+        } else {
+          setSyncError(msg);
+          console.error("Auto-sync Gist background poll failed:", e);
         }
-        setSyncError(msg);
-        console.error("Auto-sync Gist background poll failed:", e);
       }
     }, 25000); // Poll every 25 seconds
 
     return () => clearInterval(interval);
-  }, [settings.syncCode, settings.githubPAT, isSyncing]);
+  }, [settings.syncCode, settings.githubPAT]);
 
   // Anki-like auto-sync: push on tab hide / page close, pull on tab return
   useEffect(() => {
@@ -532,7 +540,6 @@ export default function App() {
               headers: {
                 'Accept': 'application/vnd.github+json',
                 'Authorization': `Bearer ${pat}`,
-                'X-GitHub-Api-Version': '2022-11-28',
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
@@ -602,7 +609,8 @@ export default function App() {
         setSyncError(null);
         console.log("Auto-sync background Gist push success:", activeSettings.syncCode, "timestamp:", ts);
       } catch (e) {
-        setSyncError(e.message);
+        // Don't set persistent syncError for background auto-push failures —
+        // transient network hiccups or rate limits shouldn't paint the badge red permanently.
         console.error("Auto-sync background Gist push failed:", e);
       } finally {
         setIsSyncing(false);
@@ -751,8 +759,7 @@ export default function App() {
       const testRes = await fetch("https://api.github.com/user", {
         headers: { 
           'Authorization': `Bearer ${patToUse}`,
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28'
+          'Accept': 'application/vnd.github+json'
         }
       });
       if (!testRes.ok) {
@@ -823,8 +830,7 @@ export default function App() {
         const testRes = await fetch("https://api.github.com/user", {
           headers: { 
             'Authorization': `Bearer ${patToUse}`,
-            'Accept': 'application/vnd.github+json',
-            'X-GitHub-Api-Version': '2022-11-28'
+            'Accept': 'application/vnd.github+json'
           }
         });
         if (!testRes.ok) {
