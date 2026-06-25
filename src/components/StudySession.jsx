@@ -377,6 +377,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [userAnswer, setUserAnswer] = useState('');
   const [confidence, setConfidence] = useState(3);
   const [hoverConfidence, setHoverConfidence] = useState(null);
+  const [showHint, setShowHint] = useState(false);
   
   // Mnemonic assistance states
   const [mnemonicText, setMnemonicText] = useState('');
@@ -411,6 +412,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   useEffect(() => {
     if (step === 'question' && currentCard) {
       setElapsedTime(0);
+      setShowHint(!currentCard.history || currentCard.history.length === 0);
       timerRef.current = setInterval(() => {
         setElapsedTime(prev => prev + 1);
       }, 1000);
@@ -779,6 +781,27 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
           {renderCardMedia(currentCard)}
 
+          {/* Hint Feature */}
+          <div style={{ textAlign: 'left', marginTop: '-0.5rem' }}>
+            {!showHint ? (
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowHint(true)}
+                style={{ padding: '0.35rem 0.85rem', fontSize: '0.85rem', gap: '0.35rem', background: 'rgba(245, 158, 11, 0.1)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.25)' }}
+              >
+                💡 Show Hint (Concept)
+              </button>
+            ) : (
+              <div className="glass-panel animate-fade-in" style={{ padding: '1.25rem', background: 'rgba(245, 158, 11, 0.05)', border: '1px dashed rgba(245, 158, 11, 0.3)', borderRadius: '10px' }}>
+                <h4 style={{ color: '#fbbf24', fontSize: '0.9rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  💡 Concept Hint {(!currentCard.history || currentCard.history.length === 0) ? "(Auto-shown for first review)" : ""}
+                </h4>
+                <div style={{ fontSize: '0.95rem', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
+                  {currentCard.concept}
+                </div>
+              </div>
+            )}
+          </div>
 
 
           {/* User Text Answer */}
