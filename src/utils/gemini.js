@@ -101,11 +101,61 @@ export async function checkApiKey(apiKey, model = "gemini-3.5-flash") {
 }
 
 /**
+ * Automatically categorizes an array of cards into 'logic', 'rote', or 'vocabulary'
+ */
+export async function autoCategorizeCards(apiKey, model, cards) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+  
+  const systemPrompt = `You are an expert AI instructional designer. Your task is to categorize a list of flashcards.
+For each card, classify its 'cardType' as EXACTLY ONE of the following:
+- "rote": Simple facts, numbers, dates, equations without proofs, names. Needs strict memorization.
+- "vocabulary": Language translation, terminology definitions, word meanings.
+- "logic": Conceptual questions, "how" or "why" questions, mechanisms, multi-step reasoning, comparisons.
+
+Respond with a JSON array where each object has "id" (the card's ID) and "cardType" (the determined category).
+`;
+
+  // We only send id, question, and concept to save tokens
+  const payloadCards = cards.map(c => ({ id: c.id, question: c.question, concept: c.concept }));
+  
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt + "\n\nCards: " + JSON.stringify(payloadCards) }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              id: { type: "STRING" },
+              cardType: { type: "STRING", enum: ["rote", "vocabulary", "logic", "default"] }
+            },
+            required: ["id", "cardType"]
+          }
+        }
+      }
+    })
+  });
+
+  if (!response.ok) throw new Error("Categorization request failed");
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Invalid response format");
+  
+  return JSON.parse(text);
+}
+
+
+/**
  * Evaluates the user's typed response against the correct concept.
  * 
  * @returns {Promise<Object>} The graded report JSON object.
  */
-export async function evaluateAnswer(apiKey, model, question, concept, userAnswer, timeSpent, confidence, consecutiveFails = 0, history = [], customInstructions = "", onStatusUpdate = () => {}) {
+export async function evaluateAnswer(apiKey, model, question, concept, userAnswer, timeSpent, confidence, consecutiveFails = 0, history = [], customInstructions = "", onStatusUpdate = () => {}, cardType = "default") {
   const isNewCard = !history || history.length === 0;
   const isEli5 = consecutiveFails >= 4 || isNewCard;
 
@@ -139,6 +189,17 @@ Analyze whether they are:
 Take into account how long it has been since their last review (today is ${new Date().toLocaleDateString()}).
 Your "logicAnalysis" MUST briefly comment on this historical comparison (e.g. "You are still making the same mistake of..." or "You corrected your previous error about X, but you made a new mistake in Y.").
 ` : ''}
+
+${cardType === 'rote' || cardType === 'vocabulary' ? `
+[ROTE/VOCABULARY CARD REQUIREMENT]:
+This is a "${cardType}" card, which requires memorization of facts, numbers, or simple translations rather than deep logic.
+1. DO NOT generate extensive "Logical Gaps" or deep conceptual breakdowns.
+2. In your "logicAnalysis", focus purely on explaining the literal gap (e.g., "You guessed 10, the actual answer is 100").
+3. Your "correctExplanation" should be an extremely brief, punchy statement of the fact, ideally paired with a memorable mnemonic or visual hook to help them memorize it.
+` : `
+[LOGIC CARD REQUIREMENT]:
+This is a logic or conceptual card. Focus on identifying logical gaps, misconceptions, and structural errors in the student's reasoning.
+`}
 
 ${isNewCard ? `[ELI5 REQUIREMENT] This is a brand new concept the student is learning for the first time. You MUST explain the entire concept using an extreme "Explain Like I'm 5" (ELI5) style. Use an analogy appropriate for a 5-year-old child (e.g. playing with blocks, cakes, toy trucks) and simple vocabulary to introduce the concept clearly.` : 
   (isEli5 ? `[ELI5 REQUIREMENT] The student has failed to answer this card correctly ${consecutiveFails} times. You MUST explain the entire concept using an extreme "Explain Like I'm 5" (ELI5) style. Use an analogy appropriate for a 5-year-old child (e.g. playing with blocks, cakes, toy trucks) and simple vocabulary.` : '')}

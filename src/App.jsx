@@ -194,7 +194,8 @@ const getSettingsPayload = (s) => {
     stressMode: s.stressMode || false,
     xp: s.xp || 0,
     streak: s.streak || 0,
-    lastStudyDate: s.lastStudyDate || ''
+    lastStudyDate: s.lastStudyDate || '',
+    unlockAllFeatures: s.unlockAllFeatures ?? true
   };
 };
 
@@ -209,6 +210,7 @@ export default function App() {
     deviceName: '',
     relaxedMode: false,
     stressMode: false,
+    unlockAllFeatures: true,
     xp: 0,
     streak: 0,
     lastStudyDate: ''
@@ -912,6 +914,20 @@ export default function App() {
     saveCards([...cards, newCard]);
   };
 
+  const handleUpdateCards = (updatedCards) => {
+    setCards(prev => {
+      const copy = [...prev];
+      updatedCards.forEach(uc => {
+        const idx = copy.findIndex(c => c.id === uc.id);
+        if (idx !== -1) {
+          copy[idx] = { ...copy[idx], ...uc };
+        }
+      });
+      saveCards(copy); // Persist to local storage
+      return copy;
+    });
+  };
+
   const handleDeleteCard = (cardId) => {
     const updatedCards = cards.filter(c => c.id !== cardId);
     saveCards(updatedCards);
@@ -933,20 +949,36 @@ export default function App() {
   };
 
   // --- STUDY SESSION CONTROL HANDLERS ---
-  const handleStartStudy = (deckId) => {
+  const handleStartStudy = (deckId, options = { filter: 'due', type: 'all' }) => {
     setActiveDeckId(deckId);
     
-    // Get due cards once and freeze them for the session
     const deckCards = cards.filter(c => c.deckId === deckId);
-    const due = deckCards.filter(card => {
-      if (!card.state || !card.state.dueDate) return true;
-      const due = new Date(card.state.dueDate);
-      const now = new Date();
-      now.setHours(23, 59, 59, 999);
-      return due <= now;
-    });
+    let filtered = deckCards;
+
+    // 1. Status Filter
+    if (options.filter === 'due') {
+      filtered = filtered.filter(card => {
+        if (!card.state || !card.state.dueDate) return true;
+        const due = new Date(card.state.dueDate);
+        const now = new Date();
+        now.setHours(23, 59, 59, 999);
+        return due <= now;
+      });
+    } else if (options.filter === 'new') {
+      filtered = filtered.filter(c => !c.state || !c.state.dueDate);
+    } else if (options.filter === 'leech') {
+      filtered = filtered.filter(c => {
+        const fails = (c.history || []).filter(h => h.rating === 'again').length;
+        return fails >= 6;
+      });
+    }
+
+    // 2. Type Filter
+    if (options.type !== 'all') {
+      filtered = filtered.filter(c => (c.cardType || 'default') === options.type);
+    }
     
-    setSessionCards(due);
+    setSessionCards(filtered);
     setView('study');
   };
 
@@ -1198,6 +1230,7 @@ export default function App() {
           onBulkDeleteCards={handleBulkDeleteCards}
           onMoveCards={handleMoveCards}
           onUpdateDeckMindMap={handleUpdateDeckMindMap}
+          onUpdateCards={handleUpdateCards}
         />
       )}
 

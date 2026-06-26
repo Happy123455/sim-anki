@@ -4,14 +4,19 @@ import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 
 import ImportModal from './ImportModal';
-import { generateMindMap } from '../utils/gemini';
+import { generateMindMap, autoCategorizeCards } from '../utils/gemini';
+import { hasFeatureUnlocked } from '../utils/gamification';
 
-export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap }) {
+export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards }) {
   const [showCreateDeckModal, setShowCreateDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
 
   const [activeDeckId, setActiveDeckId] = useState(null); // To manage cards in a specific deck
+  const [studyOptionsDeckId, setStudyOptionsDeckId] = useState(null);
+  const [studyFilter, setStudyFilter] = useState('due'); // 'due', 'new', 'leech', 'all'
+  const [studyType, setStudyType] = useState('all'); // 'all', 'logic', 'rote', 'vocabulary'
+  const [isCategorizing, setIsCategorizing] = useState(false);
   const [newCardQuestion, setNewCardQuestion] = useState('');
   const [newCardConcept, setNewCardConcept] = useState('');
   const [newCardImageUrl, setNewCardImageUrl] = useState('');
@@ -212,6 +217,25 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
       setMindMapGenError(err.message || "Failed to generate mind map. Please check your API key and try again.");
     } finally {
       setIsGeneratingMindMap(false);
+    }
+  };
+
+  const handleCategorize = async () => {
+    if (!settings.apiKey) {
+      alert("Please configure your Gemini API key in Settings first.");
+      return;
+    }
+    const deckCards = Cards.filter(c => c.deckId === activeDeckId);
+    if (deckCards.length === 0) return;
+    
+    setIsCategorizing(true);
+    try {
+      const results = await autoCategorizeCards(settings.apiKey, settings.model, deckCards);
+      onUpdateCards(results);
+    } catch (e) {
+      alert("Error categorizing cards: " + e.message);
+    } finally {
+      setIsCategorizing(false);
     }
   };
 
@@ -521,7 +545,13 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
                 <button 
                   className="btn btn-primary" 
-                  onClick={() => onStartStudy(deck.id)}
+                  onClick={() => {
+                    if (hasFeatureUnlocked(settings, 'filters')) {
+                      setStudyOptionsDeckId(deck.id);
+                    } else {
+                      onStartStudy(deck.id, { filter: 'due', type: 'all' });
+                    }
+                  }}
                   disabled={stats.total === 0}
                   style={{ flex: 1.2, gap: '0.35rem', opacity: stats.total === 0 ? 0.5 : 1, cursor: stats.total === 0 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', padding: '0.5rem' }}
                 >
@@ -948,17 +978,25 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   color: deckTab === 'mindmap' ? 'var(--accent-primary)' : 'var(--text-secondary)',
                   borderBottom: deckTab === 'mindmap' ? '2px solid var(--accent-primary)' : 'none',
                   padding: '0.5rem 1rem',
-                  fontSize: '1rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.35rem'
+                  fontWeight: deckTab === 'mindmap' ? 700 : 500,
+                  cursor: 'pointer'
                 }}
               >
-                <Activity size={16} /> AI Mind Map
+                Mind Map
               </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-start', marginBottom: '-0.5rem' }}>
+               {hasFeatureUnlocked(settings, 'categorization') && (
+                 <button 
+                   className="btn btn-secondary" 
+                   onClick={handleCategorize}
+                   disabled={isCategorizing || Cards.filter(c => c.deckId === activeDeckId).length === 0}
+                   style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(139, 92, 246, 0.1)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}
+                 >
+                   {isCategorizing ? '🤖 Categorizing...' : '🤖 Auto-Categorize Cards'}
+                 </button>
+               )}
             </div>
 
             {deckTab === 'cards' && (
@@ -1290,6 +1328,11 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                             {searchAllDecks && (
                               <span style={{ fontSize: '0.75rem', color: '#c084fc', background: 'rgba(192, 132, 252, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>
                                 Deck: {Decks.find(d => d.id === card.deckId)?.title || "Unknown"}
+                              </span>
+                            )}
+                            {card.cardType && card.cardType !== 'default' && (
+                              <span style={{ fontSize: '0.75rem', color: '#f472b6', background: 'rgba(236, 72, 153, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>
+                                Type: {card.cardType.toUpperCase()}
                               </span>
                             )}
                             <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', background: 'rgba(139, 92, 246, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px' }}>
@@ -1661,6 +1704,96 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           onClose={() => setShowImportModal(false)}
         />
       )}
+
+      {/* Study Options Modal */}
+      {studyOptionsDeckId && hasFeatureUnlocked(settings, 'filters') && (() => {
+        const deck = Decks.find(d => d.id === studyOptionsDeckId);
+        const deckCards = Cards.filter(c => c.deckId === studyOptionsDeckId);
+        
+        let filteredCards = deckCards;
+        if (studyFilter === 'due') {
+          filteredCards = filteredCards.filter(c => isDue(c));
+        } else if (studyFilter === 'new') {
+          filteredCards = filteredCards.filter(c => !c.state || !c.state.dueDate);
+        } else if (studyFilter === 'leech') {
+          filteredCards = filteredCards.filter(c => {
+            const fails = (c.history || []).filter(h => h.rating === 'again').length;
+            return fails >= 6;
+          });
+        }
+        
+        if (studyType !== 'all') {
+          filteredCards = filteredCards.filter(c => (c.cardType || 'default') === studyType);
+        }
+        
+        const estTimeSecs = filteredCards.length * 15;
+        const estTimeStr = estTimeSecs > 60 ? `${Math.ceil(estTimeSecs / 60)} min` : `${estTimeSecs} sec`;
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', padding: '1rem' }}>
+            <div className="glass-panel animate-scale-in" style={{ width: '100%', maxWidth: '400px', padding: '2rem', borderRadius: '16px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '1.5rem', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2 style={{ fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                  <Play size={20} style={{ color: 'var(--accent-primary)' }} /> Study Options
+                </h2>
+                <button className="btn btn-secondary" onClick={() => setStudyOptionsDeckId(null)} style={{ padding: '0.4rem', borderRadius: '50%' }}><X size={16} /></button>
+              </div>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Card Status</label>
+                  <select 
+                    className="input-field" 
+                    value={studyFilter} 
+                    onChange={e => setStudyFilter(e.target.value)}
+                    style={{ appearance: 'none', cursor: 'pointer' }}
+                  >
+                    <option value="due">Due Cards Only</option>
+                    <option value="new">New Cards Only</option>
+                    <option value="leech">Leech Cards Only (&gt;6 fails)</option>
+                    <option value="all">All Cards (Custom Review)</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Card Type</label>
+                  <select 
+                    className="input-field" 
+                    value={studyType} 
+                    onChange={e => setStudyType(e.target.value)}
+                    style={{ appearance: 'none', cursor: 'pointer' }}
+                  >
+                    <option value="all">All Types</option>
+                    <option value="logic">Logic / Concepts</option>
+                    <option value="rote">Rote / Facts</option>
+                    <option value="vocabulary">Vocabulary / Translation</option>
+                  </select>
+                </div>
+
+                <div style={{ background: 'rgba(139, 92, 246, 0.05)', border: '1px solid rgba(139, 92, 246, 0.2)', padding: '1rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Cards Matching: <strong style={{ color: 'var(--text-primary)' }}>{filteredCards.length}</strong></span>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Est. Time: <strong style={{ color: 'var(--accent-primary)' }}>~{estTimeStr}</strong></span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '0.5rem' }}>
+                <button className="btn btn-secondary" onClick={() => setStudyOptionsDeckId(null)}>Cancel</button>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={() => {
+                    onStartStudy(deck.id, { filter: studyFilter, type: studyType });
+                    setStudyOptionsDeckId(null);
+                  }}
+                  disabled={filteredCards.length === 0}
+                  style={{ opacity: filteredCards.length === 0 ? 0.5 : 1, cursor: filteredCards.length === 0 ? 'not-allowed' : 'pointer' }}
+                >
+                  Start Review
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

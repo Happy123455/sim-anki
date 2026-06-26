@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
 import { evaluateAnswer, chatTutorStep, generateMnemonic } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
+import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
 import InlineTTSButton from './InlineTTSButton';
 import { playSuccess, playFailure, playSimWin } from '../utils/sound';
@@ -408,17 +409,25 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
 
 
+  const [showBurnoutWarning, setShowBurnoutWarning] = useState(false);
+
   // Start timer on question load
   useEffect(() => {
     if (step === 'question' && currentCard) {
       setElapsedTime(0);
       setShowHint(settings.relaxedMode && (!currentCard.history || currentCard.history.length === 0));
+      setShowBurnoutWarning(false);
       timerRef.current = setInterval(() => {
-        setElapsedTime(prev => prev + 1);
+        setElapsedTime(prev => {
+          if (prev >= 45 && userAnswer.length < 5) {
+            setShowBurnoutWarning(true);
+          }
+          return prev + 1;
+        });
       }, 1000);
     }
     return () => clearInterval(timerRef.current);
-  }, [step, currentIndex, currentCard]);
+  }, [step, currentIndex, currentCard, userAnswer.length, settings.relaxedMode]);
 
   // Clean timer on unmount
   useEffect(() => {
@@ -469,19 +478,25 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
         currentCard.state?.consecutiveFails || 0,
         currentCard.history || [],
         finalCustomInstructions,
-        (status) => setGradingStatus(status)
+        (status) => setGradingStatus(status),
+        currentCard.cardType || 'default'
       );
       
       setEvaluation(result);
       setStep('grading');
 
+      // Check if card is a Leech (>= 6 fails) and Tutor is unlocked
+      const fails = (currentCard.history || []).filter(h => h.rating === 'again').length;
+      const isLeech = fails >= 6;
+      const canUseTutor = hasFeatureUnlocked(settings, 'interactiveTutor') && isLeech;
+
       // Initialize interactive chatbot states
       const oItems = result.omittedItems || [];
-      const initItems = oItems.map(item => ({ text: item, status: 'unresolved' }));
+      const initItems = canUseTutor ? oItems.map(item => ({ text: item, status: 'unresolved' })) : [];
       setInteractiveOmittedItems(initItems);
       setCurrentOmittedIndex(0);
       
-      if (initItems.length > 0) {
+      if (canUseTutor && initItems.length > 0) {
         setChatMessages([
           { 
             sender: 'tutor', 
@@ -490,13 +505,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           }
         ]);
       } else {
-        setChatMessages([
-          { 
-            sender: 'tutor', 
-            text: `Great job! You didn't omit any key concepts in your answer. Feel free to ask me anything or share your thoughts on this card!`, 
-            highlights: [] 
-          }
-        ]);
+        setChatMessages([]);
       }
       setChatInput('');
 
@@ -776,13 +785,23 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           {/* Question Display */}
           <h2 style={{ fontSize: '1.6rem', textAlign: 'left', lineHeight: '1.4', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <span>{currentCard.question}</span>
-            <InlineTTSButton text={currentCard.question} voiceURI={voiceURI} />
+            {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={currentCard.question} voiceURI={voiceURI} />}
           </h2>
 
           {renderCardMedia(currentCard)}
 
+          {/* Burnout Warning */}
+          {showBurnoutWarning && (
+            <div className="animate-fade-in" style={{ padding: '1rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '10px', color: '#60a5fa', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                🧘‍♂️ Take a breath
+              </h4>
+              <p style={{ margin: 0, fontSize: '0.9rem' }}>You've been looking at this for a while. It's okay if you don't know it! Feel free to {settings.relaxedMode && hasFeatureUnlocked(settings, 'hint') ? "use the hint below or " : ""}submit a blank answer to learn it.</p>
+            </div>
+          )}
+
           {/* Hint Feature */}
-          {settings.relaxedMode && (
+          {settings.relaxedMode && hasFeatureUnlocked(settings, 'hint') && (
             <div style={{ textAlign: 'left', marginTop: '-0.5rem' }}>
               {!showHint ? (
                 <button 
@@ -860,15 +879,19 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           {/* Loading status details */}
           {isGradingLoading && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', padding: '1.25rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '10px', border: '1px dashed rgba(139, 92, 246, 0.3)', textAlign: 'left' }}>
-              <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
-                <RotateCcw className="animate-float" size={18} style={{ animation: 'spin 1.5s linear infinite', color: 'var(--accent-primary)', flexShrink: 0 }} />
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  Grading your answer with <strong>Gemini {model}</strong>... (Usually takes 2–5s. Timeout limit 30s)
-                </span>
-              </div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--accent-secondary)', paddingLeft: '1.75rem', fontFamily: 'monospace' }}>
-                &gt; {gradingStatus}
-              </div>
+              {hasFeatureUnlocked(settings, 'mnemonics') && (
+                <div style={{ padding: '1rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '10px', border: '1px dashed rgba(139, 92, 246, 0.3)', textAlign: 'left' }}>
+                  <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
+                    <RotateCcw className="animate-float" size={18} style={{ animation: 'spin 1.5s linear infinite', color: 'var(--accent-primary)', flexShrink: 0 }} />
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      Grading your answer with <strong>Gemini {model}</strong>... (Usually takes 2–5s. Timeout limit 30s)
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--accent-secondary)', paddingLeft: '1.75rem', fontFamily: 'monospace' }}>
+                    &gt; {gradingStatus}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -948,8 +971,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', textAlign: 'left' }}>
               <div style={{ background: 'rgba(16, 185, 129, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
                 <h4 style={{ color: '#a7f3d0', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <CheckCircle size={16} /> Key Strengths
-                  <InlineTTSButton text={(evaluation.strengths || []).join('. ') || 'None noted.'} voiceURI={voiceURI} />
+                  <CheckCircle size={16} />
+                  <span>Strengths</span>
+                  {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={(evaluation.strengths || []).join('. ') || 'None noted.'} voiceURI={voiceURI} />}
                 </h4>
                 <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   {evaluation.strengths.map((s, i) => <li key={i}>{s}</li>)}
@@ -959,8 +983,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
               <div style={{ background: 'rgba(239, 68, 68, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
                 <h4 style={{ color: '#fca5a5', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <AlertTriangle size={16} /> Logical Gaps / Misconceptions
-                  <InlineTTSButton text={(evaluation.weaknesses || []).join('. ') || 'Perfect coverage!'} voiceURI={voiceURI} />
+                  <AlertTriangle size={16} />
+                  <span>Areas to Improve</span>
+                  {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={(evaluation.weaknesses || []).join('. ') || 'Perfect coverage!'} voiceURI={voiceURI} />}
                 </h4>
                 <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   {evaluation.weaknesses.map((w, i) => <li key={i}>{w}</li>)}
@@ -992,6 +1017,10 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
                   <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.75rem' }}>
                     Omissions Progression Checklist
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <h4 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '0.9rem', fontWeight: 600 }}>Memory Hook</h4>
+                    {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={mnemonicText} voiceURI={voiceURI} />}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                     {interactiveOmittedItems.map((item, idx) => {
@@ -1150,8 +1179,8 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               <>
                 <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', padding: '1rem 1.25rem', borderRadius: '12px' }}>
               <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <span>Logical Analysis</span>
-                <InlineTTSButton text={evaluation.logicAnalysis || ''} voiceURI={voiceURI} />
+                <span>{currentCard.cardType === 'rote' || currentCard.cardType === 'vocabulary' ? 'Gap Analysis' : 'Logical Analysis'}</span>
+                {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={evaluation.logicAnalysis || ''} voiceURI={voiceURI} />}
               </h4>
               <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>{evaluation.logicAnalysis}</p>
             </div>
@@ -1233,47 +1262,49 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               <HighlightingTTS text={evaluation.correctExplanation} voiceURI={voiceURI} />
 
               {/* Memory Mnemonic assistance */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
-                <button
-                  className="btn btn-secondary"
-                  onClick={handleGenerateMnemonic}
-                  disabled={isMnemonicLoading}
-                  style={{
-                    alignSelf: 'flex-start',
-                    background: 'rgba(236, 72, 153, 0.1)',
-                    border: '1px solid rgba(236, 72, 153, 0.3)',
-                    color: '#f472b6',
-                    gap: '0.5rem',
-                    fontSize: '0.85rem',
-                    padding: '0.5rem 1.25rem',
-                    borderRadius: '8px',
-                    cursor: isMnemonicLoading ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  <BrainCircuit size={16} /> 
-                  {isMnemonicLoading ? 'Generating Memory Hook...' : '🧠 Generate Memory Hook'}
-                </button>
+              {hasFeatureUnlocked(settings, 'mnemonics') && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleGenerateMnemonic}
+                    disabled={isMnemonicLoading}
+                    style={{
+                      alignSelf: 'flex-start',
+                      background: 'rgba(236, 72, 153, 0.1)',
+                      border: '1px solid rgba(236, 72, 153, 0.3)',
+                      color: '#f472b6',
+                      gap: '0.5rem',
+                      fontSize: '0.85rem',
+                      padding: '0.5rem 1.25rem',
+                      borderRadius: '8px',
+                      cursor: isMnemonicLoading ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    <BrainCircuit size={16} /> 
+                    {isMnemonicLoading ? 'Generating Memory Hook...' : '🧠 Generate Memory Hook'}
+                  </button>
 
-                {mnemonicError && (
-                  <div style={{ color: 'var(--danger)', fontSize: '0.82rem', textAlign: 'left', marginTop: '0.25rem' }}>
-                    {mnemonicError}
-                  </div>
-                )}
+                  {mnemonicError && (
+                    <div style={{ color: 'var(--danger)', fontSize: '0.82rem', textAlign: 'left', marginTop: '0.25rem' }}>
+                      {mnemonicError}
+                    </div>
+                  )}
 
-                {mnemonicText && (
-                  <div className="glass-panel animate-fade-in" style={{ padding: '1.25rem', background: 'rgba(236, 72, 153, 0.04)', border: '1px solid rgba(236, 72, 153, 0.15)', borderRadius: '10px', textAlign: 'left', marginTop: '0.25rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                      <span style={{ fontSize: '0.8rem', color: '#f472b6', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                        <Sparkles size={14} /> AI Memory Hook
-                      </span>
-                      <InlineTTSButton text={mnemonicText} voiceURI={voiceURI} />
+                  {mnemonicText && (
+                    <div className="glass-panel animate-fade-in" style={{ padding: '1.25rem', background: 'rgba(236, 72, 153, 0.04)', border: '1px solid rgba(236, 72, 153, 0.15)', borderRadius: '10px', textAlign: 'left', marginTop: '0.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <span style={{ fontSize: '0.8rem', color: '#f472b6', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <Sparkles size={14} /> AI Memory Hook
+                        </span>
+                        {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={mnemonicText} voiceURI={voiceURI} />}
+                      </div>
+                      <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
+                        {mnemonicText}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
-                      {mnemonicText}
-                    </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Suggested Rating Badging */}

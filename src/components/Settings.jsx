@@ -33,6 +33,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [deviceName, setDeviceName] = useState(settings.deviceName || '');
   const [relaxedMode, setRelaxedMode] = useState(settings.relaxedMode || false);
   const [stressMode, setStressMode] = useState(settings.stressMode || false);
+  const [unlockAllFeatures, setUnlockAllFeatures] = useState(settings.unlockAllFeatures ?? true);
 
   useEffect(() => {
     const loaded = [];
@@ -86,11 +87,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       setDeviceName(settings.deviceName || '');
       setRelaxedMode(settings.relaxedMode || false);
       setStressMode(settings.stressMode || false);
+      setUnlockAllFeatures(settings.unlockAllFeatures ?? true);
     }
   }, [settings]);
 
   const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures });
     setSaveStatus(true);
     setTimeout(() => setSaveStatus(false), 2000);
   };
@@ -101,7 +103,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures });
     const code = await onPushSync(githubPAT, syncCode);
     if (code) {
       setSyncCode(code);
@@ -119,7 +121,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures });
     await onPullSync(syncCode, githubPAT);
   };
 
@@ -492,9 +494,30 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
                  <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                    Copy this Gist ID and your PAT to your other device to seamlessly sync your cards.
                  </p>
+                 
+                 {/* Veteran Mode Toggle */}
+                 <div style={{ display: 'flex', flexDirection: 'column', marginTop: '0.75rem' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                     <input 
+                       type="checkbox"
+                       id="unlockAllFeaturesToggle"
+                       checked={unlockAllFeatures}
+                       onChange={(e) => setUnlockAllFeatures(e.target.checked)}
+                       style={{ width: '1.2rem', height: '1.2rem', cursor: 'pointer' }}
+                     />
+                     <label htmlFor="unlockAllFeaturesToggle" style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
+                       🏅 Unlock All Features (Veteran Mode)
+                     </label>
+                   </div>
+                   <p style={{ margin: '0.25rem 0 0 1.95rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                     Bypass the progressive gamification unlock system and gain access to all features immediately.
+                   </p>
+                 </div>
                </div>
             )}
           </div>
+        </div>
+
         {/* Local & Cloud Backups & Recovery */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left', background: 'rgba(139, 92, 246, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(139, 92, 246, 0.15)', marginTop: '1rem' }}>
           <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -603,7 +626,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
               </div>
             )}
           </div>
-        </div> </div>
+        </div>
 
         <hr style={{ borderColor: 'var(--border-light)', margin: '1rem 0' }} />
 
