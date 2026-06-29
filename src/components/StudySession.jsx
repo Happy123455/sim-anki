@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
-import { evaluateAnswer, chatTutorStep, generateMnemonic } from '../utils/gemini';
+import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
 import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
@@ -243,6 +243,13 @@ const getYouTubeEmbedUrl = (url) => {
     : null;
 };
 
+const isHardCard = (card) => {
+  if (!card) return false;
+  if (card.predictedDifficulty === 'hard') return true;
+  if (card.state && card.state.difficulty >= 7.0) return true;
+  return false;
+};
+
 const renderCardMedia = (card) => {
   if (!card) return null;
   const embedUrl = getYouTubeEmbedUrl(card.youtubeUrl);
@@ -370,15 +377,123 @@ function ConfettiCanvas() {
   );
 }
 
-export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {} }) {
+export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {}, onRefactorCard }) {
+  const [sessionQueue, setSessionQueue] = useState(() => [...(DueCards || [])]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const currentCard = DueCards[currentIndex];
+  const currentCard = sessionQueue[currentIndex];
 
   const [step, setStep] = useState('question'); // 'question' | 'grading' | 'simulation' | 'completed'
   const [userAnswer, setUserAnswer] = useState('');
   const [confidence, setConfidence] = useState(3);
   const [hoverConfidence, setHoverConfidence] = useState(null);
   const [showHint, setShowHint] = useState(false);
+  const [hardCardTimestamps, setHardCardTimestamps] = useState([]);
+  const [pacingNotice, setPacingNotice] = useState('');
+
+  // Refactoring states & handlers
+  const [refactorCard, setRefactorCard] = useState(null);
+  const [refactorMethod, setRefactorMethod] = useState('auto'); // 'auto', 'simplify', 'split'
+  const [refactorCustomInstructions, setRefactorCustomInstructions] = useState('');
+  const [isRefactoring, setIsRefactoring] = useState(false);
+  const [refactorResult, setRefactorResult] = useState(null);
+
+  const handleOpenRefactorModal = (card) => {
+    setRefactorCard(card);
+    setRefactorMethod('auto');
+    setRefactorCustomInstructions('');
+    setRefactorResult(null);
+    setIsRefactoring(false);
+  };
+
+  const handleRunRefactor = async () => {
+    if (!apiKey) {
+      alert("Please configure your Gemini API key in Settings first.");
+      return;
+    }
+    setIsRefactoring(true);
+    try {
+      const result = await refactorHardCard(apiKey, model, refactorCard, refactorMethod, refactorCustomInstructions);
+      setRefactorResult(result);
+    } catch (e) {
+      alert("Refactoring failed: " + e.message);
+    } finally {
+      setIsRefactoring(false);
+    }
+  };
+
+  const handleAcceptRefactor = () => {
+    onRefactorCard(refactorCard.id, refactorResult);
+    
+    if (refactorResult.methodApplied === 'simplify') {
+      const updatedQueue = sessionQueue.map(c => {
+        if (c.id === refactorCard.id) {
+          return {
+            ...c,
+            question: refactorResult.simplifiedCard.question,
+            concept: refactorResult.simplifiedCard.concept
+          };
+        }
+        return c;
+      });
+      setSessionQueue(updatedQueue);
+    } else {
+      const updatedQueue = sessionQueue.filter(c => c.id !== refactorCard.id);
+      const childrenWithIds = refactorResult.splitCards.map((sc, idx) => ({
+        ...sc,
+        id: `${refactorCard.id}-child-${idx}-${Date.now()}`,
+        deckId: refactorCard.deckId,
+        history: [],
+        state: null
+      }));
+      updatedQueue.splice(currentIndex, 0, ...childrenWithIds);
+      setSessionQueue(updatedQueue);
+    }
+    
+    setRefactorCard(null);
+    setRefactorResult(null);
+    alert("Card refactoring applied to your active study session!");
+  };
+
+  // Sync session queue if DueCards changes
+  useEffect(() => {
+    if (DueCards) {
+      setSessionQueue([...DueCards]);
+    }
+  }, [DueCards]);
+
+  // Throttling / Pacing Engine logic
+  useEffect(() => {
+    if (sessionQueue.length === 0 || currentIndex >= sessionQueue.length) return;
+    
+    const card = sessionQueue[currentIndex];
+    const maxLimit = settings.maxHardCardsPer5Min ?? 2;
+    
+    if (maxLimit >= 999) return;
+    
+    if (isHardCard(card)) {
+      const now = Date.now();
+      const last5Min = hardCardTimestamps.filter(t => now - t < 5 * 60 * 1000);
+      
+      if (last5Min.length >= maxLimit) {
+        // Find next non-hard card in remaining queue
+        const swapIdx = sessionQueue.findIndex((c, idx) => idx > currentIndex && !isHardCard(c));
+        
+        if (swapIdx !== -1) {
+          const newQueue = [...sessionQueue];
+          const temp = newQueue[currentIndex];
+          newQueue[currentIndex] = newQueue[swapIdx];
+          newQueue[swapIdx] = temp;
+          
+          setSessionQueue(newQueue);
+          setPacingNotice("🧠 Pacing Engine: Swapping in an easier card to prevent cognitive fatigue.");
+          setTimeout(() => setPacingNotice(""), 4000);
+          return;
+        }
+      }
+      
+      setHardCardTimestamps([...last5Min, now]);
+    }
+  }, [currentIndex, sessionQueue, settings.maxHardCardsPer5Min]);
   
   // Mnemonic assistance states
   const [mnemonicText, setMnemonicText] = useState('');
@@ -642,7 +757,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setIsMnemonicLoading(false);
       setMnemonicError(null);
 
-      if (currentIndex + 1 < DueCards.length) {
+      if (currentIndex + 1 < sessionQueue.length) {
         setCurrentIndex(prev => prev + 1);
         setStep('question');
       } else {
@@ -683,11 +798,11 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '1rem' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cards Studied</span>
-              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0.25rem 0 0 0' }}>{DueCards.length}</p>
+              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0.25rem 0 0 0' }}>{sessionQueue.length}</p>
             </div>
             <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '1rem' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>XP Earned</span>
-              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#34d399', margin: '0.25rem 0 0 0' }}>+{DueCards.length * 15} XP</p>
+              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#34d399', margin: '0.25rem 0 0 0' }}>+{sessionQueue.length * 15} XP</p>
             </div>
           </div>
 
@@ -755,7 +870,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <span style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
-            Card {currentIndex + 1} of {DueCards.length}
+            Card {currentIndex + 1} of {sessionQueue.length}
           </span>
           <button 
             className="btn-text" 
@@ -767,15 +882,43 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
         </div>
       </div>
 
+      {pacingNotice && (
+        <div style={{
+          background: 'rgba(139, 92, 246, 0.15)',
+          border: '1px solid rgba(139, 92, 246, 0.35)',
+          color: '#c4b5fd',
+          padding: '0.6rem 1rem',
+          borderRadius: '8px',
+          fontSize: '0.85rem',
+          textAlign: 'center',
+          fontWeight: 600,
+          boxShadow: '0 4px 12px rgba(139, 92, 246, 0.1)',
+          animation: 'pulse 2s infinite'
+        }}>
+          {pacingNotice}
+        </div>
+      )}
+
       {/* Main Review Card */}
       {step === 'question' && (
         <div className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           
           {/* Question Header & Timer */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-            <span className="badge badge-learn" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <BrainCircuit size={12} /> Evaluate Concept
-            </span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <span className="badge badge-learn" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <BrainCircuit size={12} /> Evaluate Concept
+              </span>
+              {hasFeatureUnlocked(settings, 'categorization') && (
+                <button 
+                  onClick={() => handleOpenRefactorModal(currentCard)}
+                  style={{ background: 'rgba(236, 72, 153, 0.15)', color: '#f472b6', border: '1px solid rgba(236, 72, 153, 0.3)', borderRadius: '6px', cursor: 'pointer', padding: '0.2rem 0.6rem', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', fontWeight: 600 }}
+                  title="Make Easy (AI Simplify / Split)"
+                >
+                  <Sparkles size={12} /> Make Easy
+                </button>
+              )}
+            </div>
             <div style={{ display: 'none', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
               <Clock size={16} />
               <span>{formatTime(elapsedTime)}</span>
@@ -1398,6 +1541,102 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {/* Refactor Card Modal */}
+      {refactorCard && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(5px)', padding: '1rem' }}>
+          <div className="glass-panel animate-scale-in" style={{ width: '100%', maxWidth: '600px', padding: '2rem', borderRadius: '16px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '1.5rem', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, color: '#f472b6' }}>
+                <Sparkles size={20} /> AI Refactor Card ("Make Easy")
+              </h2>
+              <button className="btn btn-secondary" onClick={() => setRefactorCard(null)} style={{ padding: '0.4rem', borderRadius: '50%' }}><X size={16} /></button>
+            </div>
+
+            <div style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>ORIGINAL CARD</span>
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}><strong>Q:</strong> {refactorCard.question}</p>
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}><strong>Concept:</strong> {refactorCard.concept}</p>
+            </div>
+
+            {!refactorResult ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'left' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Refactoring Strategy</label>
+                  <select 
+                    value={refactorMethod} 
+                    onChange={e => setRefactorMethod(e.target.value)}
+                    className="input-field"
+                    style={{ appearance: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '0.4rem 0.8rem', borderRadius: '6px', color: 'var(--text-primary)' }}
+                  >
+                    <option value="auto" style={{ background: '#111' }}>Auto-Detect Method (Recommended)</option>
+                    <option value="simplify" style={{ background: '#111' }}>Method A: Text Simplification (Conciseness)</option>
+                    <option value="split" style={{ background: '#111' }}>Method B: Atomic Splitting (Break into Child Cards)</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Custom Instructions (Optional)</label>
+                  <input
+                    type="text"
+                    value={refactorCustomInstructions}
+                    onChange={e => setRefactorCustomInstructions(e.target.value)}
+                    placeholder="e.g. Focus on keeping formulas simple"
+                    className="input-field"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '0.4rem 0.8rem', borderRadius: '6px', color: 'var(--text-primary)' }}
+                  />
+                </div>
+
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleRunRefactor} 
+                  disabled={isRefactoring}
+                  style={{ width: '100%', padding: '0.6rem', background: 'linear-gradient(135deg, #a78bfa, #ec4899)', border: 'none', color: '#fff', fontWeight: 700 }}
+                >
+                  {isRefactoring ? '🧙‍♂️ AI is refactoring...' : '🪄 Run AI Refactoring'}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'left' }}>
+                <div style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.2)', padding: '1rem', borderRadius: '8px' }}>
+                  <h4 style={{ margin: '0 0 0.5rem 0', color: '#86efac', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.95rem' }}>
+                    ✔ AI Refactoring Preview ({refactorResult.methodApplied.toUpperCase()})
+                  </h4>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                    {refactorResult.explanation}
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {refactorResult.methodApplied === 'simplify' ? (
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#c084fc', display: 'block', fontWeight: 600 }}>SIMPLIFIED PREVIEW</span>
+                      <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.95rem', fontWeight: 600 }}><strong>Q:</strong> {refactorResult.simplifiedCard.question}</p>
+                      <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}><strong>Concept:</strong> {refactorResult.simplifiedCard.concept}</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#f472b6', fontWeight: 600 }}>SPLIT CHILD CARDS PREVIEW</span>
+                      {refactorResult.splitCards.map((sc, idx) => (
+                        <div key={idx} style={{ background: 'rgba(255,255,255,0.02)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Child #{idx + 1}</span>
+                          <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.9rem', fontWeight: 600 }}><strong>Q:</strong> {sc.question}</p>
+                          <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}><strong>Concept:</strong> {sc.concept}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                  <button className="btn btn-secondary" onClick={() => setRefactorResult(null)} style={{ flex: 1 }}>Modify Parameters</button>
+                  <button className="btn btn-primary" onClick={handleAcceptRefactor} style={{ flex: 1, background: 'var(--accent-primary)', border: 'none', color: '#fff', fontWeight: 700 }}>Accept Refactoring</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

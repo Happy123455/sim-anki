@@ -34,6 +34,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [relaxedMode, setRelaxedMode] = useState(settings.relaxedMode || false);
   const [stressMode, setStressMode] = useState(settings.stressMode || false);
   const [unlockAllFeatures, setUnlockAllFeatures] = useState(settings.unlockAllFeatures ?? true);
+  const [maxHardCardsPer5Min, setMaxHardCardsPer5Min] = useState(settings.maxHardCardsPer5Min ?? 2);
 
   useEffect(() => {
     const loaded = [];
@@ -88,11 +89,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       setRelaxedMode(settings.relaxedMode || false);
       setStressMode(settings.stressMode || false);
       setUnlockAllFeatures(settings.unlockAllFeatures ?? true);
+      setMaxHardCardsPer5Min(settings.maxHardCardsPer5Min ?? 2);
     }
   }, [settings]);
 
   const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min });
     setSaveStatus(true);
     setTimeout(() => setSaveStatus(false), 2000);
   };
@@ -103,12 +105,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min });
     const code = await onPushSync(githubPAT, syncCode);
     if (code) {
       setSyncCode(code);
       // Save again with the returned gist ID
-      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName, relaxedMode, stressMode });
+      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min });
     }
   };
 
@@ -121,7 +123,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min });
     await onPullSync(syncCode, githubPAT);
   };
 
@@ -344,6 +346,30 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
             </div>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, paddingLeft: '1.6rem', lineHeight: '1.4' }}>
               Instructs the AI to give ultra-short (under 30 words), comforting explanations and visual number analogies.
+            </p>
+          </div>
+
+          {/* Hard Card Pacing Limit Select */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', textAlign: 'left', gridColumn: 'span 2', marginTop: '0.5rem' }}>
+            <label htmlFor="maxHardCardsSelect" style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
+              🧠 Hard Card Pacing Engine
+            </label>
+            <select
+              id="maxHardCardsSelect"
+              value={maxHardCardsPer5Min}
+              onChange={(e) => setMaxHardCardsPer5Min(Number(e.target.value))}
+              className="input-field"
+              style={{ width: '100%', maxWidth: '280px', cursor: 'pointer', appearance: 'none', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '0.4rem 0.8rem', borderRadius: '6px', color: 'var(--text-primary)' }}
+            >
+              <option value={1} style={{ background: '#111' }}>Max 1 hard card per 5 minutes</option>
+              <option value={2} style={{ background: '#111' }}>Max 2 hard cards per 5 minutes (Default)</option>
+              <option value={3} style={{ background: '#111' }}>Max 3 hard cards per 5 minutes</option>
+              <option value={4} style={{ background: '#111' }}>Max 4 hard cards per 5 minutes</option>
+              <option value={5} style={{ background: '#111' }}>Max 5 hard cards per 5 minutes</option>
+              <option value={999} style={{ background: '#111' }}>Off (Unlimited pacing)</option>
+            </select>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, paddingLeft: '0.2rem', lineHeight: '1.4' }}>
+              Limits the number of hard cards displayed within a rolling 5-minute study window. If exceeded, the system postpones hard cards and pulls forward easier ones.
             </p>
           </div>
         </div>

@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Download, Trophy, Flame, Sparkles } from 'lucide-react';
+import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Download, Trophy, Flame, Sparkles, BrainCircuit } from 'lucide-react';
 import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 
 import ImportModal from './ImportModal';
-import { generateMindMap, autoCategorizeCards } from '../utils/gemini';
+import { generateMindMap, autoCategorizeCards, generateCognitiveProfile, predictCardDifficulties, refactorHardCard } from '../utils/gemini';
 import { hasFeatureUnlocked } from '../utils/gamification';
 
-export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards }) {
+export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards, onRefactorCard }) {
   const [showCreateDeckModal, setShowCreateDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
@@ -17,6 +17,27 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [studyFilter, setStudyFilter] = useState('due'); // 'due', 'new', 'leech', 'all'
   const [studyType, setStudyType] = useState('all'); // 'all', 'logic', 'rote', 'vocabulary'
   const [isCategorizing, setIsCategorizing] = useState(false);
+
+  // Cognitive Profiling, Predictive Planner, Refactoring States
+  const [showCognitiveProfile, setShowCognitiveProfile] = useState(false);
+  const [isProfilingLoading, setIsProfilingLoading] = useState(false);
+  const [cognitiveProfile, setCognitiveProfile] = useState(() => {
+    try {
+      const saved = localStorage.getItem('simanki_cognitive_profile');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const [isPredicting, setIsPredicting] = useState(false);
+
+  const [refactorCard, setRefactorCard] = useState(null);
+  const [refactorMethod, setRefactorMethod] = useState('auto'); // 'auto', 'simplify', 'split'
+  const [refactorCustomInstructions, setRefactorCustomInstructions] = useState('');
+  const [isRefactoring, setIsRefactoring] = useState(false);
+  const [refactorResult, setRefactorResult] = useState(null);
+
   const [newCardQuestion, setNewCardQuestion] = useState('');
   const [newCardConcept, setNewCardConcept] = useState('');
   const [newCardImageUrl, setNewCardImageUrl] = useState('');
@@ -237,6 +258,121 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     } finally {
       setIsCategorizing(false);
     }
+  };
+
+  const calculateLocalHeuristics = (allCards) => {
+    const reviewedCards = allCards.filter(c => c.history && c.history.length > 0);
+    
+    const categories = {
+      longQuestions: { name: 'Long Questions (>80 chars)', cards: [], scores: [] },
+      longAnswers: { name: 'Long Answers (>120 chars)', cards: [], scores: [] },
+      mathQuantitative: { name: 'Numerical / Formulaic Values', cards: [], scores: [] },
+      logicCards: { name: 'Logic / Concept Cards', cards: [], scores: [] },
+      roteCards: { name: 'Rote / Fact Cards', cards: [], scores: [] },
+      vocabCards: { name: 'Vocabulary / Words', cards: [], scores: [] }
+    };
+    
+    allCards.forEach(c => {
+      const isLongQ = c.question && c.question.length > 80;
+      const isMath = c.question && (/[0-9]/.test(c.question) || c.question.includes('\\(') || c.question.includes('formula') || c.concept.includes('\\('));
+      const isLogic = c.cardType === 'logic';
+      const isRote = c.cardType === 'rote';
+      const isVocab = c.cardType === 'vocabulary';
+      
+      const history = c.history || [];
+      const isLongA = history.some(h => h.userAnswer && h.userAnswer.length > 120);
+      const scores = history.map(h => h.score || 0);
+      
+      if (isLongQ) { categories.longQuestions.cards.push(c); categories.longQuestions.scores.push(...scores); }
+      if (isLongA) { categories.longAnswers.cards.push(c); categories.longAnswers.scores.push(...scores); }
+      if (isMath) { categories.mathQuantitative.cards.push(c); categories.mathQuantitative.scores.push(...scores); }
+      if (isLogic) { categories.logicCards.cards.push(c); categories.logicCards.scores.push(...scores); }
+      if (isRote) { categories.roteCards.cards.push(c); categories.roteCards.scores.push(...scores); }
+      if (isVocab) { categories.vocabCards.cards.push(c); categories.vocabCards.scores.push(...scores); }
+    });
+    
+    return Object.keys(categories).map(key => {
+      const cat = categories[key];
+      const avgScore = cat.scores.length > 0
+        ? Math.round(cat.scores.reduce((sum, s) => sum + s, 0) / cat.scores.length)
+        : null;
+      return {
+        key,
+        name: cat.name,
+        count: cat.cards.length,
+        reviewedCount: cat.scores.length,
+        successRate: avgScore
+      };
+    });
+  };
+
+  const handlePredictiveGrading = async () => {
+    if (!settings.apiKey) {
+      alert("Please configure your Gemini API key in Settings first.");
+      return;
+    }
+    const deckCards = Cards.filter(c => c.deckId === activeDeckId);
+    const unpredictedCards = deckCards.filter(c => !c.predictedDifficulty);
+    
+    if (unpredictedCards.length === 0) {
+      alert("All cards in this deck already have predictive grading!");
+      return;
+    }
+    
+    setIsPredicting(true);
+    try {
+      const updatedDiffs = [];
+      const batchSize = 15;
+      for (let i = 0; i < unpredictedCards.length; i += batchSize) {
+        const batch = unpredictedCards.slice(i, i + batchSize);
+        const results = await predictCardDifficulties(settings.apiKey, settings.model, batch);
+        updatedDiffs.push(...results);
+      }
+      
+      const resultsToSave = updatedDiffs.map(res => ({
+        id: res.id,
+        predictedDifficulty: res.difficulty,
+        predictedDifficultyReason: res.reason
+      }));
+      
+      onUpdateCards(resultsToSave);
+      alert(`Predictive difficulty grading completed for ${resultsToSave.length} cards!`);
+    } catch (e) {
+      alert("Error running predictive grading: " + e.message);
+    } finally {
+      setIsPredicting(false);
+    }
+  };
+
+  const handleOpenRefactorModal = (card) => {
+    setRefactorCard(card);
+    setRefactorMethod('auto');
+    setRefactorCustomInstructions('');
+    setRefactorResult(null);
+    setIsRefactoring(false);
+  };
+
+  const handleRunRefactor = async () => {
+    if (!settings.apiKey) {
+      alert("Please configure your Gemini API key in Settings first.");
+      return;
+    }
+    setIsRefactoring(true);
+    try {
+      const result = await refactorHardCard(settings.apiKey, settings.model, refactorCard, refactorMethod, refactorCustomInstructions);
+      setRefactorResult(result);
+    } catch (e) {
+      alert("Refactoring failed: " + e.message);
+    } finally {
+      setIsRefactoring(false);
+    }
+  };
+
+  const handleAcceptRefactor = () => {
+    onRefactorCard(refactorCard.id, refactorResult);
+    setRefactorCard(null);
+    setRefactorResult(null);
+    alert("Card refactoring applied successfully!");
   };
 
   const handleCopySelectedCards = () => {
@@ -471,8 +607,134 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
         );
       })()}
 
+      {/* ──── User Cognitive Profile Panel ──── */}
+      {Cards.some(c => c.history && c.history.length > 0) && (
+        <div className="glass-panel" style={{ padding: '1.5rem 2rem', border: '1px solid var(--border-light)', marginTop: '0.5rem' }}>
+          <div 
+            onClick={() => setShowCognitiveProfile(!showCognitiveProfile)}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+          >
+            <h2 style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+              <BrainCircuit size={22} style={{ color: '#c084fc' }} /> User Cognitive Profile & Diagnostics
+            </h2>
+            {showCognitiveProfile ? <ChevronUp size={20} style={{ color: 'var(--text-muted)' }} /> : <ChevronDown size={20} style={{ color: 'var(--text-muted)' }} />}
+          </div>
+
+          {showCognitiveProfile && (() => {
+            const heuristics = calculateLocalHeuristics(Cards);
+            
+            const handleGenerateProfileInsights = async () => {
+              if (!settings.apiKey) {
+                alert("Please configure your Gemini API key in Settings first.");
+                return;
+              }
+              setIsProfilingLoading(true);
+              try {
+                const reviewedCards = Cards.filter(c => c.history && c.history.length > 0);
+                const profile = await generateCognitiveProfile(settings.apiKey, settings.model, reviewedCards);
+                setCognitiveProfile(profile);
+                localStorage.setItem('simanki_cognitive_profile', JSON.stringify(profile));
+              } catch (e) {
+                alert("Profiling failed: " + e.message);
+              } finally {
+                setIsProfilingLoading(false);
+              }
+            };
+
+            return (
+              <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '1.5rem', textAlign: 'left' }}>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>
+                  Below is a diagnostic analysis of your learning performance across different card characteristics, parsed locally and refined using AI.
+                </p>
+
+                {/* Local Performance progress bars */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem' }}>
+                  {heuristics.map(h => {
+                    const hasReviews = h.successRate !== null;
+                    const successColor = h.successRate >= 80 ? '#34d399' : h.successRate >= 60 ? '#fbbf24' : '#ef4444';
+                    return (
+                      <div key={h.key} style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>{h.name}</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          <span>Cards: {h.count} ({h.reviewedCount} reviews)</span>
+                          <span>{hasReviews ? `${h.successRate}% Success` : 'No reviews'}</span>
+                        </div>
+                        <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '999px', overflow: 'hidden' }}>
+                          <div style={{ width: `${hasReviews ? h.successRate : 0}%`, height: '100%', background: successColor, borderRadius: '999px' }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* AI Insights display */}
+                <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: '1.05rem', margin: 0, fontWeight: 700, color: '#c084fc' }}>🧠 Personalized AI Learning Insights</h3>
+                    <button 
+                      className="btn btn-secondary" 
+                      onClick={handleGenerateProfileInsights}
+                      disabled={isProfilingLoading}
+                      style={{ fontSize: '0.8rem', padding: '0.35rem 0.85rem', gap: '0.3rem' }}
+                    >
+                      {isProfilingLoading ? 'Analyzing...' : cognitiveProfile ? 'Regenerate Insights' : '📊 Analyze Weaknesses'}
+                    </button>
+                  </div>
+
+                  {isProfilingLoading && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem', justifyContent: 'center', padding: '2rem' }}>
+                      <Activity size={18} style={{ animation: 'spin 1s linear infinite' }} />
+                      <span>AI is analyzing your historical answers and identifying cognitive pitfalls...</span>
+                    </div>
+                  )}
+
+                  {!isProfilingLoading && cognitiveProfile && (
+                    <div className="glass-panel" style={{ background: 'rgba(15, 10, 30, 0.45)', border: '1px solid rgba(139, 92, 246, 0.15)', padding: '1.5rem', borderRadius: '14px', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                        <div>
+                          <h4 style={{ margin: '0 0 0.5rem 0', color: '#86efac', fontSize: '0.9rem', fontWeight: 700 }}>🌟 Excels At</h4>
+                          <ul style={{ paddingLeft: '1.2rem', margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                            {cognitiveProfile.excelsAt.map((item, idx) => <li key={idx}>{item}</li>)}
+                          </ul>
+                        </div>
+                        <div>
+                          <h4 style={{ margin: '0 0 0.5rem 0', color: '#fca5a5', fontSize: '0.9rem', fontWeight: 700 }}>⚠ Struggles With</h4>
+                          <ul style={{ paddingLeft: '1.2rem', margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                            {cognitiveProfile.strugglesWith.map((item, idx) => <li key={idx}>{item}</li>)}
+                          </ul>
+                        </div>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem' }}>
+                        <h4 style={{ margin: '0 0 0.5rem 0', color: '#c4b5fd', fontSize: '0.9rem', fontWeight: 700 }}>🔍 Detailed Pitfall Analysis</h4>
+                        <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                          {cognitiveProfile.detailedAnalysis}
+                        </p>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem' }}>
+                        <h4 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent-primary)', fontSize: '0.9rem', fontWeight: 700 }}>🚀 Recommended Study Tactics</h4>
+                        <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                          {cognitiveProfile.recommendedFocus}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {!isProfilingLoading && !cognitiveProfile && (
+                    <div style={{ textAlign: 'center', padding: '2rem', border: '1px dashed var(--border-light)', borderRadius: '12px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      No AI insights generated yet. Click "Analyze Weaknesses" above to compile your personalized learning diagnostics.
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Decks Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem', marginTop: '1rem' }}>
         {Decks.map(deck => {
           const stats = getDeckStats(deck.id);
           const isSelected = activeDeckId === deck.id;
@@ -988,14 +1250,24 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-start', marginBottom: '-0.5rem' }}>
                {hasFeatureUnlocked(settings, 'categorization') && (
-                 <button 
-                   className="btn btn-secondary" 
-                   onClick={handleCategorize}
-                   disabled={isCategorizing || Cards.filter(c => c.deckId === activeDeckId).length === 0}
-                   style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(139, 92, 246, 0.1)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}
-                 >
-                   {isCategorizing ? '🤖 Categorizing...' : '🤖 Auto-Categorize Cards'}
-                 </button>
+                 <>
+                   <button 
+                     className="btn btn-secondary" 
+                     onClick={handleCategorize}
+                     disabled={isCategorizing || Cards.filter(c => c.deckId === activeDeckId).length === 0}
+                     style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(139, 92, 246, 0.1)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}
+                   >
+                     {isCategorizing ? '🤖 Categorizing...' : '🤖 Auto-Categorize Cards'}
+                   </button>
+                   <button 
+                     className="btn btn-secondary" 
+                     onClick={handlePredictiveGrading}
+                     disabled={isPredicting || Cards.filter(c => c.deckId === activeDeckId).length === 0}
+                     style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(236, 72, 153, 0.1)', color: '#f472b6', border: '1px solid rgba(236, 72, 153, 0.3)', gap: '0.3rem' }}
+                   >
+                     {isPredicting ? '🔮 Predicting...' : '🔮 Predict Card Difficulties'}
+                   </button>
+                 </>
                )}
             </div>
 
@@ -1365,11 +1637,44 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                             <span className={`badge ${dueStatus ? 'badge-due' : 'badge-learn'}`} style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
                               {dueStatus ? 'Due' : 'Scheduled'}
                             </span>
+                            {card.predictedDifficulty && (
+                              <span 
+                                title={card.predictedDifficultyReason} 
+                                style={{ 
+                                  fontSize: '0.75rem', 
+                                  color: card.predictedDifficulty === 'easy' ? '#34d399' : card.predictedDifficulty === 'hard' ? '#fca5a5' : '#fbbf24', 
+                                  background: card.predictedDifficulty === 'easy' ? 'rgba(16, 185, 129, 0.1)' : card.predictedDifficulty === 'hard' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)', 
+                                  border: `1px solid ${card.predictedDifficulty === 'easy' ? 'rgba(16, 185, 129, 0.2)' : card.predictedDifficulty === 'hard' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)'}`,
+                                  padding: '0.1rem 0.5rem', 
+                                  borderRadius: '4px',
+                                  fontWeight: 600,
+                                  cursor: 'help'
+                                }}
+                              >
+                                AI Predict: {card.predictedDifficulty.toUpperCase()}
+                              </span>
+                            )}
+                            {(card.paused || card.suspended) && (
+                              <span style={{ fontSize: '0.75rem', color: '#9ca3af', background: 'rgba(156, 163, 175, 0.15)', border: '1px solid rgba(156, 163, 175, 0.3)', padding: '0.1rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>
+                                PAUSED (SPLIT)
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
 
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        {hasFeatureUnlocked(settings, 'categorization') && !card.paused && !card.suspended && (
+                          <button 
+                            className="btn-text" 
+                            onClick={() => handleOpenRefactorModal(card)}
+                            style={{ background: 'none', border: 'none', color: '#f472b6', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center' }}
+                            title="Make Easy (AI Simplify / Split)"
+                            type="button"
+                          >
+                            <Sparkles size={16} />
+                          </button>
+                        )}
                         <button 
                           className="btn-text" 
                           onClick={() => setActiveCardDetails(card)}
@@ -1725,13 +2030,83 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
         if (studyType !== 'all') {
           filteredCards = filteredCards.filter(c => (c.cardType || 'default') === studyType);
         }
-        
-        const estTimeSecs = filteredCards.length * 15;
-        const estTimeStr = estTimeSecs > 60 ? `${Math.ceil(estTimeSecs / 60)} min` : `${estTimeSecs} sec`;
+
+        const getRefinedEstTime = (selectedCards) => {
+          const buffer = 5;
+          let totalSecs = 0;
+          selectedCards.forEach(card => {
+            const history = card.history || [];
+            const validHistory = history.filter(h => h.timeSpent && h.timeSpent > 0 && h.timeSpent <= 120);
+            if (validHistory.length > 0) {
+              const avg = validHistory.reduce((sum, h) => sum + h.timeSpent, 0) / validHistory.length;
+              totalSecs += avg + buffer;
+            } else {
+              const diff = card.predictedDifficulty || 'medium';
+              const baseline = diff === 'easy' ? 12 : diff === 'hard' ? 45 : 25;
+              totalSecs += baseline + buffer;
+            }
+          });
+          return Math.round(totalSecs);
+        };
+
+        const generateScientificRoutine = (totalSecs, cardCount) => {
+          const totalMins = Math.ceil(totalSecs / 60);
+          if (totalMins <= 10) {
+            return [
+              { type: 'study', duration: totalMins, desc: `Study block: Complete all ${cardCount} cards.` }
+            ];
+          } else if (totalMins <= 25) {
+            const halfMins = Math.round(totalMins / 2);
+            const halfCards = Math.round(cardCount / 2);
+            return [
+              { type: 'study', duration: halfMins, desc: `Study Block 1: Review ~${halfCards} cards.` },
+              { type: 'break', duration: 3, desc: `Short Break: Stretch, breathe, and rest your eyes (3m).` },
+              { type: 'study', duration: totalMins - halfMins, desc: `Study Block 2: Finish remaining ~${cardCount - halfCards} cards.` }
+            ];
+          } else {
+            const routine = [];
+            let remainingSecs = totalSecs;
+            let remainingCards = cardCount;
+            let blockNum = 1;
+            const secsPerCard = totalSecs / cardCount;
+            
+            while (remainingSecs > 0) {
+              const blockSecs = Math.min(remainingSecs, 15 * 60);
+              const blockMins = Math.ceil(blockSecs / 60);
+              const blockCards = Math.min(remainingCards, Math.round(blockSecs / secsPerCard));
+              
+              routine.push({
+                type: 'study',
+                duration: blockMins,
+                desc: `Study Block ${blockNum}: Review ~${blockCards} cards.`
+              });
+              
+              remainingSecs -= blockSecs;
+              remainingCards -= blockCards;
+              blockNum++;
+              
+              if (remainingSecs > 0) {
+                routine.push({
+                  type: 'break',
+                  duration: 5,
+                  desc: `Short Break: Hydrate and walk around (5m).`
+                });
+              }
+            }
+            return routine;
+          }
+        };
+
+        const totalEstSeconds = getRefinedEstTime(filteredCards);
+        const estTimeStr = totalEstSeconds >= 60 
+          ? `${Math.floor(totalEstSeconds / 60)}m ${totalEstSeconds % 60}s` 
+          : `${totalEstSeconds}s`;
+          
+        const routineBlocks = generateScientificRoutine(totalEstSeconds, filteredCards.length);
 
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', padding: '1rem' }}>
-            <div className="glass-panel animate-scale-in" style={{ width: '100%', maxWidth: '400px', padding: '2rem', borderRadius: '16px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '1.5rem', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+            <div className="glass-panel animate-scale-in" style={{ width: '100%', maxWidth: '440px', padding: '2rem', borderRadius: '16px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '1.25rem', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 style={{ fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
                   <Play size={20} style={{ color: 'var(--accent-primary)' }} /> Study Options
@@ -1770,13 +2145,31 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   </select>
                 </div>
 
-                <div style={{ background: 'rgba(139, 92, 246, 0.05)', border: '1px solid rgba(139, 92, 246, 0.2)', padding: '1rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ background: 'rgba(139, 92, 246, 0.05)', border: '1px solid rgba(139, 92, 246, 0.2)', padding: '0.85rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Cards Matching: <strong style={{ color: 'var(--text-primary)' }}>{filteredCards.length}</strong></span>
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Est. Time: <strong style={{ color: 'var(--accent-primary)' }}>~{estTimeStr}</strong></span>
                 </div>
+
+                {filteredCards.length > 0 && (
+                  <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', padding: '0.85rem 1rem', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
+                    <span style={{ fontSize: '0.78rem', color: '#c084fc', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <Calendar size={12} /> Daily Study Routine Breakdowns
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '120px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                      {routineBlocks.map((block, idx) => (
+                        <div key={idx} style={{ display: 'flex', gap: '0.4rem', alignItems: 'flex-start', fontSize: '0.8rem' }}>
+                          <span style={{ color: block.type === 'study' ? '#a78bfa' : '#34d399', fontWeight: 800, minWidth: '40px', flexShrink: 0 }}>
+                            [{block.duration}m]
+                          </span>
+                          <span style={{ color: 'var(--text-secondary)' }}>{block.desc}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '0.25rem' }}>
                 <button className="btn btn-secondary" onClick={() => setStudyOptionsDeckId(null)}>Cancel</button>
                 <button 
                   className="btn btn-primary" 
@@ -1794,6 +2187,102 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           </div>
         );
       })()}
+
+      {/* Refactor Card Modal */}
+      {refactorCard && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(5px)', padding: '1rem' }}>
+          <div className="glass-panel animate-scale-in" style={{ width: '100%', maxWidth: '600px', padding: '2rem', borderRadius: '16px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '1.5rem', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, color: '#f472b6' }}>
+                <Sparkles size={20} /> AI Refactor Card ("Make Easy")
+              </h2>
+              <button className="btn btn-secondary" onClick={() => setRefactorCard(null)} style={{ padding: '0.4rem', borderRadius: '50%' }}><X size={16} /></button>
+            </div>
+
+            <div style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>ORIGINAL CARD</span>
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}><strong>Q:</strong> {refactorCard.question}</p>
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}><strong>Concept:</strong> {refactorCard.concept}</p>
+            </div>
+
+            {!refactorResult ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'left' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Refactoring Strategy</label>
+                  <select 
+                    value={refactorMethod} 
+                    onChange={e => setRefactorMethod(e.target.value)}
+                    className="input-field"
+                    style={{ appearance: 'none', cursor: 'pointer', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '0.4rem 0.8rem', borderRadius: '6px', color: 'var(--text-primary)' }}
+                  >
+                    <option value="auto" style={{ background: '#111' }}>Auto-Detect Method (Recommended)</option>
+                    <option value="simplify" style={{ background: '#111' }}>Method A: Text Simplification (Conciseness)</option>
+                    <option value="split" style={{ background: '#111' }}>Method B: Atomic Splitting (Break into Child Cards)</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Custom Instructions (Optional)</label>
+                  <input
+                    type="text"
+                    value={refactorCustomInstructions}
+                    onChange={e => setRefactorCustomInstructions(e.target.value)}
+                    placeholder="e.g. Focus on keeping formulas simple"
+                    className="input-field"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '0.4rem 0.8rem', borderRadius: '6px', color: 'var(--text-primary)' }}
+                  />
+                </div>
+
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleRunRefactor} 
+                  disabled={isRefactoring}
+                  style={{ width: '100%', padding: '0.6rem', background: 'linear-gradient(135deg, #a78bfa, #ec4899)', border: 'none', color: '#fff', fontWeight: 700 }}
+                >
+                  {isRefactoring ? '🧙‍♂️ AI is refactoring...' : '🪄 Run AI Refactoring'}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'left' }}>
+                <div style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.2)', padding: '1rem', borderRadius: '8px' }}>
+                  <h4 style={{ margin: '0 0 0.5rem 0', color: '#86efac', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.95rem' }}>
+                    ✔ AI Refactoring Preview ({refactorResult.methodApplied.toUpperCase()})
+                  </h4>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                    {refactorResult.explanation}
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {refactorResult.methodApplied === 'simplify' ? (
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#c084fc', display: 'block', fontWeight: 600 }}>SIMPLIFIED PREVIEW</span>
+                      <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.95rem', fontWeight: 600 }}><strong>Q:</strong> {refactorResult.simplifiedCard.question}</p>
+                      <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}><strong>Concept:</strong> {refactorResult.simplifiedCard.concept}</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#f472b6', fontWeight: 600 }}>SPLIT CHILD CARDS PREVIEW</span>
+                      {refactorResult.splitCards.map((sc, idx) => (
+                        <div key={idx} style={{ background: 'rgba(255,255,255,0.02)', padding: '0.85rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Child #{idx + 1}</span>
+                          <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.9rem', fontWeight: 600 }}><strong>Q:</strong> {sc.question}</p>
+                          <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}><strong>Concept:</strong> {sc.concept}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                  <button className="btn btn-secondary" onClick={() => setRefactorResult(null)} style={{ flex: 1 }}>Modify Parameters</button>
+                  <button className="btn btn-primary" onClick={handleAcceptRefactor} style={{ flex: 1, background: 'var(--accent-primary)', border: 'none', color: '#fff', fontWeight: 700 }}>Accept Refactoring</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

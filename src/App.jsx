@@ -195,7 +195,8 @@ const getSettingsPayload = (s) => {
     xp: s.xp || 0,
     streak: s.streak || 0,
     lastStudyDate: s.lastStudyDate || '',
-    unlockAllFeatures: s.unlockAllFeatures ?? true
+    unlockAllFeatures: s.unlockAllFeatures ?? true,
+    maxHardCardsPer5Min: s.maxHardCardsPer5Min ?? 2
   };
 };
 
@@ -213,7 +214,8 @@ export default function App() {
     unlockAllFeatures: true,
     xp: 0,
     streak: 0,
-    lastStudyDate: ''
+    lastStudyDate: '',
+    maxHardCardsPer5Min: 2
   });
   const [decks, setDecks] = useState(initialDecks);
   const [cards, setCards] = useState(initialCards);
@@ -948,11 +950,69 @@ export default function App() {
     saveCards(updatedCards);
   };
 
+  const handleRefactorCard = (cardId, refactoredData) => {
+    setCards(prevCards => {
+      const copy = [...prevCards];
+      const parentIdx = copy.findIndex(c => c.id === cardId);
+      if (parentIdx === -1) return prevCards;
+      
+      const parentCard = copy[parentIdx];
+      
+      if (refactoredData.methodApplied === 'simplify') {
+        const updatedCard = {
+          ...parentCard,
+          question: refactoredData.simplifiedCard.question,
+          concept: refactoredData.simplifiedCard.concept
+        };
+        copy[parentIdx] = updatedCard;
+        saveCards(copy);
+        // If we are in study mode, update sessionCards
+        setSessionCards(prevSession => prevSession.map(sc => sc.id === cardId ? updatedCard : sc));
+      } else if (refactoredData.methodApplied === 'split') {
+        const childIds = [];
+        const newChildCards = refactoredData.splitCards.map((sc, idx) => {
+          const childId = `card-child-${Date.now()}-${idx}`;
+          childIds.push(childId);
+          return {
+            id: childId,
+            deckId: parentCard.deckId,
+            question: sc.question,
+            concept: sc.concept,
+            parentCardId: parentCard.id,
+            state: null,
+            history: [],
+            cardType: parentCard.cardType || 'default'
+          };
+        });
+        
+        const updatedParentCard = {
+          ...parentCard,
+          paused: true,
+          childCardIds: childIds
+        };
+        copy[parentIdx] = updatedParentCard;
+        
+        const finalCards = [...copy, ...newChildCards];
+        saveCards(finalCards);
+        
+        // If we are in study mode, swap the parent card in the remaining queue with child cards
+        setSessionCards(prevSession => {
+          const idx = prevSession.findIndex(sc => sc.id === cardId);
+          if (idx === -1) return prevSession;
+          const left = prevSession.slice(0, idx);
+          const right = prevSession.slice(idx + 1);
+          return [...left, ...newChildCards, ...right];
+        });
+      }
+      return copy;
+    });
+  };
+
   // --- STUDY SESSION CONTROL HANDLERS ---
   const handleStartStudy = (deckId, options = { filter: 'due', type: 'all' }) => {
     setActiveDeckId(deckId);
     
-    const deckCards = cards.filter(c => c.deckId === deckId);
+    const deckCards = cards.filter(c => c.deckId === deckId && !c.paused && !c.suspended);
     let filtered = deckCards;
 
     // 1. Status Filter
@@ -1107,7 +1167,7 @@ export default function App() {
 
   // Helper to filter currently due cards in selected deck
   const getDueCards = () => {
-    const deckCards = cards.filter(c => c.deckId === activeDeckId);
+    const deckCards = cards.filter(c => c.deckId === activeDeckId && !c.paused && !c.suspended);
     // We sort such that failed cards (due immediately) appear first
     const now = new Date();
     now.setHours(23, 59, 59, 999); // Due today includes cards due by midnight
@@ -1231,6 +1291,7 @@ export default function App() {
           onMoveCards={handleMoveCards}
           onUpdateDeckMindMap={handleUpdateDeckMindMap}
           onUpdateCards={handleUpdateCards}
+          onRefactorCard={handleRefactorCard}
         />
       )}
 
@@ -1287,6 +1348,7 @@ export default function App() {
               onRateCard={handleRateCard}
               onClose={() => setView('dashboard')}
               settings={settings}
+              onRefactorCard={handleRefactorCard}
             />
           );
         })()

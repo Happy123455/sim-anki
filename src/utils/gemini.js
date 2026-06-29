@@ -762,3 +762,240 @@ Concept Focus: ${concept}
   return text.trim();
 }
 
+/**
+ * Aggregates study stats and error logs, and calls Gemini to generate a personalized User Difficulty Profile.
+ */
+export async function generateCognitiveProfile(apiKey, model, cardsWithHistory) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const simplifiedCards = cardsWithHistory.map(c => {
+    const history = c.history || [];
+    const avgScore = history.length > 0 
+      ? Math.round(history.reduce((sum, h) => sum + (h.score || 0), 0) / history.length) 
+      : 0;
+    const fails = history.filter(h => h.rating === 'again').length;
+    const recentErrors = history
+      .map(h => h.logicAnalysis)
+      .filter(e => e && e.trim() && e !== 'None')
+      .slice(-3); // get last 3 errors
+
+    return {
+      question: c.question.slice(0, 100) + (c.question.length > 100 ? "..." : ""),
+      concept: c.concept.slice(0, 100) + (c.concept.length > 100 ? "..." : ""),
+      cardType: c.cardType || "default",
+      reps: history.length,
+      fails,
+      avgScore,
+      recentErrors
+    };
+  });
+
+  const systemPrompt = `You are an expert cognitive psychologist and educational data analyst.
+Analyze the student's flashcard review stats and history logs below.
+Look for cognitive patterns in where the student struggles or excels.
+Identify factors like card type (rote vs logic vs vocabulary), card length, and types of logical errors.
+
+Provide a structured, encouraging, and detailed profile of their strengths and weaknesses, along with actionable study advice.
+
+You must respond with a JSON object conforming exactly to this schema:
+{
+  "excelsAt": ["string", "string"],
+  "strugglesWith": ["string", "string"],
+  "detailedAnalysis": "string (Markdown format, 2-3 paragraphs analyzing their performance)",
+  "recommendedFocus": "string (Actionable advice on what review style or refactoring options they should use)"
+}`;
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt + "\n\nStudent Card Stats:\n" + JSON.stringify(simplifiedCards) }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            excelsAt: { type: "ARRAY", items: { type: "STRING" } },
+            strugglesWith: { type: "ARRAY", items: { type: "STRING" } },
+            detailedAnalysis: { type: "STRING" },
+            recommendedFocus: { type: "STRING" }
+          },
+          required: ["excelsAt", "strugglesWith", "detailedAnalysis", "recommendedFocus"]
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Profile generation failed: ${response.statusText}. Details: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}
+
+/**
+ * Predictively grades the baseline difficulty of new, unreviewed cards in batches.
+ */
+export async function predictCardDifficulties(apiKey, model, cards) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const payloadCards = cards.map(c => ({
+    id: c.id,
+    question: c.question,
+    concept: c.concept
+  }));
+
+  const systemPrompt = `You are an expert AI tutor. Analyze the following flashcards and predictively grade their baseline difficulty.
+Classify each card's difficulty as one of: "easy", "medium", or "hard".
+- "easy": Simple definitions, direct lookup questions, short rote facts.
+- "medium": Multi-concept translations, basic calculations, questions requiring explanation of one concept.
+- "hard": Complex system comparisons, quantitative formulas with multiple steps, lengthy or highly technical concepts.
+
+Provide a short 1-sentence reason explaining why it has this difficulty.
+
+You must respond with a JSON array conforming exactly to this schema:
+[
+  {
+    "id": "card ID",
+    "difficulty": "easy" | "medium" | "hard",
+    "reason": "explanation of difficulty rating"
+  }
+]`;
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt + "\n\nCards:\n" + JSON.stringify(payloadCards) }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              id: { type: "STRING" },
+              difficulty: { type: "STRING", enum: ["easy", "medium", "hard"] },
+              reason: { type: "STRING" }
+            },
+            required: ["id", "difficulty", "reason"]
+          }
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Predictive grading failed: ${response.statusText}. Details: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}
+
+/**
+ * Refactors a card rated "Hard" using either Text Simplification (Method A) or Atomic Splitting (Method B).
+ */
+export async function refactorHardCard(apiKey, model, card, method, customInstructions = "") {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const systemPrompt = `You are an expert educational designer specializing in flashcard optimization (minimizing cognitive load, keeping cards atomic, applying the Minimum Information Principle).
+Your task is to refactor a "Hard" card to make it easier for the student to study and recall.
+
+You have two methods at your disposal:
+1. "simplify" (Method A - Text Simplification): Rewrite the verbose, complicated, or wordy question and concept to be highly concise and clear. The core knowledge/information must not be altered, lost, or damaged. Keep LaTeX formatting/formulas intact but explain them simpler.
+2. "split" (Method B - Atomic Splitting): Divide a card containing too much information (multiple questions or compound concepts) into 2 or more separate, atomic child cards. Each child card must test exactly one fact or logical step.
+
+If method is "auto", you must decide which method is most appropriate:
+- If the card has a lot of details or multiple parts, choose "split".
+- If the card is just verbose or confusingly written, choose "simplify".
+
+You must respond with a JSON object conforming exactly to this schema:
+{
+  "methodApplied": "simplify" | "split",
+  "explanation": "Brief explanation of what changes you made and why.",
+  "simplifiedCard": {
+    "question": "simplified question text",
+    "concept": "simplified concept reference answer"
+  },
+  "splitCards": [
+    {
+      "question": "child card 1 question",
+      "concept": "child card 1 concept focus reference answer"
+    },
+    {
+      "question": "child card 2 question",
+      "concept": "child card 2 concept focus reference answer"
+    }
+  ]
+}
+
+Ensure "simplifiedCard" is populated if methodApplied is "simplify".
+Ensure "splitCards" contains at least 2 cards if methodApplied is "split".
+`;
+
+  const prompt = `
+Original Card:
+Question: ${card.question}
+Concept: ${card.concept}
+Requested Refactoring Method: ${method}
+${customInstructions ? `Additional User Instructions: "${customInstructions}"` : ""}
+`;
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt + "\n\n" + prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            methodApplied: { type: "STRING", enum: ["simplify", "split"] },
+            explanation: { type: "STRING" },
+            simplifiedCard: {
+              type: "OBJECT",
+              properties: {
+                question: { type: "STRING" },
+                concept: { type: "STRING" }
+              },
+              required: ["question", "concept"]
+            },
+            splitCards: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  question: { type: "STRING" },
+                  concept: { type: "STRING" }
+                },
+                required: ["question", "concept"]
+              }
+            }
+          },
+          required: ["methodApplied", "explanation"]
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Refactoring request failed: ${response.statusText}. Details: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}
+
+
