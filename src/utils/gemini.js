@@ -172,37 +172,44 @@ export async function evaluateAnswer(apiKey, model, question, concept, userAnswe
   }
 
   const systemPrompt = `You are an expert tutor grading a student's answer for a spaced repetition flashcard.
-Your job is to analyze the student's answer, provide a score from 0 to 100, identify strengths, list logical gaps or incorrect concepts, analyze their errors, and provide a clear, concise markdown explanation of the concept that directly addresses their errors.
+Your job is to analyze the student's answer, provide a score from 0 to 100, suggest a rating ('again', 'hard', 'good', 'easy'), identify strengths/weaknesses (maximum of 2 short bullet points each), and provide a direct evaluation.
 
-[CRITICAL BRIEFNESS REQUIREMENT]:
-1. Keep all explanations extremely short, simple, and under 80 words total. Focus strictly on the core explanation with a quick 1-sentence analogy or real-world example.
-2. The "strengths" and "weaknesses" lists must contain a maximum of 2 short bullet points each.
-3. The "logicAnalysis" must be a direct advice on exactly "where to improve" in under 30 words (1 sentence max).
+[OPTIMIZATION & TOKEN SAVING RULES]:
+1. If the student's answer is 100% correct:
+   - score = 100
+   - suggestedRating = "easy"
+   - correctExplanation = "🎉 Excellent recall! Your answer is 100% correct."
+   - strengths = []
+   - weaknesses = []
+   - logicAnalysis = "Perfect! 🎯"
+   - highlights = []
+   - conceptHighlights = []
+   - omittedItems = []
+   Keep it extremely minimal.
+
+2. If the answer is imperfect (< 100%):
+   - logicAnalysis: Focus strictly on what went wrong. You MUST use bracketed notation like "(missing keyword/phrase)" to explicitly show what missing words, details, or context should be added to achieve 100%. Emojify key concepts to make them highly scannable (e.g. "You missed the 💡 concept of..."). Keep it under 30 words.
+   - correctExplanation: Keep it extremely concise (under 30 words), stating only the core correction. DO NOT include detailed pros/cons or extended explanations here.
+
+3. puzzlePieces:
+   Decompose the correct "Concept Focus" reference concept into 3 to 6 logical chunks of text (words or phrases) that fit together to form the full correct answer. The user will reconstruct this in the UI.
+
+4. omittedItems:
+   Identify 1 to 3 specific terms/keywords that the student missed (max 3 items, 1-3 words each).
 
 ${formattedHistory ? `
 [CRITICAL HISTORY DIAGNOSIS RULE]:
 The student has reviewed this card in the past. Look at the attached [USER PREVIOUS REVIEW HISTORY ON THIS CARD].
-Analyze whether they are:
-- Repeating the EXACT SAME logical mistake they made in the past.
-- Making a NEW mistake they haven't made before.
-- Corrected their previous mistake (acknowledge it briefly).
-Take into account how long it has been since their last review (today is ${new Date().toLocaleDateString()}).
-Your "logicAnalysis" MUST briefly comment on this historical comparison (e.g. "You are still making the same mistake of..." or "You corrected your previous error about X, but you made a new mistake in Y.").
+Analyze whether they are repeating the same mistake or made a new mistake, and note this in your logicAnalysis under 15 words.
 ` : ''}
 
 ${cardType === 'rote' || cardType === 'vocabulary' ? `
 [ROTE/VOCABULARY CARD REQUIREMENT]:
-This is a "${cardType}" card, which requires memorization of facts, numbers, or simple translations rather than deep logic.
-1. DO NOT generate extensive "Logical Gaps" or deep conceptual breakdowns.
-2. In your "logicAnalysis", focus purely on explaining the literal gap (e.g., "You guessed 10, the actual answer is 100").
-3. Your "correctExplanation" should be an extremely brief, punchy statement of the fact, ideally paired with a memorable mnemonic or visual hook to help them memorize it.
+This is a "${cardType}" card, which requires memorization of facts, numbers, or simple translations. Focus purely on literal gaps.
 ` : `
 [LOGIC CARD REQUIREMENT]:
-This is a logic or conceptual card. Focus on identifying logical gaps, misconceptions, and structural errors in the student's reasoning.
+This is a logic or conceptual card. Focus on identifying logical gaps, misconceptions, and structural errors.
 `}
-
-${isNewCard ? `[ELI5 REQUIREMENT] This is a brand new concept the student is learning for the first time. You MUST explain the entire concept using an extreme "Explain Like I'm 5" (ELI5) style. Use an analogy appropriate for a 5-year-old child (e.g. playing with blocks, cakes, toy trucks) and simple vocabulary to introduce the concept clearly.` : 
-  (isEli5 ? `[ELI5 REQUIREMENT] The student has failed to answer this card correctly ${consecutiveFails} times. You MUST explain the entire concept using an extreme "Explain Like I'm 5" (ELI5) style. Use an analogy appropriate for a 5-year-old child (e.g. playing with blocks, cakes, toy trucks) and simple vocabulary.` : '')}
 
 Based on the score:
 - score < 60: suggest "again"
@@ -211,35 +218,26 @@ Based on the score:
 - score > 90: suggest "easy"
 
 [HIGHLIGHTING REQUIREMENT]:
-1. Analyze the student's answer text ("User's Answer"). Identify specific words or short phrases that are:
-- Correct and accurate (color: "green", reason: "Short tooltip explanation why it is correct")
-- Spelling/typo errors or slightly off wording (color: "yellow", reason: "Spelling correction or minor rewording advice")
-- Incorrect facts, logical gaps, or wrong concepts (color: "red", reason: "Correction of the misconception/error")
-You must return these in the "highlights" array. Every highlight object in this array MUST contain "text" (exact substring from student's answer), "color" ("green"|"yellow"|"red"), and "reason".
-
-2. Analyze the card's original reference concept text ("Concept Focus"). Identify specific words or phrases that are:
-- The main key words or central concepts (type: "main", reason: "Why this keyword is central to the concept")
-- Crucial words or details in the reference concept that the student completely missed or failed to include in their answer (type: "missed", reason: "Why this missed word/detail is important to correct their answer")
-You must return these in the "conceptHighlights" array. Every object in this array MUST contain "text" (exact case-sensitive substring from the "Concept Focus" reference concept), "type" ("main"|"missed"), and "reason".
-
-3. Identify 1 to 3 specific key words, formulas, numbers, units, or exact terms from the reference concept focus that the student completely missed or failed to include in their answer. These should be returned in the "omittedItems" array (maximum of 3 items). Keep them very short (1-3 words max, e.g. "precipitation", "evaporation", "12x10^3 unit") so they can be checked off in an interactive progress checklist. Do not return broad sentences, but simple, concrete tokens or concepts.
+1. Analyze the student's answer text ("User's Answer"). Identify specific words or short phrases that are correct (green), spelling error (yellow), or incorrect (red). Return these in highlights.
+2. Analyze the card's original reference concept text ("Concept Focus"). Identify main key words (main) and missed details (missed) in conceptHighlights.
 
 You must respond with a JSON object conforming exactly to this schema:
 {
   "score": number (0 to 100),
   "strengths": string[],
   "weaknesses": string[],
-  "logicAnalysis": string (direct advice on where to improve and brief comparison with history, 1-2 sentences),
-  "correctExplanation": string (formatted in Markdown, under 150 words),
+  "logicAnalysis": string (direct advice on where to improve, 1-2 sentences),
+  "correctExplanation": string (formatted in Markdown, under 30 words),
   "suggestedRating": "again" | "hard" | "good" | "easy",
   "highlights": Array<{ text: string, color: "green" | "yellow" | "red", reason: string }>,
   "conceptHighlights": Array<{ text: string, type: "main" | "missed", reason: string }>,
-  "omittedItems": string[]
+  "omittedItems": string[],
+  "puzzlePieces": string[]
 }
 
 ${customInstructions ? `
 [CRITICAL USER CUSTOM TUTOR INSTRUCTIONS / PREFERENCES]:
-You MUST strictly follow these user preferences for style, tone, language, and formatting. They take precedence over standard instruction formats (e.g. if the user requests pirate speech, speak like a pirate in both "logicAnalysis" and "correctExplanation"):
+You MUST strictly follow these user preferences:
 "${customInstructions}"
 ` : ''}`;
 
@@ -328,9 +326,13 @@ You must output your response complying strictly with these user-defined prefere
               omittedItems: {
                 type: "ARRAY",
                 items: { type: "STRING" }
+              },
+              puzzlePieces: {
+                type: "ARRAY",
+                items: { type: "STRING" }
               }
             },
-            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights", "conceptHighlights", "omittedItems"]
+            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights", "conceptHighlights", "omittedItems", "puzzlePieces"]
           }
         }
       })
@@ -991,6 +993,64 @@ ${customInstructions ? `Additional User Instructions: "${customInstructions}"` :
   if (!response.ok) {
     const errText = await response.text();
     throw new Error(`Refactoring request failed: ${response.statusText}. Details: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}
+
+/**
+ * Fetches comprehensive deep analysis (Pros, Cons, and Detailed Explanation).
+ * Only invoked when the user clicks the lazy-load analysis button.
+ */
+export async function getDetailedAnalysis(apiKey, model, question, concept, userAnswer) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const systemPrompt = `You are an expert AI tutor providing a comprehensive, deep pedagogical analysis of a student's flashcard review.
+Analyze the question, the reference concept, and the user's answer.
+Provide a detailed breakdown with:
+1. Pros: What parts of their answer were accurate, well-phrased, or showed good understanding.
+2. Cons: Exact misconceptions, logical errors, or formatting gaps.
+3. Detailed Explanation: A thorough explanation of the underlying concept, how it applies to this question, and how to remember it next time.
+
+You must respond with a JSON object conforming exactly to this schema:
+{
+  "pros": ["string", "string"],
+  "cons": ["string", "string"],
+  "detailedExplanation": "string (formatted in Markdown, detailed pedagogical breakdown)"
+}`;
+
+  const prompt = `
+Question: ${question}
+Reference Concept: ${concept}
+User's Answer: "${userAnswer}"
+`;
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt + "\n\n" + prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            pros: { type: "ARRAY", items: { type: "STRING" } },
+            cons: { type: "ARRAY", items: { type: "STRING" } },
+            detailedExplanation: { type: "STRING" }
+          },
+          required: ["pros", "cons", "detailedExplanation"]
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to retrieve detailed analysis: ${response.statusText}. Details: ${errText}`);
   }
 
   const data = await response.json();

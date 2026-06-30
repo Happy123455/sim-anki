@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
-import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard } from '../utils/gemini';
+import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
 import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
@@ -510,6 +510,16 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [evaluation, setEvaluation] = useState(null);
   const [gradingStatus, setGradingStatus] = useState('');
 
+  // Interactive Puzzle States
+  const [puzzleScrambled, setPuzzleScrambled] = useState([]);
+  const [puzzlePlaced, setPuzzlePlaced] = useState([]);
+  const [puzzleSolved, setPuzzleSolved] = useState(false);
+
+  // Lazy-loaded Detailed AI Analysis
+  const [detailedAnalysis, setDetailedAnalysis] = useState(null);
+  const [isDetailedLoading, setIsDetailedLoading] = useState(false);
+  const [detailedError, setDetailedError] = useState(null);
+
   // Copy Prompt State
   const [copySuccess, setCopySuccess] = useState(false);
   const [showPastAnswers, setShowPastAnswers] = useState(false);
@@ -598,6 +608,27 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       );
       
       setEvaluation(result);
+      
+      // Initialize Puzzle State
+      const pieces = result.puzzlePieces || [];
+      if (pieces.length > 0) {
+        // Scramble/shuffle pieces
+        const indices = Array.from({ length: pieces.length }, (_, i) => i);
+        const scrambledIndices = [...indices].sort(() => Math.random() - 0.5);
+        setPuzzleScrambled(scrambledIndices.map(idx => pieces[idx]));
+        setPuzzlePlaced([]);
+        setPuzzleSolved(false);
+      } else {
+        setPuzzleScrambled([]);
+        setPuzzlePlaced([]);
+        setPuzzleSolved(false);
+      }
+
+      // Reset detailed analysis lazy-load state
+      setDetailedAnalysis(null);
+      setDetailedError(null);
+      setIsDetailedLoading(false);
+
       setStep('grading');
 
       // Check if card is a Leech (>= 6 fails) and Tutor is unlocked
@@ -723,6 +754,52 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       ]);
     } finally {
       setIsChatLoading(false);
+    }
+  };
+
+  const checkPuzzleSolved = (placedIndices) => {
+    if (!evaluation || !evaluation.puzzlePieces) return false;
+    const original = evaluation.puzzlePieces.join(' ').trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+    const reconstructed = placedIndices.map(idx => puzzleScrambled[idx]).join(' ').trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+    return original === reconstructed;
+  };
+
+  const handlePlacePiece = (idx) => {
+    if (puzzlePlaced.includes(idx)) return;
+    const nextPlaced = [...puzzlePlaced, idx];
+    setPuzzlePlaced(nextPlaced);
+    if (checkPuzzleSolved(nextPlaced)) {
+      setPuzzleSolved(true);
+      playSuccess();
+    }
+  };
+
+  const handleRemovePiece = (placedIdx) => {
+    const nextPlaced = puzzlePlaced.filter((_, idx) => idx !== placedIdx);
+    setPuzzlePlaced(nextPlaced);
+    setPuzzleSolved(checkPuzzleSolved(nextPlaced));
+  };
+
+  const handleResetPuzzle = () => {
+    setPuzzlePlaced([]);
+    setPuzzleSolved(false);
+  };
+
+  const handleFetchDetailedAnalysis = async () => {
+    if (!apiKey) {
+      alert("Please configure your Gemini API key in Settings first.");
+      return;
+    }
+    setIsDetailedLoading(true);
+    setDetailedError(null);
+    try {
+      const data = await getDetailedAnalysis(apiKey, model, currentCard.question, currentCard.concept, userAnswer);
+      setDetailedAnalysis(data);
+    } catch (e) {
+      console.error(e);
+      setDetailedError(e.message || "Failed to fetch detailed analysis.");
+    } finally {
+      setIsDetailedLoading(false);
     }
   };
 
@@ -1327,135 +1404,274 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
             {isTutoringComplete && (
               <>
-                <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', padding: '1rem 1.25rem', borderRadius: '12px' }}>
-              <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <span>{currentCard.cardType === 'rote' || currentCard.cardType === 'vocabulary' ? 'Gap Analysis' : 'Logical Analysis'}</span>
-                {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={evaluation.logicAnalysis || ''} voiceURI={voiceURI} />}
-              </h4>
-              <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>{evaluation.logicAnalysis}</p>
-            </div>
-
-            {/* Compare with Past Answers Section */}
-            {currentCard.history && currentCard.history.length > 0 && (
-              <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '1rem 1.25rem' }}>
-                <div 
-                  onClick={() => setShowPastAnswers(!showPastAnswers)} 
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
-                >
-                  <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.35rem', margin: 0 }}>
-                    <Activity size={16} style={{ color: 'var(--accent-primary)' }} />
-                    Compare with Past Answers ({currentCard.history.length})
-                  </h4>
-                  {showPastAnswers ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                </div>
-
-                {showPastAnswers && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
-                    {/* Current Answer */}
-                    <div style={{ background: 'rgba(139, 92, 246, 0.03)', border: '1px solid rgba(139, 92, 246, 0.15)', borderRadius: '8px', padding: '0.75rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                        <strong style={{ color: 'var(--accent-primary)', fontSize: '0.8rem' }}>Current Answer (This Attempt)</strong>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)' }}>Score: {evaluation.score}%</span>
-                      </div>
-                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0, whiteSpace: 'pre-line', lineHeight: '1.5' }}>
-                        {highlightAnswerText(userAnswer, evaluation.highlights)}
+                {evaluation.score === 100 ? (
+                  <div style={{ textAlign: 'center', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1.5rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
+                    <div style={{ fontSize: '2.5rem' }}>🎉</div>
+                    <h4 style={{ fontSize: '1.1rem', color: '#86efac', margin: 0, fontWeight: 700 }}>Perfect Recall! 100% Correct</h4>
+                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', margin: 0 }}>
+                      {evaluation.correctExplanation || "Your answer matched the reference concept perfectly."}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', padding: '1rem 1.25rem', borderRadius: '12px' }}>
+                      <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <span>{currentCard.cardType === 'rote' || currentCard.cardType === 'vocabulary' ? 'Gap Analysis' : 'Logical Analysis'}</span>
+                        {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={evaluation.logicAnalysis || ''} voiceURI={voiceURI} />}
+                      </h4>
+                      <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                        {formatBracketedErrors(evaluation.logicAnalysis)}
                       </div>
                     </div>
 
-                    {/* Timeline of Past Answers */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto', paddingRight: '0.25rem' }}>
-                      {[...currentCard.history].reverse().map((past, idx) => {
-                        const scoreColor = past.score >= 80 ? 'var(--success)' : (past.score >= 60 ? 'var(--warning)' : 'var(--danger)');
-                        const reviewNum = currentCard.history.length - idx;
-                        return (
-                          <div key={idx} style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '0.75rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                              <strong style={{ color: 'var(--text-primary)', fontSize: '0.8rem' }}>Attempt #{reviewNum}</strong>
-                              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{new Date(past.date).toLocaleDateString()}</span>
-                                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: scoreColor }}>Score: {past.score}%</span>
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.82rem' }}>
-                              <div>
-                                <span style={{ color: 'var(--text-muted)' }}>Answer: </span>
-                                <span style={{ color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                                  {highlightAnswerText(past.userAnswer, past.highlights)}
-                                </span>
-                              </div>
-                              {past.logicAnalysis && (
-                                <div>
-                                  <span style={{ color: 'var(--text-muted)' }}>Feedback: </span>
-                                  <span style={{ color: 'var(--text-secondary)' }}>{past.logicAnalysis}</span>
-                                </div>
-                              )}
-                            </div>
+                    {/* Interactive Puzzle Component */}
+                    {puzzleScrambled.length > 0 && (
+                      <div style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <h4 style={{ fontSize: '0.95rem', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0 }}>
+                          🧩 Reconstruct the 100% Model Answer
+                        </h4>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+                          Click the scrambled blocks below in order to build the perfect target answer.
+                        </p>
+
+                        {/* Placed Pieces */}
+                        <div style={{ minHeight: '60px', padding: '0.85rem', background: 'rgba(0,0,0,0.2)', border: '1px dashed var(--border-light)', borderRadius: '8px', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                          {puzzlePlaced.length === 0 ? (
+                            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Reconstructed answer will appear here...</span>
+                          ) : (
+                            puzzlePlaced.map((pieceIdx, idx) => (
+                              <button
+                                key={idx}
+                                onClick={() => handleRemovePiece(idx)}
+                                className="animate-scale-in"
+                                style={{ background: 'linear-gradient(135deg, rgba(167, 139, 250, 0.15), rgba(236, 72, 153, 0.15))', border: '1px solid rgba(167, 139, 250, 0.3)', color: '#c084fc', padding: '0.35rem 0.75rem', borderRadius: '6px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 500 }}
+                              >
+                                {puzzleScrambled[pieceIdx]}
+                                <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.7rem' }}>×</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+
+                        {/* Scrambled Pool */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', background: 'rgba(255,255,255,0.01)', padding: '0.75rem', borderRadius: '8px' }}>
+                          {puzzleScrambled.map((piece, idx) => {
+                            const isUsed = puzzlePlaced.includes(idx);
+                            return (
+                              <button
+                                key={idx}
+                                disabled={isUsed}
+                                onClick={() => handlePlacePiece(idx)}
+                                style={{
+                                  background: isUsed ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)',
+                                  border: `1px solid ${isUsed ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)'}`,
+                                  color: isUsed ? 'var(--text-muted)' : 'var(--text-secondary)',
+                                  padding: '0.35rem 0.75rem',
+                                  borderRadius: '6px',
+                                  fontSize: '0.85rem',
+                                  cursor: isUsed ? 'not-allowed' : 'pointer',
+                                  opacity: isUsed ? 0.4 : 1,
+                                  transition: 'all 0.2s ease',
+                                  fontWeight: 500
+                                }}
+                              >
+                                {piece}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          {puzzleSolved ? (
+                            <span style={{ fontSize: '0.85rem', color: '#34d399', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              🎉 100% Correct Reconstructed!
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                              Place all chunks in chronological order.
+                            </span>
+                          )}
+                          <button onClick={handleResetPuzzle} className="btn-text" style={{ fontSize: '0.8rem', color: 'var(--accent-primary)', background: 'none', border: 'none', cursor: 'pointer' }}>Reset</button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Compare with Past Answers Section */}
+                {currentCard.history && currentCard.history.length > 0 && (
+                  <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '1rem 1.25rem' }}>
+                    <div 
+                      onClick={() => setShowPastAnswers(!showPastAnswers)} 
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+                    >
+                      <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.35rem', margin: 0 }}>
+                        <Activity size={16} style={{ color: 'var(--accent-primary)' }} />
+                        Compare with Past Answers ({currentCard.history.length})
+                      </h4>
+                      {showPastAnswers ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </div>
+
+                    {showPastAnswers && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
+                        {/* Current Answer */}
+                        <div style={{ background: 'rgba(139, 92, 246, 0.03)', border: '1px solid rgba(139, 92, 246, 0.15)', borderRadius: '8px', padding: '0.75rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                            <strong style={{ color: 'var(--accent-primary)', fontSize: '0.8rem' }}>Current Answer (This Attempt)</strong>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)' }}>Score: {evaluation.score}%</span>
                           </div>
-                        );
-                      })}
-                    </div>
+                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0, whiteSpace: 'pre-line', lineHeight: '1.5' }}>
+                            {highlightAnswerText(userAnswer, evaluation.highlights)}
+                          </div>
+                        </div>
+
+                        {/* Timeline of Past Answers */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '200px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                          {[...currentCard.history].reverse().map((past, idx) => {
+                            const scoreColor = past.score >= 80 ? 'var(--success)' : (past.score >= 60 ? 'var(--warning)' : 'var(--danger)');
+                            const reviewNum = currentCard.history.length - idx;
+                            return (
+                              <div key={idx} style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '0.75rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                                  <strong style={{ color: 'var(--text-primary)', fontSize: '0.8rem' }}>Attempt #{reviewNum}</strong>
+                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{new Date(past.date).toLocaleDateString()}</span>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: scoreColor }}>Score: {past.score}%</span>
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.82rem' }}>
+                                  <div>
+                                    <span style={{ color: 'var(--text-muted)' }}>Answer: </span>
+                                    <span style={{ color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                                      {highlightAnswerText(past.userAnswer, past.highlights)}
+                                    </span>
+                                  </div>
+                                  {past.logicAnalysis && (
+                                    <div>
+                                      <span style={{ color: 'var(--text-muted)' }}>Feedback: </span>
+                                      <span style={{ color: 'var(--text-secondary)' }}>{past.logicAnalysis}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
 
-            {/* AI Explanation Content */}
-            <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0.25rem', marginBottom: 0 }}>
-                Concept Correction & Explanation
-              </h4>
-              <div 
-                className="markdown-content"
-                dangerouslySetInnerHTML={{ __html: parseMarkdown(evaluation.correctExplanation) }}
-                style={{ fontSize: '0.92rem', color: 'var(--text-secondary)' }}
-              />
-              <HighlightingTTS text={evaluation.correctExplanation} voiceURI={voiceURI} />
-
-              {/* Memory Mnemonic assistance */}
-              {hasFeatureUnlocked(settings, 'mnemonics') && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={handleGenerateMnemonic}
-                    disabled={isMnemonicLoading}
-                    style={{
-                      alignSelf: 'flex-start',
-                      background: 'rgba(236, 72, 153, 0.1)',
-                      border: '1px solid rgba(236, 72, 153, 0.3)',
-                      color: '#f472b6',
-                      gap: '0.5rem',
-                      fontSize: '0.85rem',
-                      padding: '0.5rem 1.25rem',
-                      borderRadius: '8px',
-                      cursor: isMnemonicLoading ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    <BrainCircuit size={16} /> 
-                    {isMnemonicLoading ? 'Generating Memory Hook...' : '🧠 Generate Memory Hook'}
-                  </button>
-
-                  {mnemonicError && (
-                    <div style={{ color: 'var(--danger)', fontSize: '0.82rem', textAlign: 'left', marginTop: '0.25rem' }}>
-                      {mnemonicError}
+                {/* Lazy-Loaded Deep Analysis section */}
+                {!detailedAnalysis ? (
+                  <div style={{ textAlign: 'left', marginTop: '0.5rem' }}>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={handleFetchDetailedAnalysis}
+                      disabled={isDetailedLoading}
+                      style={{ width: '100%', padding: '0.65rem', background: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.25)', color: '#c084fc', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 600 }}
+                    >
+                      {isDetailedLoading ? (
+                        <>
+                          <RefreshCw size={16} className="animate-spin" />
+                          Lazy-Loading Deep AI Analysis...
+                        </>
+                      ) : (
+                        <>
+                          <BookOpen size={16} />
+                          🔍 Read Detailed AI Analysis (Pros, Cons & Concepts)
+                        </>
+                      )}
+                    </button>
+                    {detailedError && (
+                      <p style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: '0.5rem' }}>{detailedError}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="glass-panel animate-fade-in" style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0.5rem' }}>
+                      <h4 style={{ fontSize: '0.95rem', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.35rem', margin: 0 }}>
+                        📚 Comprehensive AI Feedback
+                      </h4>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Lazy-Loaded</span>
                     </div>
-                  )}
 
-                  {mnemonicText && (
-                    <div className="glass-panel animate-fade-in" style={{ padding: '1.25rem', background: 'rgba(236, 72, 153, 0.04)', border: '1px solid rgba(236, 72, 153, 0.15)', borderRadius: '10px', textAlign: 'left', marginTop: '0.25rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <span style={{ fontSize: '0.8rem', color: '#f472b6', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                          <Sparkles size={14} /> AI Memory Hook
-                        </span>
-                        {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={mnemonicText} voiceURI={voiceURI} />}
+                    {/* Pros */}
+                    {detailedAnalysis.pros && detailedAnalysis.pros.length > 0 && (
+                      <div>
+                        <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.85rem', color: '#34d399' }}>✓ What you did well</h5>
+                        <ul style={{ margin: 0, paddingLeft: '1.15rem', fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          {detailedAnalysis.pros.map((pro, i) => <li key={i}>{pro}</li>)}
+                        </ul>
                       </div>
-                      <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
-                        {mnemonicText}
+                    )}
+
+                    {/* Cons */}
+                    {detailedAnalysis.cons && detailedAnalysis.cons.length > 0 && (
+                      <div>
+                        <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.85rem', color: '#fca5a5' }}>✗ Misconceptions / Gaps</h5>
+                        <ul style={{ margin: 0, paddingLeft: '1.15rem', fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          {detailedAnalysis.cons.map((con, i) => <li key={i}>{con}</li>)}
+                        </ul>
                       </div>
+                    )}
+
+                    {/* Detailed Explanation */}
+                    <div>
+                      <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.85rem', color: 'var(--text-primary)' }}>Concept Explanation</h5>
+                      <div 
+                        className="markdown-content"
+                        dangerouslySetInnerHTML={{ __html: parseMarkdown(detailedAnalysis.detailedExplanation) }}
+                        style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}
+                      />
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
+
+                    {/* Memory Mnemonic assistance inside lazy block */}
+                    {hasFeatureUnlocked(settings, 'mnemonics') && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={handleGenerateMnemonic}
+                          disabled={isMnemonicLoading}
+                          style={{
+                            alignSelf: 'flex-start',
+                            background: 'rgba(236, 72, 153, 0.1)',
+                            border: '1px solid rgba(236, 72, 153, 0.3)',
+                            color: '#f472b6',
+                            gap: '0.5rem',
+                            fontSize: '0.85rem',
+                            padding: '0.5rem 1.25rem',
+                            borderRadius: '8px',
+                            cursor: isMnemonicLoading ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          <BrainCircuit size={16} /> 
+                          {isMnemonicLoading ? 'Generating Memory Hook...' : '🧠 Generate Memory Hook'}
+                        </button>
+
+                        {mnemonicError && (
+                          <div style={{ color: 'var(--danger)', fontSize: '0.82rem', textAlign: 'left', marginTop: '0.25rem' }}>
+                            {mnemonicError}
+                          </div>
+                        )}
+
+                        {mnemonicText && (
+                          <div className="glass-panel animate-fade-in" style={{ padding: '1.25rem', background: 'rgba(236, 72, 153, 0.04)', border: '1px solid rgba(236, 72, 153, 0.15)', borderRadius: '10px', textAlign: 'left', marginTop: '0.25rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                              <span style={{ fontSize: '0.8rem', color: '#f472b6', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                <Sparkles size={14} /> AI Memory Hook
+                              </span>
+                              {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={mnemonicText} voiceURI={voiceURI} />}
+                            </div>
+                            <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
+                              {mnemonicText}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
             {/* Suggested Rating Badging */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(139, 92, 246, 0.05)', padding: '1rem 1.25rem', borderRadius: '12px', border: '1px solid rgba(139, 92, 246, 0.15)' }}>
@@ -1648,4 +1864,20 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       )}
     </div>
   );
+}
+
+function formatBracketedErrors(text) {
+  if (!text) return '';
+  const parts = text.split(/(\([^)]+\))/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('(') && part.endsWith(')')) {
+      const content = part.substring(1, part.length - 1);
+      return (
+        <span key={idx} style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#fca5a5', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '0.1rem 0.4rem', borderRadius: '4px', margin: '0 0.15rem', fontWeight: 600 }}>
+          {content}
+        </span>
+      );
+    }
+    return part;
+  });
 }
