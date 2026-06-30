@@ -517,7 +517,8 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   ]);
 
   return (
-    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+    <>
+      <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* Top Header Section */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 0' }}>
         <div>
@@ -1783,6 +1784,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           </div>
         </div>
       )}
+      </div>
 
       {/* Create Deck Modal */}
       {showCreateDeckModal && (
@@ -2283,7 +2285,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
