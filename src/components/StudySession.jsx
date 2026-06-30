@@ -1193,62 +1193,24 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 </div>
               </div>
             </div>
-
-            {/* Strengths & Weaknesses (Split columns) */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', textAlign: 'left' }}>
-              <div style={{ background: 'rgba(16, 185, 129, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
-                <h4 style={{ color: '#a7f3d0', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <CheckCircle size={16} />
-                  <span>Strengths</span>
-                  {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={(evaluation.strengths || []).join('. ') || 'None noted.'} voiceURI={voiceURI} />}
-                </h4>
-                <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  {evaluation.strengths.map((s, i) => <li key={i}>{s}</li>)}
-                  {evaluation.strengths.length === 0 && <li>None noted.</li>}
-                </ul>
-              </div>
-
-              <div style={{ background: 'rgba(239, 68, 68, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
-                <h4 style={{ color: '#fca5a5', fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <AlertTriangle size={16} />
-                  <span>Areas to Improve</span>
-                  {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={(evaluation.weaknesses || []).join('. ') || 'Perfect coverage!'} voiceURI={voiceURI} />}
-                </h4>
-                <ul style={{ paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  {evaluation.weaknesses.map((w, i) => <li key={i}>{w}</li>)}
-                  {evaluation.weaknesses.length === 0 && <li>Perfect coverage!</li>}
-                </ul>
-              </div>
-            </div>
-
-              </>
-            )}
+          </>
+        )}
+            {/* Compare with Past Answers Section */}
 
             {/* Interactive Concept Tutor */}
-            <div className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', textAlign: 'left' }}>
+            <div className="glass-panel" style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left' }}>
               
               {/* Header */}
               <div>
-                <span className="badge badge-learn" style={{ marginBottom: '0.5rem' }}>Interactive Study Assistant</span>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-                  <BrainCircuit size={20} style={{ color: 'var(--accent-primary)' }} />
-                  Step-by-Step Concept Recall & Discussion
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0 }}>
+                  <BrainCircuit size={16} style={{ color: 'var(--accent-primary)' }} />
+                  Interactive Concept Tutor
                 </h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.35rem', marginBottom: 0 }}>
-                  Discuss what you were thinking while answering. Explain or recall the missing elements to turn the checklist green.
-                </p>
               </div>
 
               {/* Omitted Items Progression Bar */}
               {interactiveOmittedItems.length > 0 && (
-                <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
-                  <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.75rem' }}>
-                    Omissions Progression Checklist
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                    <h4 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '0.9rem', fontWeight: 600 }}>Memory Hook</h4>
-                    {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={mnemonicText} voiceURI={voiceURI} />}
-                  </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.01)', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                     {interactiveOmittedItems.map((item, idx) => {
                       const isCurrent = idx === currentOmittedIndex;
@@ -1306,13 +1268,13 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 style={{ 
                   background: 'rgba(0, 0, 0, 0.15)', 
                   border: '1px solid var(--border-light)', 
-                  borderRadius: '12px', 
-                  padding: '1.25rem', 
-                  height: '240px', 
+                  borderRadius: '10px', 
+                  padding: '0.75rem', 
+                  height: '180px', 
                   overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '1rem'
+                  gap: '0.75rem'
                 }}
               >
                 {chatMessages.map((msg, idx) => {
@@ -1326,7 +1288,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                         textAlign: 'left'
                       }}
                     >
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem', paddingLeft: isTutor ? '0.25rem' : 0, paddingRight: isTutor ? 0 : '0.25rem', textAlign: isTutor ? 'left' : 'right' }}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '0.15rem', paddingLeft: isTutor ? '0.2rem' : 0, paddingRight: isTutor ? 0 : '0.2rem', textAlign: isTutor ? 'left' : 'right' }}>
                         {isTutor ? '🤖 AI Tutor' : '👤 You'}
                       </div>
                       <div 
@@ -1334,10 +1296,10 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                           background: isTutor ? 'rgba(255, 255, 255, 0.03)' : 'rgba(139, 92, 246, 0.12)', 
                           border: isTutor ? '1px solid var(--border-light)' : '1px solid rgba(139, 92, 246, 0.25)', 
                           color: isTutor ? 'var(--text-primary)' : '#e0dbff',
-                          padding: '0.65rem 0.95rem',
-                          borderRadius: isTutor ? '0 12px 12px 12px' : '12px 0 12px 12px',
-                          fontSize: '0.88rem',
-                          lineHeight: '1.4'
+                          padding: '0.5rem 0.75rem',
+                          borderRadius: isTutor ? '0 10px 10px 10px' : '10px 0 10px 10px',
+                          fontSize: '0.82rem',
+                          lineHeight: '1.45'
                         }}
                       >
                         {isTutor ? msg.text : highlightAnswerText(msg.text, msg.highlights)}
@@ -1347,23 +1309,23 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 })}
                 {isChatLoading && (
                   <div style={{ alignSelf: 'flex-start', maxWidth: '85%' }}>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>
                       🤖 AI Tutor
                     </div>
                     <div 
                       style={{ 
                         background: 'rgba(255, 255, 255, 0.03)', 
                         border: '1px solid var(--border-light)', 
-                        padding: '0.65rem 0.95rem', 
-                        borderRadius: '0 12px 12px 12px',
-                        fontSize: '0.88rem',
+                        padding: '0.5rem 0.75rem', 
+                        borderRadius: '0 10px 10px 10px',
+                        fontSize: '0.82rem',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '0.5rem',
+                        gap: '0.4rem',
                         color: 'var(--text-muted)'
                       }}
                     >
-                      <RefreshCw className="animate-float" size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                      <RefreshCw className="animate-float" size={12} style={{ animation: 'spin 1s linear infinite' }} />
                       Thinking...
                     </div>
                   </div>
