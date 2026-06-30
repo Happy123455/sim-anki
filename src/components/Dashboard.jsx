@@ -78,6 +78,31 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   }, [activeDeckId]);
 
   const fileInputRef = useRef(null);
+  const cardManagerRef = useRef(null);
+
+  // Auto-scroll to Card Manager section when a deck's card button is clicked
+  useEffect(() => {
+    if (activeDeckId) {
+      setTimeout(() => {
+        if (cardManagerRef.current) {
+          cardManagerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+    }
+  }, [activeDeckId]);
+
+  // Lock body scroll when modals are open
+  useEffect(() => {
+    const isModalOpen = !!(showCreateDeckModal || showAddCardModal || activeCardDetails || showImportModal || studyOptionsDeckId);
+    if (isModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showCreateDeckModal, showAddCardModal, activeCardDetails, showImportModal, studyOptionsDeckId]);
 
   const compressImage = (base64Str, maxWidth = 800, maxHeight = 600) => {
     return new Promise((resolve) => {
@@ -1191,7 +1216,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
       {/* Card Manager Panel (Slide down for selected deck) */}
       {activeDeckId && (
-        <div className="glass-panel animate-fade-in" style={{ padding: '2rem', border: '1px solid var(--border-light)', marginTop: '1rem' }}>
+        <div ref={cardManagerRef} className="glass-panel animate-fade-in" style={{ padding: '2rem', border: '1px solid var(--border-light)', marginTop: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
             <h2 style={{ fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Layers size={22} style={{ color: 'var(--accent-primary)' }} />

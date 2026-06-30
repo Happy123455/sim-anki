@@ -405,6 +405,18 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     setIsRefactoring(false);
   };
 
+  // Lock body scroll when refactor modal is open
+  useEffect(() => {
+    if (refactorCard) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [refactorCard]);
+
   const handleRunRefactor = async () => {
     if (!apiKey) {
       alert("Please configure your Gemini API key in Settings first.");
