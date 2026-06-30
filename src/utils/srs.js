@@ -187,8 +187,14 @@ export function calculateNextState(card, ratingStr, targetRetention = 90, review
   }
 
   const dueDate = new Date(now);
-  dueDate.setDate(dueDate.getDate() + interval);
-  dueDate.setHours(0, 0, 0, 0);
+  if (G === 1) {
+    // Drop into a 10-minute short-term queue (interval = 0)
+    dueDate.setTime(dueDate.getTime() + 10 * 60 * 1000);
+    interval = 0;
+  } else {
+    dueDate.setDate(dueDate.getDate() + interval);
+    dueDate.setHours(0, 0, 0, 0);
+  }
 
   return {
     difficulty: Number(nextDifficultyValue.toFixed(2)),
@@ -210,10 +216,7 @@ export function isDue(card) {
   const due = new Date(card.state.dueDate);
   const now = new Date();
   
-  const todayEnd = new Date(now);
-  todayEnd.setHours(23, 59, 59, 999);
-  
-  return due <= todayEnd;
+  return due <= now;
 }
 
 /**
@@ -223,6 +226,7 @@ export function getFriendlyInterval(card, ratingStr, targetRetention = 90) {
   const nextState = calculateNextState(card, ratingStr, targetRetention);
   const days = nextState.interval;
   
+  if (days === 0) return '10m';
   if (days === 1) return '1d';
   if (days < 30) return `${days}d`;
   

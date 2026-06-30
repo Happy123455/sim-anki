@@ -757,7 +757,14 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setIsMnemonicLoading(false);
       setMnemonicError(null);
 
-      if (currentIndex + 1 < sessionQueue.length) {
+      const isFailed = rating === 'again';
+      let nextQueueLength = sessionQueue.length;
+      if (isFailed) {
+        setSessionQueue(prev => [...prev, currentCard]);
+        nextQueueLength += 1;
+      }
+
+      if (currentIndex + 1 < nextQueueLength) {
         setCurrentIndex(prev => prev + 1);
         setStep('question');
       } else {
