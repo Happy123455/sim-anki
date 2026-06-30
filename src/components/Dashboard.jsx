@@ -54,6 +54,8 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [stabilityFilter, setStabilityFilter] = useState('');
   const [repsFilter, setRepsFilter] = useState('');
   const [failsFilter, setFailsFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [aiPredictFilter, setAiPredictFilter] = useState('');
   
   // Sorting & Deck Scope State
   const [sortBy, setSortBy] = useState('');
@@ -71,7 +73,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   // Clear selection and reset tab when deck, search, or filters change
   useEffect(() => {
     setSelectedCardIds([]);
-  }, [activeDeckId, searchQuery, difficultyFilter, stabilityFilter, repsFilter, failsFilter, searchAllDecks]);
+  }, [activeDeckId, searchQuery, difficultyFilter, stabilityFilter, repsFilter, failsFilter, searchAllDecks, typeFilter, aiPredictFilter]);
 
   useEffect(() => {
     setDeckTab('cards');
@@ -484,6 +486,21 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
       if (failsFilter === 'some' && fails === 0) return false;
       if (failsFilter === 'many' && fails < 3) return false;
     }
+
+    if (typeFilter) {
+      const cType = card.cardType || 'default';
+      if (typeFilter === 'default' && cType !== 'default') return false;
+      if (typeFilter !== 'default' && cType !== typeFilter) return false;
+    }
+
+    if (aiPredictFilter) {
+      const pred = card.predictedDifficulty;
+      if (aiPredictFilter === 'unpredicted') {
+        if (pred) return false;
+      } else {
+        if (pred !== aiPredictFilter) return false;
+      }
+    }
     
     return true;
   });
@@ -538,6 +555,8 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     sortOrder,
     searchAllDecks,
     activeDeckId,
+    typeFilter,
+    aiPredictFilter,
     Cards
   ]);
 
@@ -1407,6 +1426,38 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                     <option value="none">0 Fails</option>
                     <option value="some">1+ Fails</option>
                     <option value="many">3+ Fails</option>
+                  </select>
+                </div>
+
+                {/* Type Filter */}
+                <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, paddingLeft: '0.2rem' }}>Type</span>
+                  <select 
+                    value={typeFilter} 
+                    onChange={e => setTypeFilter(e.target.value)}
+                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', borderRadius: '6px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
+                  >
+                    <option value="">All</option>
+                    <option value="logic">Logic Card</option>
+                    <option value="rote">Rote Card</option>
+                    <option value="vocabulary">Vocabulary Card</option>
+                    <option value="default">Default / Other</option>
+                  </select>
+                </div>
+
+                {/* AI Predict Filter */}
+                <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, paddingLeft: '0.2rem' }}>AI Predict</span>
+                  <select 
+                    value={aiPredictFilter} 
+                    onChange={e => setAiPredictFilter(e.target.value)}
+                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', borderRadius: '6px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
+                  >
+                    <option value="">All</option>
+                    <option value="easy">Predicted Easy</option>
+                    <option value="medium">Predicted Medium</option>
+                    <option value="hard">Predicted Hard</option>
+                    <option value="unpredicted">Unpredicted / None</option>
                   </select>
                 </div>
               </div>
