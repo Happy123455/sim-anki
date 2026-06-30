@@ -771,8 +771,11 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
   const checkPuzzleSolved = (placedIndices) => {
     if (!evaluation || !evaluation.puzzlePieces) return false;
-    const original = evaluation.puzzlePieces.join(' ').trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-    const reconstructed = placedIndices.map(idx => puzzleScrambled[idx]).join(' ').trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+    const original = evaluation.puzzlePieces.map(p => typeof p === 'string' ? p : p.text || '').join(' ').trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+    const reconstructed = placedIndices.map(idx => {
+      const p = puzzleScrambled[idx];
+      return typeof p === 'string' ? p : p.text || '';
+    }).join(' ').trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
     return original === reconstructed;
   };
 
@@ -1410,47 +1413,59 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                         </p>
 
                         {/* Placed Pieces */}
-                        <div style={{ minHeight: '60px', padding: '0.85rem', background: 'rgba(0,0,0,0.2)', border: '1px dashed var(--border-light)', borderRadius: '8px', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                        <div style={{ minHeight: '80px', padding: '0.85rem', background: 'rgba(0,0,0,0.2)', border: '1px dashed var(--border-light)', borderRadius: '8px', display: 'flex', flexWrap: 'wrap', gap: '0.65rem', alignItems: 'center' }}>
                           {puzzlePlaced.length === 0 ? (
                             <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Reconstructed answer will appear here...</span>
                           ) : (
-                            puzzlePlaced.map((pieceIdx, idx) => (
-                              <button
-                                key={idx}
-                                onClick={() => handleRemovePiece(idx)}
-                                className="animate-scale-in"
-                                style={{ background: 'linear-gradient(135deg, rgba(167, 139, 250, 0.15), rgba(236, 72, 153, 0.15))', border: '1px solid rgba(167, 139, 250, 0.3)', color: '#c084fc', padding: '0.35rem 0.75rem', borderRadius: '6px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 500 }}
-                              >
-                                {puzzleScrambled[pieceIdx]}
-                                <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.7rem' }}>×</span>
-                              </button>
-                            ))
+                            puzzlePlaced.map((pieceIdx, idx) => {
+                              const piece = puzzleScrambled[pieceIdx];
+                              const text = typeof piece === 'string' ? piece : piece.text || '';
+                              const emoji = typeof piece === 'string' ? '🧩' : piece.emoji || '🧩';
+                              return (
+                                <button
+                                  key={idx}
+                                  onClick={() => handleRemovePiece(idx)}
+                                  className="animate-scale-in"
+                                  style={{ background: 'linear-gradient(135deg, rgba(167, 139, 250, 0.12), rgba(236, 72, 153, 0.12))', border: '1px solid rgba(167, 139, 250, 0.3)', color: '#c084fc', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', minWidth: '70px' }}
+                                >
+                                  <span style={{ fontSize: '1.2rem', marginBottom: '0.1rem' }}>{emoji}</span>
+                                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{text}</span>
+                                  <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.65rem', marginTop: '0.15rem' }}>× remove</span>
+                                </button>
+                              );
+                            })
                           )}
                         </div>
 
                         {/* Scrambled Pool */}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', background: 'rgba(255,255,255,0.01)', padding: '0.75rem', borderRadius: '8px' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', background: 'rgba(255,255,255,0.01)', padding: '0.75rem', borderRadius: '8px' }}>
                           {puzzleScrambled.map((piece, idx) => {
                             const isUsed = puzzlePlaced.includes(idx);
+                            const text = typeof piece === 'string' ? piece : piece.text || '';
+                            const emoji = typeof piece === 'string' ? '🧩' : piece.emoji || '🧩';
                             return (
                               <button
                                 key={idx}
                                 disabled={isUsed}
                                 onClick={() => handlePlacePiece(idx)}
                                 style={{
-                                  background: isUsed ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)',
-                                  border: `1px solid ${isUsed ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)'}`,
+                                  background: isUsed ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.06)',
+                                  border: `1px solid ${isUsed ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.1)'}`,
                                   color: isUsed ? 'var(--text-muted)' : 'var(--text-secondary)',
-                                  padding: '0.35rem 0.75rem',
-                                  borderRadius: '6px',
-                                  fontSize: '0.85rem',
+                                  padding: '0.5rem 0.85rem',
+                                  borderRadius: '8px',
                                   cursor: isUsed ? 'not-allowed' : 'pointer',
-                                  opacity: isUsed ? 0.4 : 1,
+                                  opacity: isUsed ? 0.35 : 1,
                                   transition: 'all 0.2s ease',
-                                  fontWeight: 500
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: '0.2rem',
+                                  minWidth: '70px'
                                 }}
                               >
-                                {piece}
+                                <span style={{ fontSize: '1.25rem', marginBottom: '0.1rem', filter: isUsed ? 'grayscale(100%)' : 'none' }}>{emoji}</span>
+                                <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>{text}</span>
                               </button>
                             );
                           })}

@@ -192,7 +192,7 @@ Your job is to analyze the student's answer, provide a score from 0 to 100, sugg
    - correctExplanation: Keep it extremely concise (under 30 words), stating only the core correction. DO NOT include detailed pros/cons or extended explanations here.
 
 3. puzzlePieces:
-   Decompose the correct "Concept Focus" reference concept into 3 to 6 logical chunks of text (words or phrases) that fit together to form the full correct answer. The user will reconstruct this in the UI.
+   Decompose the correct "Concept Focus" reference concept into 3 to 6 logical chunks of text (words or phrases) that fit together to form the full correct answer. For each chunk, provide a matching context-relevant emoji to visually represent it in the UI.
 
 4. omittedItems:
    Identify 1 to 3 specific terms/keywords that the student missed (max 3 items, 1-3 words each).
@@ -232,7 +232,7 @@ You must respond with a JSON object conforming exactly to this schema:
   "highlights": Array<{ text: string, color: "green" | "yellow" | "red", reason: string }>,
   "conceptHighlights": Array<{ text: string, type: "main" | "missed", reason: string }>,
   "omittedItems": string[],
-  "puzzlePieces": string[]
+  "puzzlePieces": Array<{ text: string, emoji: string }>
 }
 
 ${customInstructions ? `
@@ -329,7 +329,14 @@ You must output your response complying strictly with these user-defined prefere
               },
               puzzlePieces: {
                 type: "ARRAY",
-                items: { type: "STRING" }
+                items: {
+                  type: "OBJECT",
+                  properties: {
+                    text: { type: "STRING" },
+                    emoji: { type: "STRING" }
+                  },
+                  required: ["text", "emoji"]
+                }
               }
             },
             required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights", "conceptHighlights", "omittedItems", "puzzlePieces"]
