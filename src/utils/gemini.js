@@ -1065,4 +1065,58 @@ User's Answer: "${userAnswer}"
   return cleanAndParseJson(rawText);
 }
 
+/**
+ * Generates or upgrades a 3D isometric visual explanation using SVG and CSS animations.
+ */
+export async function generate3DVisualAnimation(apiKey, model, questionOrConcept, targetType, feedback = "", previousSvg = "") {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const systemPrompt = `You are an expert designer and frontend developer specializing in creating visually stunning, premium-quality SVG illustrations and 3D-looking animations.
+Generate a valid, standalone, animated SVG (Scalable Vector Graphics) markup that visually explains and represents the following card ${targetType === 'question' ? 'question' : 'answer/concept'}:
+"${questionOrConcept}"
+
+Guidelines for high-end aesthetics & 3D styling:
+1. Use rich isometric projections, layered graphics, shadows, and perspective gradient fills to create a sense of depth and 3D modeling.
+2. Use a cohesive, premium modern dark-theme color palette (e.g. violet, neon blue, pink, deep dark backdrops, bright accent gradients, glassmorphism) matching SimAnki's aesthetics.
+3. Incorporate smooth CSS animations (e.g. rotating layers, floating elements, fading connections, pulsing paths, scaling widgets) using inline <style> and @keyframes.
+4. Ensure all elements are clean, vector-based, and highly readable. Do NOT use external images or fonts. Keep the SVG self-contained. Make it scale nicely by defining a proper viewBox (e.g. viewBox="0 0 400 300").
+5. If a previous SVG is provided, analyze the previous SVG:
+   ${previousSvg ? `[Previous SVG]: ${previousSvg}` : ''}
+   And user feedback for upgrades:
+   ${feedback ? `[User Feedback]: ${feedback}` : ''}
+   Upgrading means adding more details, clearer diagrams, annotating key components, or adding interactive-looking visual flows to explain the hard concept much more deeply. Do not lose the 3D aesthetic and ensure the output is a valid SVG.
+6. Return ONLY valid SVG markup inside a JSON object conforming to this schema:
+   {
+     "svg": "string containing the full standalone <svg>...</svg> content"
+   }`;
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            svg: { type: "STRING" }
+          },
+          required: ["svg"]
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to generate 3D visual animation: ${response.statusText}. Details: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}
+
 

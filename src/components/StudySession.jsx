@@ -1033,6 +1033,133 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
           {renderCardMedia(currentCard)}
 
+          {/* 3D Question SVG Visual */}
+          {(() => {
+            const svgs = currentCard.questionSvgs || [];
+            const activeIdx = currentCard.activeQuestionSvgIndex !== undefined ? currentCard.activeQuestionSvgIndex : (svgs.length - 1);
+            const activeSvgObj = svgs.length > 0 && activeIdx >= 0 && activeIdx < svgs.length ? svgs[activeIdx] : null;
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.25rem', marginBottom: '0.25rem' }}>
+                {activeSvgObj ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div 
+                      className="visual-svg-container"
+                      style={{ 
+                        width: '100%', 
+                        background: 'rgba(0,0,0,0.15)', 
+                        border: '1px solid var(--border-light)', 
+                        borderRadius: '12px', 
+                        padding: '1rem', 
+                        display: 'flex', 
+                        justifyContent: 'center', 
+                        alignItems: 'center',
+                        overflow: 'hidden'
+                      }}
+                      dangerouslySetInnerHTML={{ __html: activeSvgObj.svg }}
+                    />
+                    
+                    {/* Tiny inline version bar */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Question Visual:</span>
+                        {svgs.map((_, sIdx) => (
+                          <button
+                            key={sIdx}
+                            onClick={() => {
+                              if (typeof onUpdateCard === 'function') {
+                                onUpdateCard({ ...currentCard, activeQuestionSvgIndex: sIdx });
+                                setSessionQueue(prev => {
+                                  const copy = [...prev];
+                                  copy[currentIndex] = { ...currentCard, activeQuestionSvgIndex: sIdx };
+                                  return copy;
+                                });
+                              }
+                            }}
+                            style={{
+                              background: sIdx === activeIdx ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)',
+                              border: 'none',
+                              borderRadius: '4px',
+                              color: 'white',
+                              fontSize: '0.68rem',
+                              padding: '0.1rem 0.35rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            v{sIdx + 1}
+                          </button>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => setShowStudyVisualGenerator(!showStudyVisualGenerator)}
+                        style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', padding: 0 }}
+                      >
+                        <Sparkles size={10} /> Upgrade Animation
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'left' }}>
+                    <button
+                      onClick={() => setShowStudyVisualGenerator(!showStudyVisualGenerator)}
+                      style={{ background: 'rgba(139, 92, 246, 0.08)', border: '1px dashed rgba(139, 92, 246, 0.3)', color: '#c4b5fd', fontSize: '0.75rem', padding: '0.35rem 0.75rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                    >
+                      <Sparkles size={12} /> Generate 3D SVG Animation for Question
+                    </button>
+                  </div>
+                )}
+
+                {/* Inline Generator/Upgrade Panel */}
+                {showStudyVisualGenerator && (
+                  <div className="glass-panel" style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-light)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {activeSvgObj ? "Upgrade Question Animation" : "Generate Question Animation"}
+                      </span>
+                      <select 
+                        value={visualModelStudy} 
+                        onChange={(e) => setVisualModelStudy(e.target.value)}
+                        style={{ fontSize: '0.7rem', padding: '0.15rem 0.35rem', borderRadius: '4px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-light)' }}
+                      >
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      <input 
+                        type="text"
+                        placeholder={activeSvgObj ? "Describe what to explain better..." : "Optional instructions e.g. use flowcharts..."}
+                        value={feedbackTextStudy}
+                        onChange={(e) => setFeedbackTextStudy(e.target.value)}
+                        disabled={isGeneratingVisualStudy}
+                        style={{ flex: 1, fontSize: '0.75rem', padding: '0.25rem 0.5rem', borderRadius: '4px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-light)', color: 'white' }}
+                      />
+                      <button
+                        className="btn btn-primary"
+                        disabled={isGeneratingVisualStudy}
+                        onClick={() => handleGenerateVisualStudy('question')}
+                        style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem', minHeight: 'auto' }}
+                      >
+                        {isGeneratingVisualStudy ? (
+                          <RefreshCw className="animate-spin" size={10} style={{ animation: 'spin 1s linear infinite' }} />
+                        ) : (
+                          "Run"
+                        )}
+                      </button>
+                    </div>
+                    {visualErrorStudy && (
+                      <span style={{ fontSize: '0.7rem', color: '#fca5a5' }}>⚠️ {visualErrorStudy}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Burnout Warning */}
           {showBurnoutWarning && (
             <div className="animate-fade-in" style={{ padding: '1rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '10px', color: '#60a5fa', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -1161,6 +1288,133 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 <span className="badge badge-learn" style={{ marginBottom: '0.5rem' }}>AI Grade Report</span>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>{currentCard.question}</h2>
                 {renderCardMedia(currentCard)}
+
+                {/* 3D Answer SVG Visual */}
+                {(() => {
+                  const svgs = currentCard.answerSvgs || [];
+                  const activeIdx = currentCard.activeAnswerSvgIndex !== undefined ? currentCard.activeAnswerSvgIndex : (svgs.length - 1);
+                  const activeSvgObj = svgs.length > 0 && activeIdx >= 0 && activeIdx < svgs.length ? svgs[activeIdx] : null;
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      {activeSvgObj ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <div 
+                            className="visual-svg-container"
+                            style={{ 
+                              width: '100%', 
+                              background: 'rgba(0,0,0,0.15)', 
+                              border: '1px solid var(--border-light)', 
+                              borderRadius: '12px', 
+                              padding: '1rem', 
+                              display: 'flex', 
+                              justifyContent: 'center', 
+                              alignItems: 'center',
+                              overflow: 'hidden'
+                            }}
+                            dangerouslySetInnerHTML={{ __html: activeSvgObj.svg }}
+                          />
+                          
+                          {/* Tiny inline version bar */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Answer Visual:</span>
+                              {svgs.map((_, sIdx) => (
+                                <button
+                                  key={sIdx}
+                                  onClick={() => {
+                                    if (typeof onUpdateCard === 'function') {
+                                      onUpdateCard({ ...currentCard, activeAnswerSvgIndex: sIdx });
+                                      setSessionQueue(prev => {
+                                        const copy = [...prev];
+                                        copy[currentIndex] = { ...currentCard, activeAnswerSvgIndex: sIdx };
+                                        return copy;
+                                      });
+                                    }
+                                  }}
+                                  style={{
+                                    background: sIdx === activeIdx ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    color: 'white',
+                                    fontSize: '0.68rem',
+                                    padding: '0.1rem 0.35rem',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  v{sIdx + 1}
+                                </button>
+                              ))}
+                            </div>
+
+                            <button
+                              onClick={() => setShowStudyVisualGenerator(!showStudyVisualGenerator)}
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', padding: 0 }}
+                            >
+                              <Sparkles size={10} /> Upgrade Animation
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'left' }}>
+                          <button
+                            onClick={() => setShowStudyVisualGenerator(!showStudyVisualGenerator)}
+                            style={{ background: 'rgba(139, 92, 246, 0.08)', border: '1px dashed rgba(139, 92, 246, 0.3)', color: '#c4b5fd', fontSize: '0.75rem', padding: '0.35rem 0.75rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                          >
+                            <Sparkles size={12} /> Generate 3D SVG Animation for Answer
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Inline Generator/Upgrade Panel */}
+                      {showStudyVisualGenerator && (
+                        <div className="glass-panel" style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-light)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                              {activeSvgObj ? "Upgrade Answer Animation" : "Generate Answer Animation"}
+                            </span>
+                            <select 
+                              value={visualModelStudy} 
+                              onChange={(e) => setVisualModelStudy(e.target.value)}
+                              style={{ fontSize: '0.7rem', padding: '0.15rem 0.35rem', borderRadius: '4px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-light)' }}
+                            >
+                              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                              <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                            </select>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '0.35rem' }}>
+                            <input 
+                              type="text"
+                              placeholder={activeSvgObj ? "Describe what to explain better..." : "Optional instructions e.g. use flowcharts..."}
+                              value={feedbackTextStudy}
+                              onChange={(e) => setFeedbackTextStudy(e.target.value)}
+                              disabled={isGeneratingVisualStudy}
+                              style={{ flex: 1, fontSize: '0.75rem', padding: '0.25rem 0.5rem', borderRadius: '4px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-light)', color: 'white' }}
+                            />
+                            <button
+                              className="btn btn-primary"
+                              disabled={isGeneratingVisualStudy}
+                              onClick={() => handleGenerateVisualStudy('answer')}
+                              style={{ padding: '0.25rem 0.75rem', fontSize: '0.75rem', minHeight: 'auto' }}
+                            >
+                              {isGeneratingVisualStudy ? (
+                                <RefreshCw className="animate-spin" size={10} style={{ animation: 'spin 1s linear infinite' }} />
+                              ) : (
+                                "Run"
+                              )}
+                            </button>
+                          </div>
+                          {visualErrorStudy && (
+                            <span style={{ fontSize: '0.7rem', color: '#fca5a5' }}>⚠️ {visualErrorStudy}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               
               {/* Radial score gauge */}

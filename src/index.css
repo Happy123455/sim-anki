@@ -295,3 +295,11 @@ textarea {
   margin-bottom: 1rem;
   font-style: italic;
 }
+
+/* 🎨 3D SVG Animation styling */
+.visual-svg-container svg {
+  width: 100%;
+  height: auto;
+  max-height: 350px;
+  display: block;
+}

@@ -2077,6 +2077,16 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           card={activeCardDetails} 
           voiceURI={settings.voiceURI || ''}
           onClose={() => setActiveCardDetails(null)} 
+          onUpdateCard={(updated) => {
+            if (typeof onUpdateCards === 'function') {
+              onUpdateCards([updated]);
+            } else if (typeof onUpdateCard === 'function') {
+              onUpdateCard(updated);
+            }
+            setActiveCardDetails(updated);
+          }}
+          apiKey={settings.apiKey}
+          model={settings.model}
         />
       )}
       {showImportModal && (

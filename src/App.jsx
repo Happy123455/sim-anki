@@ -1349,6 +1349,7 @@ export default function App() {
               onClose={() => setView('dashboard')}
               settings={settings}
               onRefactorCard={handleRefactorCard}
+              onUpdateCard={(updated) => handleUpdateCards([updated])}
             />
           );
         })()
