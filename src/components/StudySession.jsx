@@ -377,7 +377,7 @@ function ConfettiCanvas() {
   );
 }
 
-export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {}, onRefactorCard }) {
+export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {}, onRefactorCard, onUpdateCard }) {
   const [sessionQueue, setSessionQueue] = useState(() => [...(DueCards || [])]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const currentCard = sessionQueue[currentIndex];
@@ -389,6 +389,76 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [showHint, setShowHint] = useState(false);
   const [hardCardTimestamps, setHardCardTimestamps] = useState([]);
   const [pacingNotice, setPacingNotice] = useState('');
+
+  // 3D Visual Explanations Study Session States
+  const [visualModelStudy, setVisualModelStudy] = useState(model || 'gemini-2.5-flash');
+  const [feedbackTextStudy, setFeedbackTextStudy] = useState('');
+  const [isGeneratingVisualStudy, setIsGeneratingVisualStudy] = useState(false);
+  const [visualErrorStudy, setVisualErrorStudy] = useState(null);
+  const [showStudyVisualGenerator, setShowStudyVisualGenerator] = useState(false);
+
+  const handleGenerateVisualStudy = async (targetType) => {
+    if (!apiKey) {
+      setVisualErrorStudy("Gemini API key is missing. Configure it in Settings.");
+      return;
+    }
+    setIsGeneratingVisualStudy(true);
+    setVisualErrorStudy(null);
+
+    try {
+      const historyKey = targetType === 'question' ? 'questionSvgs' : 'answerSvgs';
+      const indexKey = targetType === 'question' ? 'activeQuestionSvgIndex' : 'activeAnswerSvgIndex';
+
+      const currentSvgs = currentCard[historyKey] || [];
+      const activeIdx = currentCard[indexKey] !== undefined ? currentCard[indexKey] : (currentSvgs.length - 1);
+      const previousSvg = currentSvgs[activeIdx]?.svg || "";
+
+      const textToVisualize = targetType === 'question' ? currentCard.question : currentCard.concept;
+      const res = await generate3DVisualAnimation(
+        apiKey,
+        visualModelStudy,
+        textToVisualize,
+        targetType,
+        feedbackTextStudy,
+        previousSvg
+      );
+
+      if (!res || !res.svg) {
+        throw new Error("Invalid response: SVG markup missing.");
+      }
+
+      const newVersion = {
+        svg: res.svg,
+        timestamp: Date.now(),
+        model: visualModelStudy,
+        feedback: feedbackTextStudy
+      };
+
+      const updatedHistory = [...currentSvgs, newVersion];
+      const updatedCard = {
+        ...currentCard,
+        [historyKey]: updatedHistory,
+        [indexKey]: updatedHistory.length - 1
+      };
+
+      setSessionQueue(prev => {
+        const copy = [...prev];
+        copy[currentIndex] = updatedCard;
+        return copy;
+      });
+
+      if (typeof onUpdateCard === 'function') {
+        onUpdateCard(updatedCard);
+      }
+      setFeedbackTextStudy('');
+      setShowStudyVisualGenerator(false);
+    } catch (err) {
+      console.error(err);
+      setVisualErrorStudy(err.message || "Failed to generate visual explanation.");
+    } finally {
+      setIsGeneratingVisualStudy(false);
+    }
+  };
 
   // Refactoring states & handlers
   const [refactorCard, setRefactorCard] = useState(null);
