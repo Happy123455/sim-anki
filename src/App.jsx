@@ -1196,6 +1196,29 @@ export default function App() {
 
   return (
     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', flex: 1 }}>
+      {/* 🏷️ Top Corner Version Indicator */}
+      <div 
+        style={{
+          position: 'fixed',
+          top: '12px',
+          right: '12px',
+          background: 'rgba(139, 92, 246, 0.25)',
+          border: '1px solid rgba(139, 92, 246, 0.45)',
+          borderRadius: '6px',
+          padding: '0.25rem 0.55rem',
+          fontSize: '0.72rem',
+          fontWeight: 'bold',
+          color: '#d8b4fe',
+          zIndex: 99999,
+          backdropFilter: 'blur(6px)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+          pointerEvents: 'none',
+          userSelect: 'none',
+          fontFamily: 'monospace'
+        }}
+      >
+        v1.4.0
+      </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (
         <div
