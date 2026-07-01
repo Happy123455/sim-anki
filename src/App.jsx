@@ -1201,23 +1201,22 @@ export default function App() {
         style={{
           position: 'fixed',
           top: '12px',
-          right: '12px',
-          background: 'rgba(139, 92, 246, 0.25)',
-          border: '1px solid rgba(139, 92, 246, 0.45)',
+          left: '12px',
+          background: '#8b5cf6',
+          border: '1px solid #c084fc',
           borderRadius: '6px',
-          padding: '0.25rem 0.55rem',
-          fontSize: '0.72rem',
+          padding: '0.35rem 0.7rem',
+          fontSize: '0.82rem',
           fontWeight: 'bold',
-          color: '#d8b4fe',
-          zIndex: 99999,
-          backdropFilter: 'blur(6px)',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+          color: '#ffffff',
+          zIndex: 999999,
+          boxShadow: '0 4px 16px rgba(139, 92, 246, 0.45)',
           pointerEvents: 'none',
           userSelect: 'none',
           fontFamily: 'monospace'
         }}
       >
-        v1.4.1
+        v1.4.2
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (
