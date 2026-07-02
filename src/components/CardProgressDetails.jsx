@@ -470,6 +470,22 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose, onUp
             </span>
             <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>{card.question}</h2>
             <p style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', marginTop: '0.25rem' }}>Concept: {card.concept}</p>
+            {card.simplifiedQuestion && (
+              <div 
+                style={{
+                  background: 'rgba(139, 92, 246, 0.06)',
+                  borderLeft: '3px solid var(--accent-primary)',
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '0 6px 6px 0',
+                  marginTop: '0.5rem',
+                  fontSize: '0.82rem',
+                  color: 'var(--text-secondary)'
+                }}
+              >
+                <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.72rem', textTransform: 'uppercase', marginBottom: '0.15rem' }}>Simplified Question Breakdown</strong>
+                "{card.simplifiedQuestion}"
+              </div>
+            )}
           </div>
           <button 
             className="btn btn-secondary" 
@@ -658,10 +674,9 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose, onUp
                             onChange={(e) => setVisualModel(e.target.value)}
                             style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', borderRadius: '6px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-light)' }}
                           >
-                            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Recommended)</option>
-                            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                            <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                            <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                            <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended)</option>
+                            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                            <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
                           </select>
                         </div>
 

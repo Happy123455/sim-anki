@@ -255,8 +255,8 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
           <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Gemini Model</label>
           <select value={model} onChange={(e) => setModel(e.target.value)}>
             <option value="gemini-3.5-flash">Gemini 3.5 Flash (Default - Latest & Fastest)</option>
-            <option value="gemini-3.1-pro">Gemini 3.1 Pro (Deep Reasoning & Analysis)</option>
-            <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Cost Efficient)</option>
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+            <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Cost Efficient)</option>
           </select>
         </div>
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, X, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
-import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation } from '../utils/gemini';
+import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
 import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
@@ -390,6 +390,60 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [hardCardTimestamps, setHardCardTimestamps] = useState([]);
   const [pacingNotice, setPacingNotice] = useState('');
 
+  // Question Simplifier States
+  const [showSimplification, setShowSimplification] = useState(false);
+  const [isSimplifyingQuestion, setIsSimplifyingQuestion] = useState(false);
+  const [simplificationError, setSimplificationError] = useState(null);
+
+  const handleSimplifyQuestion = async () => {
+    if (showSimplification) {
+      setShowSimplification(false);
+      return;
+    }
+
+    if (currentCard.simplifiedQuestion) {
+      setShowSimplification(true);
+      return;
+    }
+
+    if (!apiKey) {
+      setSimplificationError("Gemini API key is missing. Configure it in Settings.");
+      setShowSimplification(true);
+      return;
+    }
+
+    setIsSimplifyingQuestion(true);
+    setSimplificationError(null);
+    setShowSimplification(true);
+
+    try {
+      const res = await simplifyQuestion(apiKey, model, currentCard.question, currentCard.concept || "");
+      if (!res || !res.explanation) {
+        throw new Error("Invalid response: Simplification text missing.");
+      }
+
+      const updatedCard = {
+        ...currentCard,
+        simplifiedQuestion: res.explanation
+      };
+
+      setSessionQueue(prev => {
+        const copy = [...prev];
+        copy[currentIndex] = updatedCard;
+        return copy;
+      });
+
+      if (typeof onUpdateCard === 'function') {
+        onUpdateCard(updatedCard);
+      }
+    } catch (err) {
+      console.error(err);
+      setSimplificationError(err.message || "Failed to simplify question.");
+    } finally {
+      setIsSimplifyingQuestion(false);
+    }
+  };
+
   // 3D Visual Explanations Study Session States
   const [visualModelStudy, setVisualModelStudy] = useState(model || 'gemini-2.5-flash');
   const [feedbackTextStudy, setFeedbackTextStudy] = useState('');
@@ -624,6 +678,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setElapsedTime(0);
       setShowHint(settings.relaxedMode && (!currentCard.history || currentCard.history.length === 0));
       setShowBurnoutWarning(false);
+      setShowSimplification(false);
       timerRef.current = setInterval(() => {
         setElapsedTime(prev => {
           if (prev >= 45 && userAnswer.length < 5) {
@@ -1096,10 +1151,73 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           </div>
 
           {/* Question Display */}
-          <h2 style={{ fontSize: '1.6rem', textAlign: 'left', lineHeight: '1.4', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <h2 style={{ fontSize: '1.6rem', textAlign: 'left', lineHeight: '1.4', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
             <span>{currentCard.question}</span>
             {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={currentCard.question} voiceURI={voiceURI} />}
           </h2>
+
+          {/* 💡 Question Simplifier trigger button */}
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-start', marginBottom: '0.75rem' }}>
+            <button
+              onClick={handleSimplifyQuestion}
+              disabled={isSimplifyingQuestion}
+              style={{
+                background: showSimplification ? 'rgba(139, 92, 246, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                border: showSimplification ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                borderRadius: '6px',
+                padding: '0.3rem 0.65rem',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: showSimplification ? 'var(--text-primary)' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              {isSimplifyingQuestion ? (
+                <RefreshCw size={12} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
+              ) : (
+                <BrainCircuit size={12} style={{ color: '#a78bfa' }} />
+              )}
+              {showSimplification ? "Hide Question Breakdown" : "💡 Explain What Question is Asking"}
+            </button>
+          </div>
+
+          {/* 💡 Question Simplifier explanation block */}
+          {showSimplification && (
+            <div 
+              className="glass-panel"
+              style={{
+                padding: '0.75rem 1rem',
+                background: 'rgba(139, 92, 246, 0.05)',
+                border: '1px solid rgba(139, 92, 246, 0.18)',
+                borderRadius: '8px',
+                marginBottom: '0.75rem',
+                textAlign: 'left',
+                animation: 'fadeIn 0.2s ease-out'
+              }}
+            >
+              {simplificationError ? (
+                <div style={{ color: '#fca5a5', fontSize: '0.82rem' }}>⚠️ {simplificationError}</div>
+              ) : isSimplifyingQuestion ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <RefreshCw size={12} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
+                  Analyzing and simplifying the question context...
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--accent-secondary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>
+                    Question Breakdown
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', margin: 0, lineHeight: '1.45' }}>
+                    {currentCard.simplifiedQuestion}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {renderCardMedia(currentCard)}
 
@@ -1192,10 +1310,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                         onChange={(e) => setVisualModelStudy(e.target.value)}
                         style={{ fontSize: '0.7rem', padding: '0.15rem 0.35rem', borderRadius: '4px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-light)' }}
                       >
+                        <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
                         <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
                       </select>
                     </div>
 
@@ -1357,6 +1474,11 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               <div style={{ textAlign: 'left' }}>
                 <span className="badge badge-learn" style={{ marginBottom: '0.5rem' }}>AI Grade Report</span>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>{currentCard.question}</h2>
+                {currentCard.simplifiedQuestion && (
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 0', fontStyle: 'italic' }}>
+                    💡 What this means: {currentCard.simplifiedQuestion}
+                  </p>
+                )}
                 {renderCardMedia(currentCard)}
 
                 {/* 3D Answer SVG Visual */}
@@ -1448,10 +1570,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                               onChange={(e) => setVisualModelStudy(e.target.value)}
                               style={{ fontSize: '0.7rem', padding: '0.15rem 0.35rem', borderRadius: '4px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-light)' }}
                             >
+                              <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
                               <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-                              <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                              <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
                             </select>
                           </div>
 

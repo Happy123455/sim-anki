@@ -1119,4 +1119,54 @@ Guidelines for high-end aesthetics & 3D styling:
   return cleanAndParseJson(rawText);
 }
 
+/**
+ * Simplifies a complex flashcard question into a beginner-friendly explanation.
+ */
+export async function simplifyQuestion(apiKey, model, question, concept) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const systemPrompt = `You are a friendly, expert educational tutor.
+Your task is to take a flashcard question and its reference concept, and explain what the question is trying to ask in simple, clear, and beginner-friendly terms.
+Break down any complex terminology, jargon, or confusing phrasing, and summarize what key concepts the student needs to address in their answer.
+Keep the explanation brief (2-4 sentences max).
+
+Respond with a JSON object conforming exactly to this schema:
+{
+  "explanation": "string (plain English explanation of what the question is asking)"
+}`;
+
+  const prompt = `
+Question: ${question}
+Concept: ${concept}
+`;
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt + "\n\n" + prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            explanation: { type: "STRING" }
+          },
+          required: ["explanation"]
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to simplify question: ${response.statusText}. Details: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}
+
 
