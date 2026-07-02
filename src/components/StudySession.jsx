@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, X, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
-import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation, generateDetailedMemoryAnchor } from '../utils/gemini';
+import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation, generateDetailedMemoryAnchor, generateAnswerNudge } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
 import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
@@ -618,6 +618,50 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [isGeneratingAnchor, setIsGeneratingAnchor] = useState(false);
   const [anchorError, setAnchorError] = useState(null);
   const [anchorModel, setAnchorModel] = useState(model || 'gemini-3.5-flash');
+
+  const [showNudge, setShowNudge] = useState(false);
+  const [isGeneratingNudge, setIsGeneratingNudge] = useState(false);
+  const [nudgeError, setNudgeError] = useState(null);
+
+  const handleGenerateNudgeClue = async () => {
+    if (!apiKey) {
+      setNudgeError("Gemini API key is missing. Configure it in Settings.");
+      return;
+    }
+    setIsGeneratingNudge(true);
+    setNudgeError(null);
+
+    try {
+      const result = await generateAnswerNudge(
+        apiKey,
+        model || 'gemini-3.5-flash',
+        currentCard.question,
+        currentCard.concept
+      );
+
+      if (result && result.nudge) {
+        const updatedCard = {
+          ...currentCard,
+          answerNudge: result.nudge
+        };
+        setSessionQueue(prev => {
+          const copy = [...prev];
+          copy[currentIndex] = updatedCard;
+          return copy;
+        });
+        if (typeof onUpdateCard === 'function') {
+          onUpdateCard(updatedCard);
+        }
+      } else {
+        throw new Error("No nudge response was returned by the AI.");
+      }
+    } catch (err) {
+      console.error(err);
+      setNudgeError(err.message || "Failed to generate answer nudge.");
+    } finally {
+      setIsGeneratingNudge(false);
+    }
+  };
 
   const handleGenerateDetailedAnchor = async () => {
     if (!apiKey) {
@@ -1283,6 +1327,8 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setMnemonicText('');
       setIsMnemonicLoading(false);
       setMnemonicError(null);
+      setShowNudge(false);
+      setNudgeError(null);
 
       const isFailed = rating === 'again';
       let nextQueueLength = sessionQueue.length;
@@ -1466,8 +1512,8 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={currentCard.question} voiceURI={voiceURI} />}
           </h2>
 
-          {/* 💡 Question Simplifier trigger button */}
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-start', marginBottom: '0.75rem' }}>
+          {/* 💡 Question Simplifier and Mental Nudge triggers */}
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-start', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
             <button
               onClick={handleSimplifyQuestion}
               disabled={isSimplifyingQuestion}
@@ -1492,6 +1538,39 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 <BrainCircuit size={12} style={{ color: '#a78bfa' }} />
               )}
               {showSimplification ? "Hide Question Breakdown" : "💡 Explain What Question is Asking"}
+            </button>
+
+            <button
+              onClick={() => {
+                const willShow = !showNudge;
+                setShowNudge(willShow);
+                if (willShow && !currentCard.answerNudge) {
+                  handleGenerateNudgeClue();
+                }
+              }}
+              disabled={isGeneratingNudge}
+              style={{
+                background: showNudge ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                border: showNudge ? '1px solid #f59e0b' : '1px solid var(--border-light)',
+                borderRadius: '6px',
+                padding: '0.3rem 0.65rem',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                color: showNudge ? '#fbbf24' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                transition: 'all 0.2s ease'
+              }}
+              title="Get a non-obvious nudge focusing on importance and sequence of answers"
+            >
+              {isGeneratingNudge ? (
+                <RefreshCw size={12} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
+              ) : (
+                <Sparkles size={12} style={{ color: '#f59e0b' }} />
+              )}
+              {showNudge ? "Hide Answer Nudge" : "💡 Show Answer Nudge"}
             </button>
           </div>
 
@@ -1523,6 +1602,39 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                   </div>
                   <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', margin: 0, lineHeight: '1.45' }}>
                     {currentCard.simplifiedQuestion}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 💡 Answer Nudge block */}
+          {showNudge && (
+            <div 
+              className="glass-panel animate-fade-in"
+              style={{
+                padding: '0.75rem 1rem',
+                background: 'rgba(245, 158, 11, 0.04)',
+                border: '1px dashed rgba(245, 158, 11, 0.3)',
+                borderRadius: '8px',
+                marginBottom: '0.75rem',
+                textAlign: 'left'
+              }}
+            >
+              {nudgeError ? (
+                <div style={{ color: '#fca5a5', fontSize: '0.82rem' }}>⚠️ {nudgeError}</div>
+              ) : isGeneratingNudge ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <RefreshCw size={12} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
+                  Analyzing sequence & key components...
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: '0.68rem', color: '#fbbf24', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>
+                    Mental Nudge (Sequence & Key Components)
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', margin: 0, lineHeight: '1.45', fontStyle: 'italic' }}>
+                    {currentCard.answerNudge}
                   </p>
                 </div>
               )}
@@ -2048,9 +2160,11 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                   </div>
                 </div>
 
-                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.45', fontStyle: 'italic', whiteSpace: 'pre-line' }}>
-                  {evaluation.memoryAnchor}
-                </p>
+                <div 
+                  className="markdown-content"
+                  style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.5' }}
+                  dangerouslySetInnerHTML={{ __html: parseMarkdown(evaluation.memoryAnchor) }}
+                />
 
                 {anchorError && (
                   <div style={{ marginTop: '0.5rem', color: '#fca5a5', fontSize: '0.72rem' }}>

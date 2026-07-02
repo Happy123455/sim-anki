@@ -1280,10 +1280,10 @@ Requirements:
    - A historical backstory (how it was discovered, who did it, their struggles, or quirky historical events).
    - Real-world impacts or engineering successes/disasters (e.g. why the bridge collapsed, why the space mission failed, or how it saved lives).
    - Dynamic and quirky facts that stick to the mind.
-2. Use beautiful formatting. Do NOT use markdown code blocks, but you can use inline bold/italic.
+2. Use beautiful Markdown formatting (such as bold key phrases, lists, paragraph breaks, blockquotes, or highlights) to make the story highly organized, structured, and pleasant to read.
 3. Return ONLY a JSON object conforming exactly to this schema:
 {
-  "memoryAnchor": "string (the rich, detailed story)"
+  "memoryAnchor": "string (the rich, detailed story, formatted in Markdown)"
 }`;
 
   const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
@@ -1307,6 +1307,56 @@ Requirements:
   if (!response.ok) {
     const errText = await response.text();
     throw new Error(`Failed to generate rich memory anchor: ${response.statusText}. Details: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}
+
+/**
+ * Generates a subtle, non-obvious hint focused on the steps and sequence of the answer.
+ */
+export async function generateAnswerNudge(apiKey, model, question, concept) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const systemPrompt = `You are a cognitive learning assistant. Your task is to provide a subtle, non-obvious nudge/hint to help a student recall the correct answer to this card:
+Question: "${question}"
+Concept/Target Answer: "${concept}"
+
+Your nudge MUST follow these rules:
+1. Do NOT state the actual answer, formula solutions, or direct facts.
+2. Focus on the SEQUENCE of steps, or the relative IMPORTANCE of components (e.g., "Think about what must be safety-adjusted first before you amplify...", "Consider the order of fabrication places...").
+3. Use guiding questions or a brief structural checklist to nudge their memory.
+4. Keep it very short (1-2 sentences, maximum 40 words).
+
+Return ONLY a JSON object conforming exactly to this schema:
+{
+  "nudge": "string containing the subtle nudge"
+}`;
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            nudge: { type: "STRING" }
+          },
+          required: ["nudge"]
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to generate answer nudge: ${response.statusText}. Details: ${errText}`);
   }
 
   const data = await response.json();
