@@ -244,7 +244,7 @@ You must respond with a JSON object conforming exactly to this schema:
   "conceptHighlights": Array<{ text: string, type: "main" | "missed", reason: string }>,
   "omittedItems": string[],
   "puzzlePieces": Array<{ text: string, emoji: string }>,
-  "memoryAnchor": string (a brief story-driven memory anchor under 40 words. Weave in a historical backstory, famous success/failure, or quirky fun fact related to the concept),
+  "memoryAnchor": string (a brief story-driven memory anchor under 40 words. Weave in a historical backstory or success/disaster related to the concept, subtly nudging the student toward the steps and importance of the answer),
   "numericalAnalysis": {
     "containsNumbers": boolean,
     "actualValue": number,
@@ -1280,8 +1280,9 @@ Requirements:
    - A historical backstory (how it was discovered, who did it, their struggles, or quirky historical events).
    - Real-world impacts or engineering successes/disasters (e.g. why the bridge collapsed, why the space mission failed, or how it saved lives).
    - Dynamic and quirky facts that stick to the mind.
-2. Use beautiful Markdown formatting (such as bold key phrases, lists, paragraph breaks, blockquotes, or highlights) to make the story highly organized, structured, and pleasant to read.
-3. Return ONLY a JSON object conforming exactly to this schema:
+2. Subtly nudge the student: Weave in a non-obvious clue regarding the SEQUENCE of steps, core mechanisms, or relative IMPORTANCE of components in the target concept. By the end of reading the narrative, the student should naturally grasp the chronological order of operations or why certain elements matter more, without you explicitly spoiling or listing the exact answer text.
+3. Use beautiful Markdown formatting (such as bold key phrases, lists, paragraph breaks, blockquotes, or highlights) to make the story highly organized, structured, and pleasant to read.
+4. Return ONLY a JSON object conforming exactly to this schema:
 {
   "memoryAnchor": "string (the rich, detailed story, formatted in Markdown)"
 }`;
