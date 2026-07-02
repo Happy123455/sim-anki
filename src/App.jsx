@@ -1216,7 +1216,7 @@ export default function App() {
           fontFamily: 'monospace'
         }}
       >
-        v1.5.0
+        v1.6.0
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (
