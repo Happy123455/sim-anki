@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, X, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
-import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation } from '../utils/gemini';
+import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation, generateDetailedMemoryAnchor } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
 import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
@@ -611,6 +611,59 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
   const [isGeneratingCanvasSim, setIsGeneratingCanvasSim] = useState(false);
   const [canvasSimError, setCanvasSimError] = useState(null);
+
+  const [isGeneratingAnchor, setIsGeneratingAnchor] = useState(false);
+  const [anchorError, setAnchorError] = useState(null);
+  const [anchorModel, setAnchorModel] = useState(model || 'gemini-3.5-flash');
+
+  const handleGenerateDetailedAnchor = async () => {
+    if (!apiKey) {
+      setAnchorError("Gemini API key is missing. Configure it in Settings.");
+      return;
+    }
+    setIsGeneratingAnchor(true);
+    setAnchorError(null);
+
+    try {
+      const result = await generateDetailedMemoryAnchor(
+        apiKey,
+        anchorModel,
+        currentCard.question,
+        currentCard.concept,
+        evaluation?.logicAnalysis || "Conceptual gap regarding this topic",
+        userAnswer
+      );
+
+      if (result && result.memoryAnchor) {
+        const updatedEvaluation = {
+          ...evaluation,
+          memoryAnchor: result.memoryAnchor
+        };
+        setEvaluation(updatedEvaluation);
+        
+        setSessionQueue(prev => {
+          const copy = [...prev];
+          copy[currentIndex] = {
+            ...copy[currentIndex],
+            evaluation: updatedEvaluation
+          };
+          return copy;
+        });
+
+        if (typeof onUpdateCard === 'function') {
+          onUpdateCard({
+            ...currentCard,
+            evaluation: updatedEvaluation
+          });
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setAnchorError(err.message || "Failed to generate detailed memory anchor.");
+    } finally {
+      setIsGeneratingAnchor(false);
+    }
+  };
 
   const handleGenerateCanvasSim = async () => {
     if (!apiKey) {
@@ -1884,46 +1937,101 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                   textAlign: 'left'
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                   <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                     ⚓ Memory Anchor (Backstory & Quirky Fact)
                   </span>
-                  <button
-                    onClick={() => {
-                      if (!window.speechSynthesis) return;
-                      if (window.speechSynthesis.speaking) {
-                        window.speechSynthesis.cancel();
-                      } else {
-                        const utterance = new SpeechSynthesisUtterance(evaluation.memoryAnchor);
-                        if (voiceURI) {
-                          const voices = window.speechSynthesis.getVoices();
-                          const voice = voices.find(v => v.voiceURI === voiceURI);
-                          if (voice) utterance.voice = voice;
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    {/* Model Select */}
+                    <select
+                      value={anchorModel}
+                      onChange={(e) => setAnchorModel(e.target.value)}
+                      style={{
+                        fontSize: '0.68rem',
+                        padding: '0.15rem 0.35rem',
+                        borderRadius: '4px',
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border-light)',
+                        color: 'var(--text-secondary)'
+                      }}
+                    >
+                      <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                      <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                    </select>
+
+                    {/* Sparkles Button */}
+                    <button
+                      onClick={handleGenerateDetailedAnchor}
+                      disabled={isGeneratingAnchor}
+                      style={{
+                        background: 'rgba(139, 92, 246, 0.1)',
+                        border: '1px solid rgba(139, 92, 246, 0.3)',
+                        color: '#c084fc',
+                        borderRadius: '6px',
+                        padding: '0.2rem 0.5rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                        cursor: 'pointer',
+                        fontSize: '0.68rem',
+                        fontWeight: 600
+                      }}
+                      title="Generate rich, lengthy story"
+                    >
+                      {isGeneratingAnchor ? (
+                        <RefreshCw size={10} className="animate-spin" />
+                      ) : (
+                        <Sparkles size={10} />
+                      )}
+                      <span>Story</span>
+                    </button>
+
+                    {/* Speaker Button */}
+                    <button
+                      onClick={() => {
+                        if (!window.speechSynthesis) return;
+                        if (window.speechSynthesis.speaking) {
+                          window.speechSynthesis.cancel();
+                        } else {
+                          const utterance = new SpeechSynthesisUtterance(evaluation.memoryAnchor);
+                          if (voiceURI) {
+                            const voices = window.speechSynthesis.getVoices();
+                            const voice = voices.find(v => v.voiceURI === voiceURI);
+                            if (voice) utterance.voice = voice;
+                          }
+                          window.speechSynthesis.speak(utterance);
                         }
-                        window.speechSynthesis.speak(utterance);
-                      }
-                    }}
-                    style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      color: 'var(--text-muted)',
-                      borderRadius: '50%',
-                      width: '28px',
-                      height: '28px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      fontSize: '0.75rem'
-                    }}
-                    title="Read aloud"
-                  >
-                    🔊
-                  </button>
+                      }}
+                      style={{
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        color: 'var(--text-muted)',
+                        borderRadius: '6px',
+                        padding: '0.2rem 0.4rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        fontSize: '0.68rem'
+                      }}
+                      title="Read aloud"
+                    >
+                      🔊 Voice
+                    </button>
+                  </div>
                 </div>
-                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.45', fontStyle: 'italic' }}>
+
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.45', fontStyle: 'italic', whiteSpace: 'pre-line' }}>
                   {evaluation.memoryAnchor}
                 </p>
+
+                {anchorError && (
+                  <div style={{ marginTop: '0.5rem', color: '#fca5a5', fontSize: '0.72rem' }}>
+                    ⚠️ {anchorError}
+                  </div>
+                )}
               </div>
             )}
 

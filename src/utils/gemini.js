@@ -1255,4 +1255,57 @@ Return ONLY a JSON object conforming exactly to this schema:
   return cleanAndParseJson(rawText);
 }
 
+/**
+ * Generates a highly detailed, storytelling memory anchor to make a concept memorable.
+ */
+export async function generateDetailedMemoryAnchor(apiKey, model, question, concept, logicAnalysis, currentAnswer) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const systemPrompt = `You are a master scientific storyteller and historical educator.
+Your task is to write a highly engaging, detailed, and rich storytelling Memory Anchor (backstory and quirky fun facts) to make the following concept memorable:
+Concept: "${concept}"
+Context: "${question}"
+Student's Answer: "${currentAnswer}"
+Logic gap to address: "${logicAnalysis}"
+
+Requirements:
+1. Write a detailed, captivating narrative (150-250 words) that connects this dry concept to:
+   - A historical backstory (how it was discovered, who did it, their struggles, or quirky historical events).
+   - Real-world impacts or engineering successes/disasters (e.g. why the bridge collapsed, why the space mission failed, or how it saved lives).
+   - Dynamic and quirky facts that stick to the mind.
+2. Use beautiful formatting. Do NOT use markdown code blocks, but you can use inline bold/italic.
+3. Return ONLY a JSON object conforming exactly to this schema:
+{
+  "memoryAnchor": "string (the rich, detailed story)"
+}`;
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            memoryAnchor: { type: "STRING" }
+          },
+          required: ["memoryAnchor"]
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to generate rich memory anchor: ${response.statusText}. Details: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}
+
 
