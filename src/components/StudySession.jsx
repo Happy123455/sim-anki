@@ -611,6 +611,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
   const [isGeneratingCanvasSim, setIsGeneratingCanvasSim] = useState(false);
   const [canvasSimError, setCanvasSimError] = useState(null);
+  const [simulationModelStudy, setSimulationModelStudy] = useState(model || 'gemini-2.5-flash');
+  const [feedbackTextSim, setFeedbackTextSim] = useState('');
+  const [isFullscreenSim, setIsFullscreenSim] = useState(false);
 
   const [isGeneratingAnchor, setIsGeneratingAnchor] = useState(false);
   const [anchorError, setAnchorError] = useState(null);
@@ -674,27 +677,49 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     setCanvasSimError(null);
 
     try {
+      const currentList = currentCard.simulationHtmlList || [];
+      const activeIdx = currentCard.activeSimulationIndex !== undefined ? currentCard.activeSimulationIndex : (currentList.length - 1);
+      const activeSimObj = currentList.length > 0 && activeIdx >= 0 && activeIdx < currentList.length ? currentList[activeIdx] : null;
+
       const result = await generateCanvasSimulation(
         apiKey,
-        model || 'gemini-2.5-flash',
+        simulationModelStudy,
         currentCard.question,
         currentCard.concept,
-        evaluation?.logicAnalysis || "Conceptual gap regarding this topic"
+        evaluation?.logicAnalysis || "Conceptual gap regarding this topic",
+        feedbackTextSim,
+        activeSimObj ? activeSimObj.html : ''
       );
 
       if (result && result.html) {
+        const newSimObj = {
+          model: simulationModelStudy,
+          prompt: feedbackTextSim || "Initial Simulation",
+          html: result.html,
+          date: new Date().toISOString()
+        };
+
+        const updatedList = [...currentList, newSimObj];
+        const updatedIdx = updatedList.length - 1;
+
         const updatedCard = {
           ...currentCard,
-          simulationHtml: result.html
+          simulationHtml: result.html,
+          simulationHtmlList: updatedList,
+          activeSimulationIndex: updatedIdx
         };
+
         setSessionQueue(prev => {
           const copy = [...prev];
           copy[currentIndex] = updatedCard;
           return copy;
         });
+
         if (typeof onUpdateCard === 'function') {
           onUpdateCard(updatedCard);
         }
+
+        setFeedbackTextSim('');
       } else {
         throw new Error("No HTML code was returned by the AI.");
       }
@@ -2547,7 +2572,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
             {/* Interactive Canvas Simulator (Google Gemini Canvas Style) */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--border-light)', textAlign: 'left' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              
+              {/* Header block */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem', borderBottom: '1px dashed rgba(255,255,255,0.06)', paddingBottom: '0.75rem' }}>
                 <div>
                   <h4 style={{ fontSize: '1rem', color: '#a78bfa', margin: 0, fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     🎮 Gemini Interactive Simulation Canvas
@@ -2557,12 +2584,31 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                   </span>
                 </div>
 
-                {currentCard.simulationHtml && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {/* Model dropdown */}
+                  <select 
+                    value={simulationModelStudy} 
+                    onChange={(e) => setSimulationModelStudy(e.target.value)}
+                    style={{ 
+                      fontSize: '0.72rem', 
+                      padding: '0.2rem 0.4rem', 
+                      borderRadius: '6px', 
+                      background: 'rgba(0,0,0,0.3)', 
+                      border: '1px solid var(--border-light)',
+                      color: 'var(--text-secondary)'
+                    }}
+                  >
+                    <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                  </select>
+
+                  {/* Build / Upgrade spinner */}
                   <button
                     className="btn btn-secondary"
                     onClick={handleGenerateCanvasSim}
                     disabled={isGeneratingCanvasSim}
-                    style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                    style={{ padding: '0.25rem 0.65rem', fontSize: '0.72rem', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
                   >
                     {isGeneratingCanvasSim ? (
                       <>
@@ -2570,59 +2616,170 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                       </>
                     ) : (
                       <>
-                        <RefreshCw size={12} /> Regenerate Simulator
+                        <Sparkles size={12} /> {currentCard.simulationHtml ? "Upgrade" : "Build"}
                       </>
                     )}
                   </button>
-                )}
+
+                  {currentCard.simulationHtml && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => setIsFullscreenSim(true)}
+                      style={{ padding: '0.25rem 0.65rem', fontSize: '0.72rem', minHeight: 'auto', border: '1px solid rgba(255,255,255,0.1)' }}
+                      title="Expand to fullscreen view"
+                    >
+                      🖥️ Maximize
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {currentCard.simulationHtml ? (
-                <div style={{ width: '100%', position: 'relative' }}>
-                  <iframe
-                    title="Gemini Canvas Simulation"
-                    srcDoc={currentCard.simulationHtml}
-                    sandbox="allow-scripts"
-                    style={{
-                      width: '100%',
-                      height: '500px',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '12px',
-                      background: '#0d0e15',
-                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
-                    }}
-                  />
-                </div>
-              ) : (
-                <div style={{ padding: '2rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', background: 'rgba(0,0,0,0.15)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '12px' }}>
-                  <div style={{ fontSize: '2rem' }}>🧪</div>
-                  <div style={{ maxWidth: '400px' }}>
-                    <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-                      No simulation canvas exists for this card yet
-                    </h5>
-                    <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                      Compile a custom interactive HTML5 playground widget containing slider controls, custom calculations, and responsive visual graphics built around your answer feedback.
-                    </p>
-                  </div>
-                  <button
-                    className="btn btn-primary animate-pulse"
-                    onClick={handleGenerateCanvasSim}
-                    disabled={isGeneratingCanvasSim}
-                    style={{ padding: '0.5rem 1.25rem', fontSize: '0.8rem', gap: '0.4rem' }}
-                  >
-                    {isGeneratingCanvasSim ? (
-                      <>
-                        <RefreshCw size={14} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
-                        Compiling Sandbox Widget...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={14} /> Build Simulation Canvas
-                      </>
+              {/* Version History selector bar */}
+              {(() => {
+                const simList = currentCard.simulationHtmlList || [];
+                const activeIdx = currentCard.activeSimulationIndex !== undefined ? currentCard.activeSimulationIndex : (simList.length - 1);
+                
+                if (simList.length === 0) return null;
+
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.04)', paddingBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Simulation Version:</span>
+                      {simList.map((sim, sIdx) => (
+                        <button
+                          key={sIdx}
+                          onClick={() => {
+                            const updatedCard = {
+                              ...currentCard,
+                              activeSimulationIndex: sIdx,
+                              simulationHtml: sim.html
+                            };
+                            setSessionQueue(prev => {
+                              const copy = [...prev];
+                              copy[currentIndex] = updatedCard;
+                              return copy;
+                            });
+                            if (typeof onUpdateCard === 'function') {
+                              onUpdateCard(updatedCard);
+                            }
+                          }}
+                          style={{
+                            background: sIdx === activeIdx ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            color: 'white',
+                            fontSize: '0.68rem',
+                            padding: '0.15rem 0.4rem',
+                            cursor: 'pointer',
+                            fontWeight: 700
+                          }}
+                          title={`Compiled with: ${sim.model}\nPrompt: ${sim.prompt}`}
+                        >
+                          v{sIdx + 1}
+                        </button>
+                      ))}
+                    </div>
+                    {simList[activeIdx] && (
+                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        Source: {simList[activeIdx].model} ("{simList[activeIdx].prompt.substring(0, 20)}...")
+                      </span>
                     )}
-                  </button>
-                </div>
-              )}
+                  </div>
+                );
+              })()}
+
+              {/* Simulation HTML layout */}
+              {(() => {
+                const simList = currentCard.simulationHtmlList || [];
+                const activeIdx = currentCard.activeSimulationIndex !== undefined ? currentCard.activeSimulationIndex : (simList.length - 1);
+                const activeSimObj = simList.length > 0 && activeIdx >= 0 && activeIdx < simList.length ? simList[activeIdx] : null;
+                const activeHtmlSource = activeSimObj ? activeSimObj.html : currentCard.simulationHtml;
+
+                if (activeHtmlSource) {
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {/* iframe preview */}
+                      <div style={{ width: '100%', position: 'relative' }}>
+                        <iframe
+                          title="Gemini Canvas Simulation"
+                          srcDoc={activeHtmlSource}
+                          sandbox="allow-scripts allow-modals allow-downloads"
+                          style={{
+                            width: '100%',
+                            height: '420px',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: '12px',
+                            background: '#0d0e15',
+                            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
+                          }}
+                        />
+                      </div>
+
+                      {/* Upgrade inputs */}
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
+                        <input
+                          type="text"
+                          placeholder="Describe upgrades or custom logic tweaks (e.g. increase gravity force)..."
+                          value={feedbackTextSim}
+                          onChange={(e) => setFeedbackTextSim(e.target.value)}
+                          disabled={isGeneratingCanvasSim}
+                          style={{
+                            flex: 1,
+                            fontSize: '0.75rem',
+                            padding: '0.4rem 0.65rem',
+                            borderRadius: '6px',
+                            background: 'rgba(0,0,0,0.2)',
+                            border: '1px solid var(--border-light)',
+                            color: 'white'
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleGenerateCanvasSim();
+                          }}
+                        />
+                        <button
+                          className="btn btn-primary"
+                          onClick={handleGenerateCanvasSim}
+                          disabled={isGeneratingCanvasSim || !feedbackTextSim.trim()}
+                          style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem', minHeight: 'auto' }}
+                        >
+                          Upgrade Code
+                        </button>
+                      </div>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div style={{ padding: '2.5rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', background: 'rgba(0,0,0,0.15)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '12px' }}>
+                      <div style={{ fontSize: '2rem' }}>🧪</div>
+                      <div style={{ maxWidth: '400px' }}>
+                        <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                          No simulation canvas exists for this card yet
+                        </h5>
+                        <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                          Compile a custom interactive HTML5 playground widget containing slider controls, custom calculations, and responsive visual graphics built around your answer feedback.
+                        </p>
+                      </div>
+                      <button
+                        className="btn btn-primary animate-pulse"
+                        onClick={handleGenerateCanvasSim}
+                        disabled={isGeneratingCanvasSim}
+                        style={{ padding: '0.5rem 1.25rem', fontSize: '0.8rem', gap: '0.4rem' }}
+                      >
+                        {isGeneratingCanvasSim ? (
+                          <>
+                            <RefreshCw size={14} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
+                            Compiling Sandbox Widget...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={14} /> Build Simulation Canvas
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                }
+              })()}
 
               {canvasSimError && (
                 <div style={{ color: '#fca5a5', fontSize: '0.78rem', background: 'rgba(239, 68, 68, 0.05)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
@@ -2670,6 +2827,52 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
         </div>
       )}
       </div>
+
+      {/* Fullscreen Simulation Overlay */}
+      {isFullscreenSim && (() => {
+        const simList = currentCard.simulationHtmlList || [];
+        const activeIdx = currentCard.activeSimulationIndex !== undefined ? currentCard.activeSimulationIndex : (simList.length - 1);
+        const activeSimObj = simList.length > 0 && activeIdx >= 0 && activeIdx < simList.length ? simList[activeIdx] : null;
+        const activeHtmlSource = activeSimObj ? activeSimObj.html : currentCard.simulationHtml;
+
+        if (!activeHtmlSource) return null;
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1200, display: 'flex', flexDirection: 'column', background: 'rgba(13, 14, 21, 0.95)', backdropFilter: 'blur(10px)', padding: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-light)', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', color: '#a78bfa', margin: 0, fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  🖥️ Full Screen Simulation Canvas (v{activeIdx + 1})
+                </h3>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Concept: {currentCard.concept}
+                </span>
+              </div>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setIsFullscreenSim(false)}
+                style={{ padding: '0.4rem 0.85rem', fontSize: '0.8rem', minHeight: 'auto' }}
+              >
+                Close Fullscreen ✕
+              </button>
+            </div>
+            
+            <iframe
+              title="Fullscreen Canvas Simulator"
+              srcDoc={activeHtmlSource}
+              sandbox="allow-scripts allow-modals allow-downloads"
+              style={{
+                flex: 1,
+                width: '100%',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '12px',
+                background: '#0d0e15',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+              }}
+            />
+          </div>
+        );
+      })()}
 
       {/* Refactor Card Modal */}
       {refactorCard && (

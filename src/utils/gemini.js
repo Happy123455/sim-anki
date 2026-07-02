@@ -1205,20 +1205,26 @@ Concept: ${concept}
 /**
  * Generates an interactive educational HTML/JS simulation tailored to a concept.
  */
-export async function generateCanvasSimulation(apiKey, model, question, concept, logicAnalysis) {
+export async function generateCanvasSimulation(apiKey, model, question, concept, logicAnalysis, userFeedback = "", previousHtml = "") {
   const trimmedKey = cleanApiKey(apiKey);
   const cleanModel = cleanModelName(model);
 
   const systemPrompt = `You are a world-class creator of interactive educational widgets and web simulations, similar to Brilliant.org or PhET Interactive Simulations.
-Your task is to create a complete, self-contained, interactive HTML5 learning simulation page to help a student master this concept:
+Your task is to create or iterate upon a complete, self-contained, interactive HTML5 learning simulation page to help a student master this concept:
 Concept: "${concept}"
 Context: "${question}"
 Logical Error to address: "${logicAnalysis}"
 
+${previousHtml ? `You are upgrading/updating an existing simulation. Here is the current HTML code of the simulation:
+\`\`\`html
+${previousHtml}
+\`\`\`
+Modify and improve this simulation code based on the student's request: "${userFeedback}"` : `Create a new simulation from scratch.`}
+
 Requirements:
 1. The output MUST be a single, standalone HTML page containing all styles (CSS) and script (Javascript) inline. Do NOT import external scripts or stylesheets (except standard icons or styling fonts if necessary, but keep it self-contained for reliability).
 2. Design Aesthetics: Use a stunning modern dark mode matching SimAnki's aesthetics (background: #0d0e15, glassmorphic panels, glowing neon highlights in violet (#8b5cf6), teal (#14b8a6), or pink (#ec4899), clean typography).
-3. Interactivity: Include interactive controls (sliders, input ranges, toggle buttons, or click targets) so the student can experiment. Adjusting controls must immediately update an animated visual diagram (using HTML5 Canvas, animated SVGs, or dynamic CSS styles).
+3. Interactivity: Include interactive controls (sliders, input ranges, toggle buttons, or click targets) so the student can experiment. Adjusting controls must immediately update an animated visual diagram (using HTML5 Canvas, HTML DOM elements, animated SVGs, or dynamic CSS styles).
 4. Pedagogical: Provide a mini-challenge, sandbox playground, or interactive question. For example, "Adjust the beam reinforcement density until the deflection is safe (< 10mm)". Show clear feedback (Success/Try Again) when they achieve the goal.
 5. Voice Explainer: Include a small "🔊 Explainer Voiceover" button in the simulation that reads the simulation goal aloud using browser SpeechSynthesis (window.speechSynthesis).
 
