@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, X, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
-import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion } from '../utils/gemini';
+import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation } from '../utils/gemini';
 import { getFriendlyInterval } from '../utils/srs';
 import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
@@ -609,45 +609,51 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [visualErrorStudy, setVisualErrorStudy] = useState(null);
   const [showStudyVisualGenerator, setShowStudyVisualGenerator] = useState(false);
 
-  const [visualCanvasTab, setVisualCanvasTab] = useState('preview');
-  const [localSvgEdits, setLocalSvgEdits] = useState('');
+  const [isGeneratingCanvasSim, setIsGeneratingCanvasSim] = useState(false);
+  const [canvasSimError, setCanvasSimError] = useState(null);
 
-  const handleSaveSvgEdits = () => {
-    const svgs = currentCard.answerSvgs || [];
-    const activeIdx = currentCard.activeAnswerSvgIndex !== undefined ? currentCard.activeAnswerSvgIndex : (svgs.length - 1);
-    if (svgs[activeIdx]) {
-      const updatedSvgs = [...svgs];
-      updatedSvgs[activeIdx] = {
-        ...updatedSvgs[activeIdx],
-        svg: localSvgEdits
-      };
-      const updatedCard = {
-        ...currentCard,
-        answerSvgs: updatedSvgs
-      };
-      setSessionQueue(prev => {
-        const copy = [...prev];
-        copy[currentIndex] = updatedCard;
-        return copy;
-      });
-      if (typeof onUpdateCard === 'function') {
-        onUpdateCard(updatedCard);
+  const handleGenerateCanvasSim = async () => {
+    if (!apiKey) {
+      setCanvasSimError("Gemini API key is missing. Configure it in Settings.");
+      return;
+    }
+    setIsGeneratingCanvasSim(true);
+    setCanvasSimError(null);
+
+    try {
+      const result = await generateCanvasSimulation(
+        apiKey,
+        model || 'gemini-2.5-flash',
+        currentCard.question,
+        currentCard.concept,
+        evaluation?.logicAnalysis || "Conceptual gap regarding this topic"
+      );
+
+      if (result && result.html) {
+        const updatedCard = {
+          ...currentCard,
+          simulationHtml: result.html
+        };
+        setSessionQueue(prev => {
+          const copy = [...prev];
+          copy[currentIndex] = updatedCard;
+          return copy;
+        });
+        if (typeof onUpdateCard === 'function') {
+          onUpdateCard(updatedCard);
+        }
+      } else {
+        throw new Error("No HTML code was returned by the AI.");
       }
+    } catch (err) {
+      console.error(err);
+      setCanvasSimError(err.message || "Failed to generate interactive simulation canvas.");
+    } finally {
+      setIsGeneratingCanvasSim(false);
     }
   };
 
-  useEffect(() => {
-    if (currentCard) {
-      const svgs = currentCard.answerSvgs || [];
-      const activeIdx = currentCard.activeAnswerSvgIndex !== undefined ? currentCard.activeAnswerSvgIndex : (svgs.length - 1);
-      const activeSvgObj = svgs.length > 0 && activeIdx >= 0 && activeIdx < svgs.length ? svgs[activeIdx] : null;
-      if (activeSvgObj) {
-        setLocalSvgEdits(activeSvgObj.svg);
-      } else {
-        setLocalSvgEdits('');
-      }
-    }
-  }, [currentIndex, currentCard?.activeAnswerSvgIndex, currentCard?.answerSvgs]);
+
 
   const handleGenerateVisualStudy = async (targetType) => {
     if (!apiKey) {
@@ -1717,98 +1723,21 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
                       {activeSvgObj ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          {/* Google Canvas-style Tab Switcher */}
-                          <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', paddingBottom: '0.25rem', gap: '1rem', alignItems: 'center' }}>
-                            <button
-                              onClick={() => setVisualCanvasTab('preview')}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                color: visualCanvasTab === 'preview' ? 'var(--accent-primary)' : 'var(--text-muted)',
-                                fontSize: '0.78rem',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                padding: '0.2rem 0',
-                                borderBottom: visualCanvasTab === 'preview' ? '2px solid var(--accent-primary)' : 'none',
-                                outline: 'none'
-                              }}
-                            >
-                              🎨 Preview Animation
-                            </button>
-                            <button
-                              onClick={() => setVisualCanvasTab('code')}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                color: visualCanvasTab === 'code' ? 'var(--accent-primary)' : 'var(--text-muted)',
-                                fontSize: '0.78rem',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                padding: '0.2rem 0',
-                                borderBottom: visualCanvasTab === 'code' ? '2px solid var(--accent-primary)' : 'none',
-                                outline: 'none'
-                              }}
-                            >
-                              💻 Canvas Code Editor
-                            </button>
-                          </div>
-
-                          {visualCanvasTab === 'preview' ? (
-                            <div 
-                              className="visual-svg-container"
-                              style={{ 
-                                width: '100%', 
-                                background: 'rgba(0,0,0,0.15)', 
-                                border: '1px solid var(--border-light)', 
-                                borderRadius: '12px', 
-                                padding: '1rem', 
-                                display: 'flex', 
-                                justifyContent: 'center', 
-                                alignItems: 'center',
-                                overflow: 'hidden'
-                              }}
-                              dangerouslySetInnerHTML={{ __html: activeSvgObj.svg }}
-                            />
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-                              <textarea
-                                value={localSvgEdits}
-                                onChange={(e) => setLocalSvgEdits(e.target.value)}
-                                style={{
-                                  width: '100%',
-                                  height: '180px',
-                                  fontFamily: 'monospace',
-                                  fontSize: '0.72rem',
-                                  background: 'rgba(0,0,0,0.4)',
-                                  border: '1px solid var(--border-light)',
-                                  color: '#a7f3d0', // nice green code color
-                                  borderRadius: '8px',
-                                  padding: '0.5rem',
-                                  resize: 'vertical'
-                                }}
-                              />
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                                  Edit the SVG elements/styles and apply changes.
-                                </span>
-                                <button
-                                  onClick={handleSaveSvgEdits}
-                                  className="btn btn-secondary"
-                                  style={{
-                                    padding: '0.25rem 0.65rem',
-                                    fontSize: '0.72rem',
-                                    minHeight: 'auto',
-                                    background: 'rgba(16, 185, 129, 0.1)',
-                                    border: '1px solid rgba(16, 185, 129, 0.3)',
-                                    color: '#34d399',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  Apply Changes
-                                </button>
-                              </div>
-                            </div>
-                          )}
+                          <div 
+                            className="visual-svg-container"
+                            style={{ 
+                              width: '100%', 
+                              background: 'rgba(0,0,0,0.15)', 
+                              border: '1px solid var(--border-light)', 
+                              borderRadius: '12px', 
+                              padding: '1rem', 
+                              display: 'flex', 
+                              justifyContent: 'center', 
+                              alignItems: 'center',
+                              overflow: 'hidden'
+                            }}
+                            dangerouslySetInnerHTML={{ __html: activeSvgObj.svg }}
+                          />
                           
                           {/* Tiny inline version bar */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -1942,6 +1871,60 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 valueUnit={evaluation.numericalAnalysis.valueUnit} 
                 history={currentCard.history} 
               />
+            )}
+
+            {evaluation.memoryAnchor && (
+              <div 
+                style={{ 
+                  marginTop: '0.75rem', 
+                  background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.05), rgba(59, 130, 246, 0.05))', 
+                  border: '1px solid rgba(139, 92, 246, 0.2)', 
+                  padding: '1rem', 
+                  borderRadius: '10px', 
+                  textAlign: 'left'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    ⚓ Memory Anchor (Backstory & Quirky Fact)
+                  </span>
+                  <button
+                    onClick={() => {
+                      if (!window.speechSynthesis) return;
+                      if (window.speechSynthesis.speaking) {
+                        window.speechSynthesis.cancel();
+                      } else {
+                        const utterance = new SpeechSynthesisUtterance(evaluation.memoryAnchor);
+                        if (voiceURI) {
+                          const voices = window.speechSynthesis.getVoices();
+                          const voice = voices.find(v => v.voiceURI === voiceURI);
+                          if (voice) utterance.voice = voice;
+                        }
+                        window.speechSynthesis.speak(utterance);
+                      }
+                    }}
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: 'var(--text-muted)',
+                      borderRadius: '50%',
+                      width: '28px',
+                      height: '28px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      fontSize: '0.75rem'
+                    }}
+                    title="Read aloud"
+                  >
+                    🔊
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.45', fontStyle: 'italic' }}>
+                  {evaluation.memoryAnchor}
+                </p>
+              </div>
             )}
 
             {/* Answer & Reference Comparison Box */}
@@ -2392,26 +2375,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                       />
                     </div>
 
-                    {/* Memory Anchor Section */}
-                    {detailedAnalysis.memoryAnchor && (
-                      <div 
-                        style={{ 
-                          marginTop: '0.5rem', 
-                          background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.06), rgba(59, 130, 246, 0.06))', 
-                          border: '1px solid rgba(139, 92, 246, 0.22)', 
-                          padding: '0.85rem 1rem', 
-                          borderRadius: '8px', 
-                          position: 'relative' 
-                        }}
-                      >
-                        <h5 style={{ margin: '0 0 0.4rem 0', fontSize: '0.82rem', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: 700 }}>
-                          ⚓ Memory Anchor (Backstory & Quirky Fact)
-                        </h5>
-                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.45', fontStyle: 'italic' }}>
-                          {detailedAnalysis.memoryAnchor}
-                        </p>
-                      </div>
-                    )}
+
 
                     {/* Memory Mnemonic assistance inside lazy block */}
                     {hasFeatureUnlocked(settings, 'mnemonics') && (
@@ -2473,46 +2437,90 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               </div>
             </div>
 
-            {/* Custom Simulation Prompt for Copy-Pasting */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(139, 92, 246, 0.04)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(139, 92, 246, 0.2)', textAlign: 'left' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', margin: 0, fontWeight: 700 }}>
-                  Generate Simulation Prompt (Save Tokens)
-                </h4>
-                <button 
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    const simulationPrompt = `Please create a dynamic, interactive simulation based on the information below. Choose whatever programming language works best for this project. Make sure to include sound effects, text-to-speech voiceover( Native Speech Synthesis ) , and animated diagrams. Here is the info: \n\nTopic/Concept: ${currentCard?.concept || ''}\nQuestion: ${currentCard?.question || ''}\nMy Answer: ${userAnswer || ''}\nLogical Gap/Feedback: ${evaluation?.logicAnalysis || ''}`;
-                    navigator.clipboard.writeText(simulationPrompt);
-                    setCopySuccess(true);
-                    setTimeout(() => setCopySuccess(false), 2000);
-                  }}
-                  style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', minWidth: '100px' }}
-                >
-                  {copySuccess ? 'Copied!' : 'Copy Prompt'}
-                </button>
+            {/* Interactive Canvas Simulator (Google Gemini Canvas Style) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--border-light)', textAlign: 'left' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <h4 style={{ fontSize: '1rem', color: '#a78bfa', margin: 0, fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    🎮 Gemini Interactive Simulation Canvas
+                  </h4>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                    Brilliant.org style sandbox custom-compiled to address your logic gap
+                  </span>
+                </div>
+
+                {currentCard.simulationHtml && (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleGenerateCanvasSim}
+                    disabled={isGeneratingCanvasSim}
+                    style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                  >
+                    {isGeneratingCanvasSim ? (
+                      <>
+                        <RefreshCw size={12} className="animate-spin" /> Compiling...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={12} /> Regenerate Simulator
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
-                Copy and paste this prompt into Gemini (or another AI) to build a custom interactive simulation for this concept.
-              </p>
-              <textarea
-                readOnly
-                value={`Please create a dynamic, interactive simulation based on the information below. Choose whatever programming language works best for this project. Make sure to include sound effects, text-to-speech voiceover( Native Speech Synthesis ) , and animated diagrams. Here is the info: \n\nTopic/Concept: ${currentCard?.concept || ''}\nQuestion: ${currentCard?.question || ''}\nMy Answer: ${userAnswer || ''}\nLogical Gap/Feedback: ${evaluation?.logicAnalysis || ''}`}
-                style={{ 
-                  fontFamily: 'monospace', 
-                  fontSize: '0.82rem', 
-                  background: 'rgba(0, 0, 0, 0.3)', 
-                  border: '1px solid var(--border-light)', 
-                  borderRadius: '6px', 
-                  padding: '0.75rem', 
-                  minHeight: '120px', 
-                  resize: 'none',
-                  color: 'var(--text-secondary)',
-                  width: '100%',
-                  boxSizing: 'border-box'
-                }}
-                onClick={(e) => e.target.select()}
-              />
+
+              {currentCard.simulationHtml ? (
+                <div style={{ width: '100%', position: 'relative' }}>
+                  <iframe
+                    title="Gemini Canvas Simulation"
+                    srcDoc={currentCard.simulationHtml}
+                    sandbox="allow-scripts"
+                    style={{
+                      width: '100%',
+                      height: '500px',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '12px',
+                      background: '#0d0e15',
+                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
+                    }}
+                  />
+                </div>
+              ) : (
+                <div style={{ padding: '2rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', background: 'rgba(0,0,0,0.15)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '12px' }}>
+                  <div style={{ fontSize: '2rem' }}>🧪</div>
+                  <div style={{ maxWidth: '400px' }}>
+                    <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                      No simulation canvas exists for this card yet
+                    </h5>
+                    <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                      Compile a custom interactive HTML5 playground widget containing slider controls, custom calculations, and responsive visual graphics built around your answer feedback.
+                    </p>
+                  </div>
+                  <button
+                    className="btn btn-primary animate-pulse"
+                    onClick={handleGenerateCanvasSim}
+                    disabled={isGeneratingCanvasSim}
+                    style={{ padding: '0.5rem 1.25rem', fontSize: '0.8rem', gap: '0.4rem' }}
+                  >
+                    {isGeneratingCanvasSim ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
+                        Compiling Sandbox Widget...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={14} /> Build Simulation Canvas
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {canvasSimError && (
+                <div style={{ color: '#fca5a5', fontSize: '0.78rem', background: 'rgba(239, 68, 68, 0.05)', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                  ⚠️ {canvasSimError}
+                </div>
+              )}
             </div>
               </>
             )}

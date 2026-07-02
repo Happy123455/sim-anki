@@ -244,6 +244,7 @@ You must respond with a JSON object conforming exactly to this schema:
   "conceptHighlights": Array<{ text: string, type: "main" | "missed", reason: string }>,
   "omittedItems": string[],
   "puzzlePieces": Array<{ text: string, emoji: string }>,
+  "memoryAnchor": string (a brief story-driven memory anchor under 40 words. Weave in a historical backstory, famous success/failure, or quirky fun fact related to the concept),
   "numericalAnalysis": {
     "containsNumbers": boolean,
     "actualValue": number,
@@ -364,9 +365,10 @@ You must output your response complying strictly with these user-defined prefere
                   valueUnit: { type: "STRING" }
                 },
                 required: ["containsNumbers", "actualValue", "userGuess", "valueUnit"]
-              }
+              },
+              memoryAnchor: { type: "STRING" }
             },
-            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights", "conceptHighlights", "omittedItems", "puzzlePieces", "numericalAnalysis"]
+            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights", "conceptHighlights", "omittedItems", "puzzlePieces", "numericalAnalysis", "memoryAnchor"]
           }
         }
       })
@@ -1048,14 +1050,12 @@ Provide a detailed breakdown with:
 1. Pros: What parts of their answer were accurate, well-phrased, or showed good understanding.
 2. Cons: Exact misconceptions, logical errors, or formatting gaps.
 3. Detailed Explanation: A thorough explanation of the underlying concept, how it applies to this question, and how to remember it next time.
-4. Memory Anchor (CRITICAL): Provide an engaging, story-driven explanation of this concept. Anchor it to a historical backstory (e.g. origins, founders, design history), a striking real-world impact (e.g. historic engineering successes or disasters, space mission failures, famous accidents, or impactful applications), or a quirky fun fact that transforms the dry data into a memorable, vivid experience.
 
 You must respond with a JSON object conforming exactly to this schema:
 {
   "pros": ["string", "string"],
   "cons": ["string", "string"],
-  "detailedExplanation": "string (formatted in Markdown, detailed pedagogical breakdown)",
-  "memoryAnchor": "string (story-driven historical backstory, real-world impact/disaster, or quirky fun fact related to this concept)"
+  "detailedExplanation": "string (formatted in Markdown, detailed pedagogical breakdown)"
 }`;
 
   const prompt = `
@@ -1076,10 +1076,9 @@ User's Answer: "${userAnswer}"
           properties: {
             pros: { type: "ARRAY", items: { type: "STRING" } },
             cons: { type: "ARRAY", items: { type: "STRING" } },
-            detailedExplanation: { type: "STRING" },
-            memoryAnchor: { type: "STRING" }
+            detailedExplanation: { type: "STRING" }
           },
-          required: ["pros", "cons", "detailedExplanation", "memoryAnchor"]
+          required: ["pros", "cons", "detailedExplanation"]
         }
       }
     })
@@ -1196,6 +1195,59 @@ Concept: ${concept}
   if (!response.ok) {
     const errText = await response.text();
     throw new Error(`Failed to simplify question: ${response.statusText}. Details: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}
+
+/**
+ * Generates an interactive educational HTML/JS simulation tailored to a concept.
+ */
+export async function generateCanvasSimulation(apiKey, model, question, concept, logicAnalysis) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const cleanModel = cleanModelName(model);
+
+  const systemPrompt = `You are a world-class creator of interactive educational widgets and web simulations, similar to Brilliant.org or PhET Interactive Simulations.
+Your task is to create a complete, self-contained, interactive HTML5 learning simulation page to help a student master this concept:
+Concept: "${concept}"
+Context: "${question}"
+Logical Error to address: "${logicAnalysis}"
+
+Requirements:
+1. The output MUST be a single, standalone HTML page containing all styles (CSS) and script (Javascript) inline. Do NOT import external scripts or stylesheets (except standard icons or styling fonts if necessary, but keep it self-contained for reliability).
+2. Design Aesthetics: Use a stunning modern dark mode matching SimAnki's aesthetics (background: #0d0e15, glassmorphic panels, glowing neon highlights in violet (#8b5cf6), teal (#14b8a6), or pink (#ec4899), clean typography).
+3. Interactivity: Include interactive controls (sliders, input ranges, toggle buttons, or click targets) so the student can experiment. Adjusting controls must immediately update an animated visual diagram (using HTML5 Canvas, animated SVGs, or dynamic CSS styles).
+4. Pedagogical: Provide a mini-challenge, sandbox playground, or interactive question. For example, "Adjust the beam reinforcement density until the deflection is safe (< 10mm)". Show clear feedback (Success/Try Again) when they achieve the goal.
+5. Voice Explainer: Include a small "🔊 Explainer Voiceover" button in the simulation that reads the simulation goal aloud using browser SpeechSynthesis (window.speechSynthesis).
+
+Return ONLY a JSON object conforming exactly to this schema:
+{
+  "html": "string containing the full standalone HTML page code"
+}`;
+
+  const response = await fetch(`${API_URL}/${cleanModel}:generateContent?key=${trimmedKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            html: { type: "STRING" }
+          },
+          required: ["html"]
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to generate canvas simulation: ${response.statusText}. Details: ${errText}`);
   }
 
   const data = await response.json();
