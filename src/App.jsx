@@ -6,6 +6,7 @@ import { calculateNextState, mergeDecksAndCards } from './utils/srs';
 import { ShieldAlert, BookOpen, Layers, CloudOff, Cloud, RefreshCw } from 'lucide-react';
 import { cleanApiKey, cleanModelName } from './utils/gemini';
 import { pushToGist, pullFromGist, sanitizeToken, sanitizeGistId } from './utils/githubSync';
+import { getVal, setVal } from './utils/db';
 
 // Pre-seeded structural engineering deck and cards
 const initialDecks = [
@@ -256,6 +257,20 @@ export default function App() {
     });
   };
 
+  const sanitizeCardsForLocalStorage = (cardsList) => {
+    if (!Array.isArray(cardsList)) return [];
+    return cardsList.map(card => {
+      const { simulationHtml, simulationHtmlList, answerSvgs, questionSvgs, ...rest } = card;
+      if (Array.isArray(rest.history)) {
+        rest.history = rest.history.map(log => {
+          const { simulationHtml: logSim, simulationHtmlList: logSimList, questionSvgs: logQS, answerSvgs: logAS, ...logRest } = log;
+          return logRest;
+        });
+      }
+      return rest;
+    });
+  };
+
   const saveLocalBackup = (currentDecks, currentCards) => {
     try {
       let nextIdx = Number(localStorage.getItem('simanki_backup_index') || 0) + 1;
@@ -315,7 +330,7 @@ export default function App() {
       }
 
       const localDecks = JSON.parse(localStorage.getItem('simanki_decks') || '[]');
-      const localCards = JSON.parse(localStorage.getItem('simanki_cards') || '[]');
+      const localCards = (await getVal('simanki_cards')) || JSON.parse(localStorage.getItem('simanki_cards') || '[]');
       const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
       const localTS = Number(localStorage.getItem('simanki_last_modified')) || 0;
       const localCloudBackups = JSON.parse(localStorage.getItem('simanki_cloud_backups') || '[]');
@@ -377,7 +392,8 @@ export default function App() {
         setCloudBackups(finalCloudBackups);
 
         localStorage.setItem('simanki_decks', mergedDecksStr);
-        localStorage.setItem('simanki_cards', mergedCardsStr);
+        setVal('simanki_cards', mergedCards);
+        localStorage.setItem('simanki_cards', JSON.stringify(sanitizeCardsForLocalStorage(mergedCards)));
         localStorage.setItem('simanki_settings', JSON.stringify(mergedSettings));
         localStorage.setItem('simanki_cloud_backups', JSON.stringify(finalCloudBackups));
         
@@ -476,16 +492,26 @@ export default function App() {
       console.error("Error loading decks from localStorage:", e);
     }
 
-    try {
-      const savedCards = localStorage.getItem('simanki_cards');
-      if (savedCards) {
-        const cleaned = escapeJsonLaTeX(savedCards);
-        setCards(JSON.parse(cleaned));
+    const loadCardsAsync = async () => {
+      try {
+        const dbCards = await getVal('simanki_cards');
+        if (dbCards && Array.isArray(dbCards) && dbCards.length > 0) {
+          setCards(dbCards);
+        } else {
+          const savedCards = localStorage.getItem('simanki_cards');
+          if (savedCards) {
+            const cleaned = escapeJsonLaTeX(savedCards);
+            setCards(JSON.parse(cleaned));
+          } else {
+            setCards(initialCards);
+          }
+        }
+      } catch (e) {
+        console.error("Error loading cards from IndexedDB/localStorage:", e);
+        setCards(initialCards);
       }
-    } catch (e) {
-      console.error("Error loading cards from localStorage:", e);
-      setCards(initialCards);
-    }
+    };
+    loadCardsAsync();
 
     // Self-healing Storage Cleanup: Clean existing cloud backups and local backup slots to free space
     try {
@@ -592,7 +618,7 @@ export default function App() {
       if (document.visibilityState === 'hidden') {
         try {
           const localDecks = JSON.parse(localStorage.getItem('simanki_decks') || '[]');
-          const localCards = JSON.parse(localStorage.getItem('simanki_cards') || '[]');
+          const localCards = (await getVal('simanki_cards')) || JSON.parse(localStorage.getItem('simanki_cards') || '[]');
           const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
           const localCloudBackups = JSON.parse(localStorage.getItem('simanki_cloud_backups') || '[]');
           const now = Date.now();
@@ -728,7 +754,8 @@ export default function App() {
       });
 
       setCards(limitedCards);
-      localStorage.setItem('simanki_cards', JSON.stringify(limitedCards));
+      setVal('simanki_cards', limitedCards);
+      localStorage.setItem('simanki_cards', JSON.stringify(sanitizeCardsForLocalStorage(limitedCards)));
       const now = Date.now();
       setLastModified(now);
       localStorage.setItem('simanki_last_modified', String(now));
