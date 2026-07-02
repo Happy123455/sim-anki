@@ -294,8 +294,47 @@ export function mergeDecksAndCards(localDecks, localCards, cloudDecks, cloudCard
           tempCard.state = nextState;
         });
 
+        // Decide which card is the base based on the last review timestamp
+        const localLastReview = localCard.state?.lastReview ? new Date(localCard.state.lastReview).getTime() : 0;
+        const cloudLastReview = cloudCard.state?.lastReview ? new Date(cloudCard.state.lastReview).getTime() : 0;
+        const baseCard = cloudLastReview > localLastReview ? cloudCard : localCard;
+
+        // Merge simulation lists without duplicating identical HTML structures
+        const localSims = localCard.simulationHtmlList || [];
+        const cloudSims = cloudCard.simulationHtmlList || [];
+        const mergedSims = [...localSims];
+        cloudSims.forEach(cs => {
+          if (cs && cs.html && !mergedSims.some(ls => ls && ls.html === cs.html)) {
+            mergedSims.push(cs);
+          }
+        });
+
+        // Merge question SVGs
+        const localQS = localCard.questionSvgs || [];
+        const cloudQS = cloudCard.questionSvgs || [];
+        const mergedQS = [...localQS];
+        cloudQS.forEach(cs => {
+          if (cs && cs.svg && !mergedQS.some(ls => ls && ls.svg === cs.svg)) {
+            mergedQS.push(cs);
+          }
+        });
+
+        // Merge answer SVGs
+        const localAS = localCard.answerSvgs || [];
+        const cloudAS = cloudCard.answerSvgs || [];
+        const mergedAS = [...localAS];
+        cloudAS.forEach(cs => {
+          if (cs && cs.svg && !mergedAS.some(ls => ls && ls.svg === cs.svg)) {
+            mergedAS.push(cs);
+          }
+        });
+
         mergedCards.push({
-          ...localCard,
+          ...baseCard,
+          simulationHtml: baseCard.simulationHtml || cloudCard.simulationHtml || localCard.simulationHtml,
+          simulationHtmlList: mergedSims,
+          questionSvgs: mergedQS,
+          answerSvgs: mergedAS,
           state: currentState,
           history: mergedHistory
         });

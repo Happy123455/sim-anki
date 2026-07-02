@@ -2087,6 +2087,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           }}
           apiKey={settings.apiKey}
           model={settings.model}
+          settings={settings}
         />
       )}
       {showImportModal && (

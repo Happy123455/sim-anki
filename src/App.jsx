@@ -1161,8 +1161,7 @@ export default function App() {
       const updatedCards = cards.map(card => {
         if (card.id === cardId) {
           const nextState = calculateNextState(card, finalRating, settings.targetRetention);
-          
-          // Log history entry
+                // Log history entry
           const historyEntry = {
             date: new Date().toISOString(),
             userAnswer: userAnswer || '',
@@ -1176,7 +1175,12 @@ export default function App() {
             correctExplanation: evaluation?.correctExplanation || '',
             simulation: evaluation?.simulation || null,
             highlights: evaluation?.highlights || [],
-            conceptHighlights: evaluation?.conceptHighlights || []
+            conceptHighlights: evaluation?.conceptHighlights || [],
+            memoryAnchor: evaluation?.memoryAnchor || card.evaluation?.memoryAnchor || card.memoryAnchor || '',
+            simulationHtml: card.simulationHtml || null,
+            simulationHtmlList: card.simulationHtmlList || [],
+            questionSvgs: card.questionSvgs || [],
+            answerSvgs: card.answerSvgs || []
           };
           
           return {
@@ -1206,7 +1210,12 @@ export default function App() {
             correctExplanation: evaluation?.correctExplanation || '',
             simulation: evaluation?.simulation || null,
             highlights: evaluation?.highlights || [],
-            conceptHighlights: evaluation?.conceptHighlights || []
+            conceptHighlights: evaluation?.conceptHighlights || [],
+            memoryAnchor: evaluation?.memoryAnchor || c.evaluation?.memoryAnchor || c.memoryAnchor || '',
+            simulationHtml: c.simulationHtml || null,
+            simulationHtmlList: c.simulationHtmlList || [],
+            questionSvgs: c.questionSvgs || [],
+            answerSvgs: c.answerSvgs || []
           };
           return {
             ...c,
@@ -1286,7 +1295,7 @@ export default function App() {
           fontFamily: 'monospace'
         }}
       >
-        v1.9.0
+        v2.0.0
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (
