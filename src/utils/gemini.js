@@ -197,6 +197,17 @@ Your job is to analyze the student's answer, provide a score from 0 to 100, sugg
 4. omittedItems:
    Identify 1 to 3 specific terms/keywords that the student missed (max 3 items, 1-3 words each).
 
+5. numericalAnalysis (CRITICAL for number-based questions):
+   If the question, concept focus, or student's answer contains numerical facts, values, parameters, dimensions, percentages, or statistics:
+   - containsNumbers: true
+   - actualValue: the correct numerical value from the concept focus or target answer (as a float/number)
+   - userGuess: the number the student provided in their answer (as a float/number). If the student's answer does not contain a clear number but should have, set this to 0 or estimate.
+   - valueUnit: the metric or unit of measurement (e.g. "kN", "MPa", "%", "m", "kg", or "" if none).
+   If there are NO numbers involved in the card topic/answer, return containsNumbers: false, actualValue: 0, userGuess: 0, valueUnit: "".
+
+[MEMORY ANCHOR & STORIES RULE]:
+Whenever possible, particularly for imperfect answers, weave a tiny historical context, a striking real-world impact story/analogy, or a quirky fun fact into the correctExplanation or logicAnalysis (under 40 words) to transform the dry data into a memorable experience and anchor it in their mind.
+
 ${formattedHistory ? `
 [CRITICAL HISTORY DIAGNOSIS RULE]:
 The student has reviewed this card in the past. Look at the attached [USER PREVIOUS REVIEW HISTORY ON THIS CARD].
@@ -227,12 +238,18 @@ You must respond with a JSON object conforming exactly to this schema:
   "strengths": string[],
   "weaknesses": string[],
   "logicAnalysis": string (direct advice on where to improve, 1-2 sentences),
-  "correctExplanation": string (formatted in Markdown, under 30 words),
+  "correctExplanation": string (formatted in Markdown, under 40 words),
   "suggestedRating": "again" | "hard" | "good" | "easy",
   "highlights": Array<{ text: string, color: "green" | "yellow" | "red", reason: string }>,
   "conceptHighlights": Array<{ text: string, type: "main" | "missed", reason: string }>,
   "omittedItems": string[],
-  "puzzlePieces": Array<{ text: string, emoji: string }>
+  "puzzlePieces": Array<{ text: string, emoji: string }>,
+  "numericalAnalysis": {
+    "containsNumbers": boolean,
+    "actualValue": number,
+    "userGuess": number,
+    "valueUnit": string
+  }
 }
 
 ${customInstructions ? `
@@ -337,9 +354,19 @@ You must output your response complying strictly with these user-defined prefere
                   },
                   required: ["text", "emoji"]
                 }
+              },
+              numericalAnalysis: {
+                type: "OBJECT",
+                properties: {
+                  containsNumbers: { type: "BOOLEAN" },
+                  actualValue: { type: "NUMBER" },
+                  userGuess: { type: "NUMBER" },
+                  valueUnit: { type: "STRING" }
+                },
+                required: ["containsNumbers", "actualValue", "userGuess", "valueUnit"]
               }
             },
-            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights", "conceptHighlights", "omittedItems", "puzzlePieces"]
+            required: ["score", "strengths", "weaknesses", "logicAnalysis", "correctExplanation", "suggestedRating", "highlights", "conceptHighlights", "omittedItems", "puzzlePieces", "numericalAnalysis"]
           }
         }
       })
@@ -1021,12 +1048,14 @@ Provide a detailed breakdown with:
 1. Pros: What parts of their answer were accurate, well-phrased, or showed good understanding.
 2. Cons: Exact misconceptions, logical errors, or formatting gaps.
 3. Detailed Explanation: A thorough explanation of the underlying concept, how it applies to this question, and how to remember it next time.
+4. Memory Anchor (CRITICAL): Provide an engaging, story-driven explanation of this concept. Anchor it to a historical backstory (e.g. origins, founders, design history), a striking real-world impact (e.g. historic engineering successes or disasters, space mission failures, famous accidents, or impactful applications), or a quirky fun fact that transforms the dry data into a memorable, vivid experience.
 
 You must respond with a JSON object conforming exactly to this schema:
 {
   "pros": ["string", "string"],
   "cons": ["string", "string"],
-  "detailedExplanation": "string (formatted in Markdown, detailed pedagogical breakdown)"
+  "detailedExplanation": "string (formatted in Markdown, detailed pedagogical breakdown)",
+  "memoryAnchor": "string (story-driven historical backstory, real-world impact/disaster, or quirky fun fact related to this concept)"
 }`;
 
   const prompt = `
@@ -1047,9 +1076,10 @@ User's Answer: "${userAnswer}"
           properties: {
             pros: { type: "ARRAY", items: { type: "STRING" } },
             cons: { type: "ARRAY", items: { type: "STRING" } },
-            detailedExplanation: { type: "STRING" }
+            detailedExplanation: { type: "STRING" },
+            memoryAnchor: { type: "STRING" }
           },
-          required: ["pros", "cons", "detailedExplanation"]
+          required: ["pros", "cons", "detailedExplanation", "memoryAnchor"]
         }
       }
     })
@@ -1072,8 +1102,9 @@ export async function generate3DVisualAnimation(apiKey, model, questionOrConcept
   const trimmedKey = cleanApiKey(apiKey);
   const cleanModel = cleanModelName(model);
 
+  const isQuestionSide = targetType === 'question';
   const systemPrompt = `You are an expert designer and frontend developer specializing in creating visually stunning, premium-quality SVG illustrations and 3D-looking animations.
-Generate a valid, standalone, animated SVG (Scalable Vector Graphics) markup that visually explains and represents the following card ${targetType === 'question' ? 'question' : 'answer/concept'}:
+Generate a valid, standalone, animated SVG (Scalable Vector Graphics) markup that visually explains and represents the following card ${isQuestionSide ? 'question setup/context' : 'answer/concept'}:
 "${questionOrConcept}"
 
 Guidelines for high-end aesthetics & 3D styling:
@@ -1081,12 +1112,13 @@ Guidelines for high-end aesthetics & 3D styling:
 2. Use a cohesive, premium modern dark-theme color palette (e.g. violet, neon blue, pink, deep dark backdrops, bright accent gradients, glassmorphism) matching SimAnki's aesthetics.
 3. Incorporate smooth CSS animations (e.g. rotating layers, floating elements, fading connections, pulsing paths, scaling widgets) using inline <style> and @keyframes.
 4. Ensure all elements are clean, vector-based, and highly readable. Do NOT use external images or fonts. Keep the SVG self-contained. Make it scale nicely by defining a proper viewBox (e.g. viewBox="0 0 400 300").
-5. If a previous SVG is provided, analyze the previous SVG:
-   ${previousSvg ? `[Previous SVG]: ${previousSvg}` : ''}
+${isQuestionSide ? `5. [CRITICAL QUESTION SIDE RULE]: Do NOT under any circumstances draw, write, label, or display the actual answer, formula solution values, or resolution of the question. You must ONLY visualize the starting conditions, physical parameters, system geometry, or problem context. Use a visual '?' or hint graphics to encourage the student to calculate or recall the answer themselves.` : ''}
+${previousSvg ? `6. If a previous SVG is provided, analyze the previous SVG:
+   [Previous SVG]: ${previousSvg}
    And user feedback for upgrades:
-   ${feedback ? `[User Feedback]: ${feedback}` : ''}
-   Upgrading means adding more details, clearer diagrams, annotating key components, or adding interactive-looking visual flows to explain the hard concept much more deeply. Do not lose the 3D aesthetic and ensure the output is a valid SVG.
-6. Return ONLY valid SVG markup inside a JSON object conforming to this schema:
+   [User Feedback]: ${feedback}
+   Upgrading means merging the previous design and the new instructions. Decide how to blend them, adding more details, clearer diagrams, annotating components, or refining animation speeds, without losing the 3D aesthetic.` : ''}
+7. Return ONLY valid SVG markup inside a JSON object conforming to this schema:
    {
      "svg": "string containing the full standalone <svg>...</svg> content"
    }`;
@@ -1128,12 +1160,14 @@ export async function simplifyQuestion(apiKey, model, question, concept) {
 
   const systemPrompt = `You are a friendly, expert educational tutor.
 Your task is to take a flashcard question and its reference concept, and explain what the question is trying to ask in simple, clear, and beginner-friendly terms.
-Break down any complex terminology, jargon, or confusing phrasing, and summarize what key concepts the student needs to address in their answer.
+Break down any complex terminology, jargon, or confusing phrasing, and summarize what key concepts the student needs to focus on to answer.
+
+[CRITICAL SECURITY RULE]: Do NOT under any circumstances reveal, output, or state the correct answer, solution, formulas, key numbers, or target answers to the question. You are simplifying the question setup, NOT answering it. Instead, end with a tiny, encouraging hint or nudging question to guide their learning process without giving the answer away.
 Keep the explanation brief (2-4 sentences max).
 
 Respond with a JSON object conforming exactly to this schema:
 {
-  "explanation": "string (plain English explanation of what the question is asking)"
+  "explanation": "string (plain English explanation of what the question is asking, with no answer spoilers, ending in a tiny hint)"
 }`;
 
   const prompt = `

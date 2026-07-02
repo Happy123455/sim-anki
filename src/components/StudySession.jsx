@@ -377,6 +377,164 @@ function ConfettiCanvas() {
   );
 }
 
+function NumericalGuessSlider({ actualValue, userGuess, valueUnit, history }) {
+  // Extract past numbers from history
+  const pastGuesses = (history || [])
+    .map(h => {
+      const match = h.userAnswer?.match(/-?\d+(\.\d+)?/);
+      return match ? parseFloat(match[0]) : null;
+    })
+    .filter(val => val !== null && !isNaN(val));
+
+  const allVals = [actualValue, userGuess, ...pastGuesses].filter(v => typeof v === 'number' && !isNaN(v));
+  if (allVals.length === 0) return null;
+
+  const minVal = Math.min(...allVals);
+  const maxVal = Math.max(...allVals);
+  const range = maxVal - minVal;
+  
+  // Padding for slider edges
+  const pad = range === 0 ? Math.abs(actualValue) * 0.2 || 10 : range * 0.15;
+  const scaleMin = minVal - pad;
+  const scaleMax = maxVal + pad;
+  const scaleRange = scaleMax - scaleMin;
+
+  const getPercent = (v) => {
+    if (scaleRange === 0) return 50;
+    return ((v - scaleMin) / scaleRange) * 100;
+  };
+
+  const currentGuessPct = getPercent(userGuess);
+  const actualValuePct = getPercent(actualValue);
+
+  // Compute how far off
+  const diff = Math.abs(userGuess - actualValue);
+  const diffPct = actualValue !== 0 ? (diff / Math.abs(actualValue)) * 100 : 0;
+
+  return (
+    <div style={{ marginTop: '1rem', marginBottom: '1rem', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '10px', border: '1px solid var(--border-light)', textAlign: 'left' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--accent-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          📊 Numerical Accuracy Scale
+        </span>
+        <span style={{ fontSize: '0.75rem', color: diff === 0 ? '#34d399' : '#fca5a5', fontWeight: 600 }}>
+          {diff === 0 ? "🎯 Exact match!" : `Off by ${diff.toFixed(2)} ${valueUnit} (${diffPct.toFixed(1)}%)`}
+        </span>
+      </div>
+
+      {/* The Gradient Slider track */}
+      <div style={{ position: 'relative', height: '10px', background: 'linear-gradient(90deg, #ef4444 0%, #fbbf24 35%, #10b981 50%, #fbbf24 65%, #ef4444 100%)', borderRadius: '6px', margin: '1.5rem 0.5rem 2rem 0.5rem' }}>
+        {/* Actual Target Pin (Glowing Green Line, pointing UP from bottom) */}
+        <div 
+          style={{
+            position: 'absolute',
+            left: `${actualValuePct}%`,
+            transform: 'translateX(-50%)',
+            top: '-6px',
+            bottom: '-6px',
+            width: '4px',
+            background: '#10b981',
+            boxShadow: '0 0 12px #10b981',
+            borderRadius: '2px',
+            zIndex: 3
+          }}
+          title={`Target: ${actualValue} ${valueUnit}`}
+        />
+        
+        {/* Target Label */}
+        <div
+          style={{
+            position: 'absolute',
+            left: `${actualValuePct}%`,
+            transform: 'translateX(-50%)',
+            bottom: '16px',
+            whiteSpace: 'nowrap',
+            fontSize: '0.7rem',
+            color: '#10b981',
+            fontWeight: 700,
+            background: 'rgba(16, 185, 129, 0.1)',
+            padding: '1px 5px',
+            borderRadius: '4px',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
+            zIndex: 3
+          }}
+        >
+          Target: {actualValue} {valueUnit}
+        </div>
+
+        {/* Current Guess Pin (Orange Pointer, pointing DOWN from top) */}
+        <div 
+          style={{
+            position: 'absolute',
+            left: `${currentGuessPct}%`,
+            transform: 'translateX(-50%)',
+            top: '-12px',
+            width: '0',
+            height: '0',
+            borderLeft: '7px solid transparent',
+            borderRight: '7px solid transparent',
+            borderTop: '10px solid #f59e0b',
+            filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))',
+            zIndex: 5
+          }}
+          title={`Your Guess: ${userGuess} ${valueUnit}`}
+        />
+        
+        {/* Current Guess Label */}
+        <div
+          style={{
+            position: 'absolute',
+            left: `${currentGuessPct}%`,
+            transform: 'translateX(-50%)',
+            top: '16px',
+            whiteSpace: 'nowrap',
+            fontSize: '0.7rem',
+            color: '#fbbf24',
+            fontWeight: 700,
+            background: 'rgba(245, 158, 11, 0.1)',
+            padding: '1px 5px',
+            borderRadius: '4px',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            zIndex: 5
+          }}
+        >
+          You: {userGuess} {valueUnit}
+        </div>
+
+        {/* Past Guesses (Small circular gray dots along the track) */}
+        {pastGuesses.map((g, idx) => {
+          const gPct = getPercent(g);
+          return (
+            <div
+              key={idx}
+              style={{
+                position: 'absolute',
+                left: `${gPct}%`,
+                transform: 'translate(-50%, -50%)',
+                top: '50%',
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: 'rgba(255, 255, 255, 0.6)',
+                border: '1px solid rgba(0,0,0,0.5)',
+                zIndex: 2
+              }}
+              title={`Past Guess: ${g} ${valueUnit}`}
+            />
+          );
+        })}
+      </div>
+      
+      {/* Legend */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)', borderTop: '1px dashed rgba(255,255,255,0.05)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+        <span>Min: {scaleMin.toFixed(1)} {valueUnit}</span>
+        {pastGuesses.length > 0 && <span>⚪ Gray dots = previous guesses</span>}
+        <span>Max: {scaleMax.toFixed(1)} {valueUnit}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {}, onRefactorCard, onUpdateCard }) {
   const [sessionQueue, setSessionQueue] = useState(() => [...(DueCards || [])]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -450,6 +608,46 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [isGeneratingVisualStudy, setIsGeneratingVisualStudy] = useState(false);
   const [visualErrorStudy, setVisualErrorStudy] = useState(null);
   const [showStudyVisualGenerator, setShowStudyVisualGenerator] = useState(false);
+
+  const [visualCanvasTab, setVisualCanvasTab] = useState('preview');
+  const [localSvgEdits, setLocalSvgEdits] = useState('');
+
+  const handleSaveSvgEdits = () => {
+    const svgs = currentCard.answerSvgs || [];
+    const activeIdx = currentCard.activeAnswerSvgIndex !== undefined ? currentCard.activeAnswerSvgIndex : (svgs.length - 1);
+    if (svgs[activeIdx]) {
+      const updatedSvgs = [...svgs];
+      updatedSvgs[activeIdx] = {
+        ...updatedSvgs[activeIdx],
+        svg: localSvgEdits
+      };
+      const updatedCard = {
+        ...currentCard,
+        answerSvgs: updatedSvgs
+      };
+      setSessionQueue(prev => {
+        const copy = [...prev];
+        copy[currentIndex] = updatedCard;
+        return copy;
+      });
+      if (typeof onUpdateCard === 'function') {
+        onUpdateCard(updatedCard);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (currentCard) {
+      const svgs = currentCard.answerSvgs || [];
+      const activeIdx = currentCard.activeAnswerSvgIndex !== undefined ? currentCard.activeAnswerSvgIndex : (svgs.length - 1);
+      const activeSvgObj = svgs.length > 0 && activeIdx >= 0 && activeIdx < svgs.length ? svgs[activeIdx] : null;
+      if (activeSvgObj) {
+        setLocalSvgEdits(activeSvgObj.svg);
+      } else {
+        setLocalSvgEdits('');
+      }
+    }
+  }, [currentIndex, currentCard?.activeAnswerSvgIndex, currentCard?.answerSvgs]);
 
   const handleGenerateVisualStudy = async (targetType) => {
     if (!apiKey) {
@@ -650,6 +848,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [puzzleScrambled, setPuzzleScrambled] = useState([]);
   const [puzzlePlaced, setPuzzlePlaced] = useState([]);
   const [puzzleSolved, setPuzzleSolved] = useState(false);
+  const [draggedIdx, setDraggedIdx] = useState(null);
 
   // Lazy-loaded Detailed AI Analysis
   const [detailedAnalysis, setDetailedAnalysis] = useState(null);
@@ -923,6 +1122,33 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const handleResetPuzzle = () => {
     setPuzzlePlaced([]);
     setPuzzleSolved(false);
+  };
+
+  const handleDragStartPiece = (e, index) => {
+    setDraggedIdx(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOverPiece = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDropPiece = (e, index) => {
+    e.preventDefault();
+    if (draggedIdx === null || draggedIdx === index) return;
+
+    const newPlaced = [...puzzlePlaced];
+    const draggedItem = newPlaced[draggedIdx];
+    newPlaced.splice(draggedIdx, 1);
+    newPlaced.splice(index, 0, draggedItem);
+
+    setPuzzlePlaced(newPlaced);
+    const solved = checkPuzzleSolved(newPlaced);
+    setPuzzleSolved(solved);
+    if (solved) {
+      playSimWin ? playSimWin() : (playSuccess && playSuccess());
+    }
+    setDraggedIdx(null);
   };
 
   const handleFetchDetailedAnalysis = async () => {
@@ -1491,21 +1717,98 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
                       {activeSvgObj ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <div 
-                            className="visual-svg-container"
-                            style={{ 
-                              width: '100%', 
-                              background: 'rgba(0,0,0,0.15)', 
-                              border: '1px solid var(--border-light)', 
-                              borderRadius: '12px', 
-                              padding: '1rem', 
-                              display: 'flex', 
-                              justifyContent: 'center', 
-                              alignItems: 'center',
-                              overflow: 'hidden'
-                            }}
-                            dangerouslySetInnerHTML={{ __html: activeSvgObj.svg }}
-                          />
+                          {/* Google Canvas-style Tab Switcher */}
+                          <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', paddingBottom: '0.25rem', gap: '1rem', alignItems: 'center' }}>
+                            <button
+                              onClick={() => setVisualCanvasTab('preview')}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: visualCanvasTab === 'preview' ? 'var(--accent-primary)' : 'var(--text-muted)',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                padding: '0.2rem 0',
+                                borderBottom: visualCanvasTab === 'preview' ? '2px solid var(--accent-primary)' : 'none',
+                                outline: 'none'
+                              }}
+                            >
+                              🎨 Preview Animation
+                            </button>
+                            <button
+                              onClick={() => setVisualCanvasTab('code')}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: visualCanvasTab === 'code' ? 'var(--accent-primary)' : 'var(--text-muted)',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                padding: '0.2rem 0',
+                                borderBottom: visualCanvasTab === 'code' ? '2px solid var(--accent-primary)' : 'none',
+                                outline: 'none'
+                              }}
+                            >
+                              💻 Canvas Code Editor
+                            </button>
+                          </div>
+
+                          {visualCanvasTab === 'preview' ? (
+                            <div 
+                              className="visual-svg-container"
+                              style={{ 
+                                width: '100%', 
+                                background: 'rgba(0,0,0,0.15)', 
+                                border: '1px solid var(--border-light)', 
+                                borderRadius: '12px', 
+                                padding: '1rem', 
+                                display: 'flex', 
+                                justifyContent: 'center', 
+                                alignItems: 'center',
+                                overflow: 'hidden'
+                              }}
+                              dangerouslySetInnerHTML={{ __html: activeSvgObj.svg }}
+                            />
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
+                              <textarea
+                                value={localSvgEdits}
+                                onChange={(e) => setLocalSvgEdits(e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  height: '180px',
+                                  fontFamily: 'monospace',
+                                  fontSize: '0.72rem',
+                                  background: 'rgba(0,0,0,0.4)',
+                                  border: '1px solid var(--border-light)',
+                                  color: '#a7f3d0', // nice green code color
+                                  borderRadius: '8px',
+                                  padding: '0.5rem',
+                                  resize: 'vertical'
+                                }}
+                              />
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                                  Edit the SVG elements/styles and apply changes.
+                                </span>
+                                <button
+                                  onClick={handleSaveSvgEdits}
+                                  className="btn btn-secondary"
+                                  style={{
+                                    padding: '0.25rem 0.65rem',
+                                    fontSize: '0.72rem',
+                                    minHeight: 'auto',
+                                    background: 'rgba(16, 185, 129, 0.1)',
+                                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                                    color: '#34d399',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Apply Changes
+                                </button>
+                              </div>
+                            </div>
+                          )}
                           
                           {/* Tiny inline version bar */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -1631,6 +1934,15 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 </div>
               </div>
             </div>
+
+            {evaluation.numericalAnalysis?.containsNumbers && (
+              <NumericalGuessSlider 
+                actualValue={evaluation.numericalAnalysis.actualValue} 
+                userGuess={evaluation.numericalAnalysis.userGuess} 
+                valueUnit={evaluation.numericalAnalysis.valueUnit} 
+                history={currentCard.history} 
+              />
+            )}
 
             {/* Answer & Reference Comparison Box */}
             {isTutoringComplete && (
@@ -1869,13 +2181,32 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                               return (
                                 <button
                                   key={idx}
+                                  draggable={true}
+                                  onDragStart={(e) => handleDragStartPiece(e, idx)}
+                                  onDragOver={(e) => handleDragOverPiece(e, idx)}
+                                  onDrop={(e) => handleDropPiece(e, idx)}
                                   onClick={() => handleRemovePiece(idx)}
                                   className="animate-scale-in"
-                                  style={{ background: 'linear-gradient(135deg, rgba(167, 139, 250, 0.12), rgba(236, 72, 153, 0.12))', border: '1px solid rgba(167, 139, 250, 0.3)', color: '#c084fc', padding: '0.5rem 0.85rem', borderRadius: '8px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', minWidth: '70px' }}
+                                  style={{
+                                    background: 'linear-gradient(135deg, rgba(167, 139, 250, 0.12), rgba(236, 72, 153, 0.12))',
+                                    border: draggedIdx === idx ? '2px dashed var(--accent-primary)' : '1px solid rgba(167, 139, 250, 0.3)',
+                                    color: '#c084fc',
+                                    padding: '0.5rem 0.85rem',
+                                    borderRadius: '8px',
+                                    cursor: 'grab',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    gap: '0.2rem',
+                                    minWidth: '70px',
+                                    opacity: draggedIdx === idx ? 0.5 : 1,
+                                    userSelect: 'none'
+                                  }}
+                                  title="Hold & drag to reorder, click to remove"
                                 >
                                   <span style={{ fontSize: '1.2rem', marginBottom: '0.1rem' }}>{emoji}</span>
                                   <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{text}</span>
-                                  <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.65rem', marginTop: '0.15rem' }}>× remove</span>
+                                  <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.62rem', marginTop: '0.15rem' }}>↕ drag / click ×</span>
                                 </button>
                               );
                             })
@@ -2060,6 +2391,27 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                         style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}
                       />
                     </div>
+
+                    {/* Memory Anchor Section */}
+                    {detailedAnalysis.memoryAnchor && (
+                      <div 
+                        style={{ 
+                          marginTop: '0.5rem', 
+                          background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.06), rgba(59, 130, 246, 0.06))', 
+                          border: '1px solid rgba(139, 92, 246, 0.22)', 
+                          padding: '0.85rem 1rem', 
+                          borderRadius: '8px', 
+                          position: 'relative' 
+                        }}
+                      >
+                        <h5 style={{ margin: '0 0 0.4rem 0', fontSize: '0.82rem', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: 700 }}>
+                          ⚓ Memory Anchor (Backstory & Quirky Fact)
+                        </h5>
+                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.45', fontStyle: 'italic' }}>
+                          {detailedAnalysis.memoryAnchor}
+                        </p>
+                      </div>
+                    )}
 
                     {/* Memory Mnemonic assistance inside lazy block */}
                     {hasFeatureUnlocked(settings, 'mnemonics') && (
