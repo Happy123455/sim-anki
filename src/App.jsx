@@ -1466,11 +1466,11 @@ function escapeJsonLaTeX(str) {
     
     if (inString && char === '\\') {
       const nextChar = str[i + 1];
-      if (nextChar === '"') {
-        result += '\\"';
+      if (nextChar === '"' || nextChar === '\\' || nextChar === '/' || nextChar === 'n' || nextChar === 't' || nextChar === 'r' || nextChar === 'b' || nextChar === 'f') {
+        result += '\\' + nextChar;
         i += 2;
-      } else if (nextChar === '\\') {
-        result += '\\\\';
+      } else if (nextChar === 'u') {
+        result += '\\u';
         i += 2;
       } else {
         result += '\\\\';
