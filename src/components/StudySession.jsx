@@ -629,6 +629,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [simulationModelStudy, setSimulationModelStudy] = useState(model || 'gemini-2.5-flash');
   const [feedbackTextSim, setFeedbackTextSim] = useState('');
   const [isFullscreenSim, setIsFullscreenSim] = useState(false);
+  const [showCodeViewer, setShowCodeViewer] = useState(false);
 
   const [isGeneratingAnchor, setIsGeneratingAnchor] = useState(false);
   const [anchorError, setAnchorError] = useState(null);
@@ -2776,6 +2777,63 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
                           }}
                         />
+                      </div>
+
+                      {/* Collapsible HTML Code Viewer / Copy Box */}
+                      <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.15)', overflow: 'hidden' }}>
+                        <button
+                          type="button"
+                          onClick={() => setShowCodeViewer(!showCodeViewer)}
+                          style={{
+                            width: '100%',
+                            background: 'none',
+                            border: 'none',
+                            padding: '0.5rem 0.75rem',
+                            color: 'var(--text-secondary)',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <span>📋 View / Copy Simulation Source Code</span>
+                          <span>{showCodeViewer ? '▲ Hide' : '▼ Show'}</span>
+                        </button>
+                        
+                        {showCodeViewer && (
+                          <div style={{ padding: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <textarea
+                              readOnly
+                              value={activeHtmlSource}
+                              style={{
+                                width: '100%',
+                                height: '150px',
+                                fontFamily: 'monospace',
+                                fontSize: '0.72rem',
+                                padding: '0.5rem',
+                                background: '#090a0f',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '6px',
+                                color: '#a7f3d0',
+                                resize: 'vertical'
+                              }}
+                              onClick={(e) => e.target.select()}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{ alignSelf: 'flex-start', padding: '0.25rem 0.65rem', fontSize: '0.72rem', minHeight: 'auto' }}
+                              onClick={() => {
+                                navigator.clipboard.writeText(activeHtmlSource);
+                                alert("Simulation HTML source code copied to clipboard!");
+                              }}
+                            >
+                              Copy Code to Clipboard
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Upgrade inputs */}
