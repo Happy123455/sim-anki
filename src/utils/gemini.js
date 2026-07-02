@@ -1276,13 +1276,11 @@ Student's Answer: "${currentAnswer}"
 Logic gap to address: "${logicAnalysis}"
 
 Requirements:
-1. Write a detailed, captivating narrative (150-250 words) that connects this dry concept to:
-   - A historical backstory (how it was discovered, who did it, their struggles, or quirky historical events).
-   - Real-world impacts or engineering successes/disasters (e.g. why the bridge collapsed, why the space mission failed, or how it saved lives).
-   - Dynamic and quirky facts that stick to the mind.
-2. Subtly nudge the student: Weave in a non-obvious clue regarding the SEQUENCE of steps, core mechanisms, or relative IMPORTANCE of components in the target concept. By the end of reading the narrative, the student should naturally grasp the chronological order of operations or why certain elements matter more, without you explicitly spoiling or listing the exact answer text.
-3. Use beautiful Markdown formatting (such as bold key phrases, lists, paragraph breaks, blockquotes, or highlights) to make the story highly organized, structured, and pleasant to read.
-4. Return ONLY a JSON object conforming exactly to this schema:
+1. Structure the Memory Anchor into TWO distinct sequential sections:
+   - PART 1: The Real Story. A detailed, highly captivating real-life backstory, historical narrative, or engineering success/disaster explaining how this concept plays out in the real world. Give yourself total storytelling freedom to make it dramatic, funny, or shocking.
+   - PART 2: The Mental Nudge. A short, distinct paragraph at the end that transitionally nudges the student towards remembering the sequence of steps, core calculations, or relative importance of components in the target concept (without explicitly copy-pasting the target answer).
+2. Use beautiful Markdown formatting (such as bold key phrases, lists, paragraph breaks, blockquotes, or highlights) to make the story highly organized, structured, and pleasant to read.
+3. Return ONLY a JSON object conforming exactly to this schema:
 {
   "memoryAnchor": "string (the rich, detailed story, formatted in Markdown)"
 }`;

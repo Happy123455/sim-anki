@@ -11,7 +11,9 @@ import { playSuccess, playFailure, playSimWin } from '../utils/sound';
 // Simple markdown parsing helper
 const parseMarkdown = (markdown) => {
   if (!markdown) return '';
-  const lines = markdown.split('\n');
+  // Normalize literal escaped newlines
+  const normalized = markdown.replace(/\\n/g, '\n');
+  const lines = normalized.split('\n');
   let inList = false;
   let html = '';
 
@@ -24,15 +26,28 @@ const parseMarkdown = (markdown) => {
     } else if (trimmed.startsWith('## ')) {
       if (inList) { html += '</ul>'; inList = false; }
       html += `<h2>${trimmed.slice(3)}</h2>`;
+    } else if (trimmed.startsWith('> ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      const content = trimmed.slice(2)
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/_(.*?)_/g, '<em>$1</em>');
+      html += `<blockquote style="border-left: 4px solid var(--accent-primary); padding-left: 1rem; margin: 0.75rem 0; color: var(--text-muted); font-style: italic; background: rgba(255,255,255,0.01); border-radius: 4px; padding-top: 0.25rem; padding-bottom: 0.25rem;">${content}</blockquote>`;
     } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
       if (!inList) { html += '<ul class="markdown-list">'; inList = true; }
-      const content = trimmed.slice(2).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      const content = trimmed.slice(2)
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/_(.*?)_/g, '<em>$1</em>');
       html += `<li>${content}</li>`;
     } else if (trimmed === '') {
       if (inList) { html += '</ul>'; inList = false; }
     } else {
       if (inList) { html += '</ul>'; inList = false; }
-      const content = trimmed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      const content = trimmed
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/_(.*?)_/g, '<em>$1</em>');
       html += `<p>${content}</p>`;
     }
   });
