@@ -2701,6 +2701,67 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 </div>
               </div>
 
+              {/* Collapsible Manual Prompt Copy Box (Accessible before simulation is generated) */}
+              <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.15)', overflow: 'hidden', margin: '0.25rem 0' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowPromptCopyBox(!showPromptCopyBox)}
+                  style={{
+                    width: '100%',
+                    background: 'none',
+                    border: 'none',
+                    padding: '0.5rem 0.75rem',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <span>💡 Copy Prompt to build manually in Gemini Canvas</span>
+                  <span>{showPromptCopyBox ? '▲ Hide' : '▼ Show'}</span>
+                </button>
+                
+                {showPromptCopyBox && (
+                  <div style={{ padding: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      Copy this prompt, paste it into Gemini Canvas to generate your simulation widget, then paste the compiled HTML widget code back in the editor below:
+                    </p>
+                    <textarea
+                      readOnly
+                      value={`Please create a dynamic, interactive simulation based on the information below. Choose whatever programming language works best for this project. Make sure to include sound effects, text-to-speech voiceover( Native Speech Synthesis ) , and animated diagrams. Here is the info:\n\nConcept: "${currentCard.concept}"\nQuestion Context: "${currentCard.question}"\nStudent's Answer: "${userAnswer}"\nLogical Gap to Address: "${evaluation?.logicAnalysis || "Conceptual gap regarding this topic"}"`}
+                      style={{
+                        width: '100%',
+                        height: '140px',
+                        fontFamily: 'monospace',
+                        fontSize: '0.72rem',
+                        padding: '0.5rem',
+                        background: '#090a0f',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '6px',
+                        color: '#fbbf24',
+                        resize: 'vertical'
+                      }}
+                      onClick={(e) => e.target.select()}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ alignSelf: 'flex-start', padding: '0.25rem 0.65rem', fontSize: '0.72rem', minHeight: 'auto' }}
+                      onClick={() => {
+                        const promptText = `Please create a dynamic, interactive simulation based on the information below. Choose whatever programming language works best for this project. Make sure to include sound effects, text-to-speech voiceover( Native Speech Synthesis ) , and animated diagrams. Here is the info:\n\nConcept: "${currentCard.concept}"\nQuestion Context: "${currentCard.question}"\nStudent's Answer: "${userAnswer}"\nLogical Gap to Address: "${evaluation?.logicAnalysis || "Conceptual gap regarding this topic"}"`;
+                        navigator.clipboard.writeText(promptText);
+                        alert("Manual Gemini Canvas prompt copied to clipboard!");
+                      }}
+                    >
+                      Copy Prompt to Clipboard
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Version History selector bar */}
               {(() => {
                 const simList = currentCard.simulationHtmlList || [];
@@ -2897,66 +2958,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                         )}
                       </div>
 
-                      {/* Collapsible Manual Prompt Copy Box */}
-                      <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.15)', overflow: 'hidden' }}>
-                        <button
-                          type="button"
-                          onClick={() => setShowPromptCopyBox(!showPromptCopyBox)}
-                          style={{
-                            width: '100%',
-                            background: 'none',
-                            border: 'none',
-                            padding: '0.5rem 0.75rem',
-                            color: 'var(--text-secondary)',
-                            fontSize: '0.75rem',
-                            fontWeight: 600,
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          <span>💡 Copy Prompt to build manually in Gemini Canvas</span>
-                          <span>{showPromptCopyBox ? '▲ Hide' : '▼ Show'}</span>
-                        </button>
-                        
-                        {showPromptCopyBox && (
-                          <div style={{ padding: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                            <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                              Copy this prompt, paste it into Gemini Canvas to generate your simulation widget, then paste the compiled HTML widget code back using the box above:
-                            </p>
-                            <textarea
-                              readOnly
-                              value={`Please create a dynamic, interactive simulation based on the information below. Choose whatever programming language works best for this project. Make sure to include sound effects, text-to-speech voiceover( Native Speech Synthesis ) , and animated diagrams. Here is the info:\n\nConcept: "${currentCard.concept}"\nQuestion Context: "${currentCard.question}"\nLogical Gap to Address: "${evaluation?.logicAnalysis || "Conceptual gap regarding this topic"}"`}
-                              style={{
-                                width: '100%',
-                                height: '120px',
-                                fontFamily: 'monospace',
-                                fontSize: '0.72rem',
-                                padding: '0.5rem',
-                                background: '#090a0f',
-                                border: '1px solid rgba(255,255,255,0.1)',
-                                borderRadius: '6px',
-                                color: '#fbbf24',
-                                resize: 'vertical'
-                              }}
-                              onClick={(e) => e.target.select()}
-                            />
-                            <button
-                              type="button"
-                              className="btn btn-secondary"
-                              style={{ alignSelf: 'flex-start', padding: '0.25rem 0.65rem', fontSize: '0.72rem', minHeight: 'auto' }}
-                              onClick={() => {
-                                const promptText = `Please create a dynamic, interactive simulation based on the information below. Choose whatever programming language works best for this project. Make sure to include sound effects, text-to-speech voiceover( Native Speech Synthesis ) , and animated diagrams. Here is the info:\n\nConcept: "${currentCard.concept}"\nQuestion Context: "${currentCard.question}"\nLogical Gap to Address: "${evaluation?.logicAnalysis || "Conceptual gap regarding this topic"}"`;
-                                navigator.clipboard.writeText(promptText);
-                                alert("Manual Gemini Canvas prompt copied to clipboard!");
-                              }}
-                            >
-                              Copy Prompt to Clipboard
-                            </button>
-                          </div>
-                        )}
-                      </div>
+
 
                       {/* Upgrade inputs */}
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
@@ -2992,33 +2994,103 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                   );
                 } else {
                   return (
-                    <div style={{ padding: '2.5rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', background: 'rgba(0,0,0,0.15)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '12px' }}>
-                      <div style={{ fontSize: '2rem' }}>🧪</div>
-                      <div style={{ maxWidth: '400px' }}>
-                        <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-                          No simulation canvas exists for this card yet
-                        </h5>
-                        <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                          Compile a custom interactive HTML5 playground widget containing slider controls, custom calculations, and responsive visual graphics built around your answer feedback.
-                        </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div style={{ padding: '2.5rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', background: 'rgba(0,0,0,0.15)', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '12px' }}>
+                        <div style={{ fontSize: '2rem' }}>🧪</div>
+                        <div style={{ maxWidth: '400px' }}>
+                          <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                            No simulation canvas exists for this card yet
+                          </h5>
+                          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                            Compile a custom interactive HTML5 playground widget containing slider controls, custom calculations, and responsive visual graphics built around your answer feedback.
+                          </p>
+                        </div>
+                        <button
+                          className="btn btn-primary animate-pulse"
+                          onClick={handleGenerateCanvasSim}
+                          disabled={isGeneratingCanvasSim}
+                          style={{ padding: '0.5rem 1.25rem', fontSize: '0.8rem', gap: '0.4rem' }}
+                        >
+                          {isGeneratingCanvasSim ? (
+                            <>
+                              <RefreshCw size={14} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
+                              Compiling Sandbox Widget...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={14} /> Build Simulation Canvas
+                            </>
+                          )}
+                        </button>
                       </div>
-                      <button
-                        className="btn btn-primary animate-pulse"
-                        onClick={handleGenerateCanvasSim}
-                        disabled={isGeneratingCanvasSim}
-                        style={{ padding: '0.5rem 1.25rem', fontSize: '0.8rem', gap: '0.4rem' }}
-                      >
-                        {isGeneratingCanvasSim ? (
-                          <>
-                            <RefreshCw size={14} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
-                            Compiling Sandbox Widget...
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles size={14} /> Build Simulation Canvas
-                          </>
-                        )}
-                      </button>
+
+                      {/* Manual paste box if no simulation exists */}
+                      <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '1.25rem', background: 'rgba(0, 0, 0, 0.15)', display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>📥 Paste Manually Generated Code (Gemini Canvas)</span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          If you generated the simulation using the manual prompt above, paste the compiled HTML widget code here and load it:
+                        </p>
+                        <textarea
+                          placeholder="Paste your compiled <html>...</html> widget code here..."
+                          value={editingCodeSim || ''}
+                          onChange={(e) => setEditingCodeSim(e.target.value)}
+                          style={{
+                            width: '100%',
+                            height: '140px',
+                            fontFamily: 'monospace',
+                            fontSize: '0.72rem',
+                            padding: '0.5rem',
+                            background: '#090a0f',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '6px',
+                            color: '#a7f3d0',
+                            resize: 'vertical'
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ alignSelf: 'flex-start', padding: '0.35rem 0.85rem', fontSize: '0.75rem', minHeight: 'auto', border: '1px solid var(--accent-primary)', color: 'white' }}
+                          onClick={() => {
+                            if (!editingCodeSim || !editingCodeSim.trim()) {
+                              alert("Please paste the HTML simulation source code before saving!");
+                              return;
+                            }
+                            
+                            const newSimObj = {
+                              model: 'Manual Paste',
+                              prompt: 'Initial Manual Simulation Code',
+                              html: editingCodeSim,
+                              date: new Date().toISOString()
+                            };
+
+                            const updatedList = [newSimObj];
+                            const updatedCard = {
+                              ...currentCard,
+                              simulationHtml: editingCodeSim,
+                              simulationHtmlList: updatedList,
+                              activeSimulationIndex: 0
+                            };
+
+                            setSessionQueue(prev => {
+                              const copy = [...prev];
+                              copy[currentIndex] = updatedCard;
+                              return copy;
+                            });
+
+                            if (typeof onUpdateCard === 'function') {
+                              onUpdateCard(updatedCard);
+                            }
+
+                            setEditingCodeSim(null);
+                            alert("Simulation loaded successfully! Enjoy your custom interactive sandbox.");
+                          }}
+                        >
+                          🚀 Load Simulation Widget
+                        </button>
+                      </div>
                     </div>
                   );
                 }
