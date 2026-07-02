@@ -248,6 +248,14 @@ export default function App() {
     };
   }, []);
 
+  const sanitizeCardsForBackup = (cardsList) => {
+    if (!Array.isArray(cardsList)) return [];
+    return cardsList.map(card => {
+      const { simulationHtml, simulationHtmlList, answerSvgs, questionSvgs, ...rest } = card;
+      return rest;
+    });
+  };
+
   const saveLocalBackup = (currentDecks, currentCards) => {
     try {
       let nextIdx = Number(localStorage.getItem('simanki_backup_index') || 0) + 1;
@@ -257,11 +265,13 @@ export default function App() {
       const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
       const deviceName = localSettings.deviceName || getDefaultDeviceName();
 
+      const sanitizedCards = sanitizeCardsForBackup(currentCards);
+
       const backupData = {
         timestamp: Date.now(),
         deviceName,
         decks: currentDecks,
-        cards: currentCards
+        cards: sanitizedCards
       };
       localStorage.setItem(`simanki_local_backup_${nextIdx}`, JSON.stringify(backupData));
     } catch (e) {
@@ -273,11 +283,13 @@ export default function App() {
     const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
     const deviceName = localSettings.deviceName || getDefaultDeviceName();
 
+    const sanitizedCards = sanitizeCardsForBackup(currentCards);
+
     const newBackup = {
       timestamp: Date.now(),
       deviceName,
       decks: currentDecks,
-      cards: currentCards
+      cards: sanitizedCards
     };
     const cleaned = (currentCloudBackups || []).filter(b => b.timestamp !== newBackup.timestamp);
     const updated = [newBackup, ...cleaned].slice(0, 3);
@@ -323,7 +335,10 @@ export default function App() {
       allCloudBackups.forEach(b => {
         if (b && b.timestamp && !seenBackupTS.has(b.timestamp)) {
           seenBackupTS.add(b.timestamp);
-          mergedCloudBackups.push(b);
+          mergedCloudBackups.push({
+            ...b,
+            cards: sanitizeCardsForBackup(b.cards)
+          });
         }
       });
       mergedCloudBackups.sort((a, b) => b.timestamp - a.timestamp);
@@ -470,6 +485,37 @@ export default function App() {
     } catch (e) {
       console.error("Error loading cards from localStorage:", e);
       setCards(initialCards);
+    }
+
+    // Self-healing Storage Cleanup: Clean existing cloud backups and local backup slots to free space
+    try {
+      const rawCloudBackups = localStorage.getItem('simanki_cloud_backups');
+      if (rawCloudBackups) {
+        const parsed = JSON.parse(rawCloudBackups);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.map(backup => ({
+            ...backup,
+            cards: sanitizeCardsForBackup(backup.cards)
+          }));
+          localStorage.setItem('simanki_cloud_backups', JSON.stringify(cleaned));
+        }
+      }
+      
+      for (let i = 1; i <= 3; i++) {
+        const rawLocal = localStorage.getItem(`simanki_local_backup_${i}`);
+        if (rawLocal) {
+          const parsed = JSON.parse(rawLocal);
+          if (parsed && parsed.cards) {
+            const cleaned = {
+              ...parsed,
+              cards: sanitizeCardsForBackup(parsed.cards)
+            };
+            localStorage.setItem(`simanki_local_backup_${i}`, JSON.stringify(cleaned));
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Self-healing storage cleanup failed:", e);
     }
 
     // Auto-sync pull on startup if syncCode is configured
@@ -657,19 +703,43 @@ export default function App() {
 
   const saveCards = (newCards, skipAutoPush = false) => {
     try {
-      setCards(newCards);
-      localStorage.setItem('simanki_cards', JSON.stringify(newCards));
+      // Limit simulation HTML lists and SVG lists history to max 3 items to save storage space
+      const limitedCards = newCards.map(card => {
+        let updated = { ...card };
+        if (Array.isArray(updated.simulationHtmlList) && updated.simulationHtmlList.length > 3) {
+          updated.simulationHtmlList = updated.simulationHtmlList.slice(-3);
+          if (updated.activeSimulationIndex >= updated.simulationHtmlList.length) {
+            updated.activeSimulationIndex = updated.simulationHtmlList.length - 1;
+          }
+        }
+        if (Array.isArray(updated.answerSvgs) && updated.answerSvgs.length > 3) {
+          updated.answerSvgs = updated.answerSvgs.slice(-3);
+          if (updated.activeAnswerSvgIndex >= updated.answerSvgs.length) {
+            updated.activeAnswerSvgIndex = updated.answerSvgs.length - 1;
+          }
+        }
+        if (Array.isArray(updated.questionSvgs) && updated.questionSvgs.length > 3) {
+          updated.questionSvgs = updated.questionSvgs.slice(-3);
+          if (updated.activeQuestionSvgIndex >= updated.questionSvgs.length) {
+            updated.activeQuestionSvgIndex = updated.questionSvgs.length - 1;
+          }
+        }
+        return updated;
+      });
+
+      setCards(limitedCards);
+      localStorage.setItem('simanki_cards', JSON.stringify(limitedCards));
       const now = Date.now();
       setLastModified(now);
       localStorage.setItem('simanki_last_modified', String(now));
 
       // Update cloud backups and save local snapshot
-      const updatedCloudBackups = createNewCloudBackup(decks, newCards, cloudBackups);
+      const updatedCloudBackups = createNewCloudBackup(decks, limitedCards, cloudBackups);
       setCloudBackups(updatedCloudBackups);
-      saveLocalBackup(decks, newCards);
+      saveLocalBackup(decks, limitedCards);
 
       if (!skipAutoPush) {
-        triggerAutoPush(decks, newCards, updatedCloudBackups, null, now);
+        triggerAutoPush(decks, limitedCards, updatedCloudBackups, null, now);
       }
     } catch (err) {
       console.error('saveCards error:', err);
