@@ -630,6 +630,8 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [feedbackTextSim, setFeedbackTextSim] = useState('');
   const [isFullscreenSim, setIsFullscreenSim] = useState(false);
   const [showCodeViewer, setShowCodeViewer] = useState(false);
+  const [showPromptCopyBox, setShowPromptCopyBox] = useState(false);
+  const [editingCodeSim, setEditingCodeSim] = useState(null);
 
   const [isGeneratingAnchor, setIsGeneratingAnchor] = useState(false);
   const [anchorError, setAnchorError] = useState(null);
@@ -1345,6 +1347,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setMnemonicError(null);
       setShowNudge(false);
       setNudgeError(null);
+      setEditingCodeSim(null);
 
       const isFailed = rating === 'again';
       let nextQueueLength = sessionQueue.length;
@@ -2779,7 +2782,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                         />
                       </div>
 
-                      {/* Collapsible HTML Code Viewer / Copy Box */}
+                      {/* Collapsible HTML Code Viewer / Copy / Paste Box */}
                       <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.15)', overflow: 'hidden' }}>
                         <button
                           type="button"
@@ -2798,18 +2801,21 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                             cursor: 'pointer'
                           }}
                         >
-                          <span>📋 View / Copy Simulation Source Code</span>
+                          <span>📋 View / Edit / Paste Simulation Source Code</span>
                           <span>{showCodeViewer ? '▲ Hide' : '▼ Show'}</span>
                         </button>
                         
                         {showCodeViewer && (
                           <div style={{ padding: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              Edit the source code or paste manually generated simulation code from Gemini Canvas below:
+                            </p>
                             <textarea
-                              readOnly
-                              value={activeHtmlSource}
+                              value={editingCodeSim !== null ? editingCodeSim : activeHtmlSource}
+                              onChange={(e) => setEditingCodeSim(e.target.value)}
                               style={{
                                 width: '100%',
-                                height: '150px',
+                                height: '180px',
                                 fontFamily: 'monospace',
                                 fontSize: '0.72rem',
                                 padding: '0.5rem',
@@ -2819,6 +2825,121 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                                 color: '#a7f3d0',
                                 resize: 'vertical'
                               }}
+                            />
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                style={{ padding: '0.25rem 0.65rem', fontSize: '0.72rem', minHeight: 'auto' }}
+                                onClick={() => {
+                                  const targetCode = editingCodeSim !== null ? editingCodeSim : activeHtmlSource;
+                                  if (!targetCode || !targetCode.trim()) {
+                                    alert("Source code cannot be empty!");
+                                    return;
+                                  }
+                                  
+                                  const currentList = currentCard.simulationHtmlList || [];
+                                  const newSimObj = {
+                                    model: 'Manual Paste / Edit',
+                                    prompt: 'Custom Simulation Code',
+                                    html: targetCode,
+                                    date: new Date().toISOString()
+                                  };
+
+                                  const updatedList = [...currentList, newSimObj];
+                                  const updatedCard = {
+                                    ...currentCard,
+                                    simulationHtml: targetCode,
+                                    simulationHtmlList: updatedList,
+                                    activeSimulationIndex: updatedList.length - 1
+                                  };
+
+                                  setSessionQueue(prev => {
+                                    const copy = [...prev];
+                                    copy[currentIndex] = updatedCard;
+                                    return copy;
+                                  });
+
+                                  if (typeof onUpdateCard === 'function') {
+                                    onUpdateCard(updatedCard);
+                                  }
+
+                                  setEditingCodeSim(null);
+                                  alert("Simulation code saved as a new version successfully!");
+                                }}
+                              >
+                                Save Custom Code
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ padding: '0.25rem 0.65rem', fontSize: '0.72rem', minHeight: 'auto' }}
+                                onClick={() => {
+                                  const targetCode = editingCodeSim !== null ? editingCodeSim : activeHtmlSource;
+                                  navigator.clipboard.writeText(targetCode);
+                                  alert("Simulation HTML source code copied to clipboard!");
+                                }}
+                              >
+                                Copy Code
+                              </button>
+                              {editingCodeSim !== null && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary"
+                                  style={{ padding: '0.25rem 0.65rem', fontSize: '0.72rem', minHeight: 'auto', border: '1px solid rgba(239, 68, 68, 0.2)', color: '#fca5a5' }}
+                                  onClick={() => setEditingCodeSim(null)}
+                                >
+                                  Discard Edits
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Collapsible Manual Prompt Copy Box */}
+                      <div style={{ border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px', background: 'rgba(0, 0, 0, 0.15)', overflow: 'hidden' }}>
+                        <button
+                          type="button"
+                          onClick={() => setShowPromptCopyBox(!showPromptCopyBox)}
+                          style={{
+                            width: '100%',
+                            background: 'none',
+                            border: 'none',
+                            padding: '0.5rem 0.75rem',
+                            color: 'var(--text-secondary)',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <span>💡 Copy Prompt to build manually in Gemini Canvas</span>
+                          <span>{showPromptCopyBox ? '▲ Hide' : '▼ Show'}</span>
+                        </button>
+                        
+                        {showPromptCopyBox && (
+                          <div style={{ padding: '0.75rem', borderTop: '1px solid rgba(255, 255, 255, 0.08)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              Copy this prompt, paste it into Gemini Canvas to generate your simulation widget, then paste the compiled HTML widget code back using the box above:
+                            </p>
+                            <textarea
+                              readOnly
+                              value={`Please create a dynamic, interactive simulation based on the information below. Choose whatever programming language works best for this project. Make sure to include sound effects, text-to-speech voiceover( Native Speech Synthesis ) , and animated diagrams. Here is the info:\n\nConcept: "${currentCard.concept}"\nQuestion Context: "${currentCard.question}"\nLogical Gap to Address: "${evaluation?.logicAnalysis || "Conceptual gap regarding this topic"}"`}
+                              style={{
+                                width: '100%',
+                                height: '120px',
+                                fontFamily: 'monospace',
+                                fontSize: '0.72rem',
+                                padding: '0.5rem',
+                                background: '#090a0f',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '6px',
+                                color: '#fbbf24',
+                                resize: 'vertical'
+                              }}
                               onClick={(e) => e.target.select()}
                             />
                             <button
@@ -2826,11 +2947,12 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                               className="btn btn-secondary"
                               style={{ alignSelf: 'flex-start', padding: '0.25rem 0.65rem', fontSize: '0.72rem', minHeight: 'auto' }}
                               onClick={() => {
-                                navigator.clipboard.writeText(activeHtmlSource);
-                                alert("Simulation HTML source code copied to clipboard!");
+                                const promptText = `Please create a dynamic, interactive simulation based on the information below. Choose whatever programming language works best for this project. Make sure to include sound effects, text-to-speech voiceover( Native Speech Synthesis ) , and animated diagrams. Here is the info:\n\nConcept: "${currentCard.concept}"\nQuestion Context: "${currentCard.question}"\nLogical Gap to Address: "${evaluation?.logicAnalysis || "Conceptual gap regarding this topic"}"`;
+                                navigator.clipboard.writeText(promptText);
+                                alert("Manual Gemini Canvas prompt copied to clipboard!");
                               }}
                             >
-                              Copy Code to Clipboard
+                              Copy Prompt to Clipboard
                             </button>
                           </div>
                         )}
