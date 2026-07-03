@@ -46,9 +46,9 @@ async function deploy() {
     execSync('git init', { cwd: distDir, stdio: 'ignore' });
     execSync('git add -A', { cwd: distDir });
     try {
-      execSync(`git commit -m "Deploy: ${new Date().toISOString()}"`, { cwd: distDir, stdio: 'ignore' });
+      execSync(`git commit --allow-empty -m "Deploy: ${new Date().toISOString()}"`, { cwd: distDir, stdio: 'ignore' });
     } catch (e) {
-      // Catch empty commit error if no changes
+      // Catch error
     }
     
     // Setup remote and force push
