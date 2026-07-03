@@ -35,6 +35,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [stressMode, setStressMode] = useState(settings.stressMode || false);
   const [unlockAllFeatures, setUnlockAllFeatures] = useState(settings.unlockAllFeatures ?? true);
   const [maxHardCardsPer5Min, setMaxHardCardsPer5Min] = useState(settings.maxHardCardsPer5Min ?? 2);
+  const [againStepMin, setAgainStepMin] = useState(settings.againStepMin || 10);
 
   useEffect(() => {
     const loaded = [];
@@ -90,11 +91,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       setStressMode(settings.stressMode || false);
       setUnlockAllFeatures(settings.unlockAllFeatures ?? true);
       setMaxHardCardsPer5Min(settings.maxHardCardsPer5Min ?? 2);
+      setAgainStepMin(settings.againStepMin || 10);
     }
   }, [settings]);
 
   const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin });
     setSaveStatus(true);
     setTimeout(() => setSaveStatus(false), 2000);
   };
@@ -105,12 +107,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin });
     const code = await onPushSync(githubPAT, syncCode);
     if (code) {
       setSyncCode(code);
       // Save again with the returned gist ID
-      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min });
+      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin });
     }
   };
 
@@ -123,7 +125,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin });
     await onPullSync(syncCode, githubPAT);
   };
 
@@ -306,6 +308,34 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
             Sets the percentage of cards you expect to remember. 
             **85% to 90% is the optimal range.** 
             Higher retention targets (e.g. 95%) will schedule reviews much sooner (tougher pacing) to guarantee memory retention.
+          </p>
+        </div>
+
+        {/* Recommended Learning Steps / Again Step Config */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1.25rem' }}>
+          <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Recommended Learning Step (Again Interval)</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <input 
+              type="number" 
+              min="1" 
+              max="60"
+              value={againStepMin}
+              onChange={(e) => setAgainStepMin(Math.max(1, Number(e.target.value)))}
+              style={{
+                width: '80px',
+                background: 'rgba(0,0,0,0.2)',
+                border: '1px solid var(--border-light)',
+                borderRadius: '6px',
+                color: 'var(--text-primary)',
+                padding: '0.4rem 0.6rem',
+                fontSize: '0.9rem',
+                textAlign: 'center'
+              }}
+            />
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>minutes</span>
+          </div>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+            Controls how quickly a failed card reappears. Anki's default is 10 minutes, but setting this to a shorter interval (e.g. **1 to 5 minutes**) makes learning lapses much faster to review.
           </p>
         </div>
 

@@ -562,8 +562,8 @@ Design a custom calculator or a decision scenario to help them visually/interact
  * 
  * @returns {Promise<Object>} The mind map tree structure.
  */
-export async function generateMindMap(apiKey, model, deckTitle, deckDescription, cardsList) {
-  const systemPrompt = `You are an expert educator and visual learning designer. Your job is to create a structured conceptual mind map of a study deck.
+export async function generateMindMap(apiKey, model, deckTitle, deckDescription, cardsList, customInstructions = '') {
+  let systemPrompt = `You are an expert educator and visual learning designer. Your job is to create a structured conceptual mind map of a study deck.
 You will receive the deck title, deck description, and a list of cards (with their IDs, questions, and concept focus areas).
 Analyze the relationships, group related cards/topics into main subtopics, and organize them into a clean, hierarchical tree structure (up to 3-4 levels deep).
 
@@ -577,6 +577,10 @@ Every single card in the provided list MUST be represented in the tree. You can 
 Ensure that every single Card ID from the input list is assigned to at least one node's "cardIds" array, so no cards are omitted from the mind map. If multiple cards talk about the same sub-topic or have similar concepts, group their card IDs together in the same "cardIds" array.
 
 You must respond with a JSON object representing the root node of this tree, conforming exactly to the requested schema. Ensure the mind map is cohesive, comprehensive, and logically structured.`;
+
+  if (customInstructions) {
+    systemPrompt += `\n\n[USER CUSTOM INSTRUCTIONS FOR MIND MAP DESIGN/ORGANIZATION]:\n${customInstructions}`;
+  }
 
   const cardsSummary = (cardsList || []).map((c, idx) => `Card ID: "${c.id}" | Q: "${c.question}" | Concept: "${c.concept || ''}"`).join('\n');
   const prompt = `

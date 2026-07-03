@@ -1189,7 +1189,7 @@ function PastGradingReportModal({ card, log, onClose, settings }) {
   };
 
   const FSRSRating = log.rating ? log.rating.toUpperCase() : 'GOOD';
-  const nextReviewInterval = getFriendlyInterval(card, log.rating || 'good', settings.targetRetention);
+  const nextReviewInterval = getFriendlyInterval(card, log.rating || 'good', settings.targetRetention, settings.againStepMin || 10);
 
   return (
     <div style={{

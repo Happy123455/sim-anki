@@ -119,7 +119,7 @@ function computeNextForgetStability(d, s, r, weights) {
  * @param {number} targetRetention - Requested retention (typically 70-95, default 90).
  * @returns {Object} Updated FSRS state properties for the card.
  */
-export function calculateNextState(card, ratingStr, targetRetention = 90, reviewDate = null) {
+export function calculateNextState(card, ratingStr, targetRetention = 90, reviewDate = null, againStepMin = 10) {
   const ratingMap = { again: 1, hard: 2, good: 3, easy: 4 };
   const normalizedRating = String(ratingStr || 'good').toLowerCase();
   const G = ratingMap[normalizedRating] || 3;
@@ -188,8 +188,8 @@ export function calculateNextState(card, ratingStr, targetRetention = 90, review
 
   const dueDate = new Date(now);
   if (G === 1) {
-    // Drop into a 10-minute short-term queue (interval = 0)
-    dueDate.setTime(dueDate.getTime() + 10 * 60 * 1000);
+    // Drop into a short-term queue (default = 10-minute)
+    dueDate.setTime(dueDate.getTime() + (Number(againStepMin) || 10) * 60 * 1000);
     interval = 0;
   } else {
     dueDate.setDate(dueDate.getDate() + interval);
@@ -222,11 +222,11 @@ export function isDue(card) {
 /**
  * Returns a friendly interval string for scheduling buttons.
  */
-export function getFriendlyInterval(card, ratingStr, targetRetention = 90) {
-  const nextState = calculateNextState(card, ratingStr, targetRetention);
+export function getFriendlyInterval(card, ratingStr, targetRetention = 90, againStepMin = 10) {
+  const nextState = calculateNextState(card, ratingStr, targetRetention, null, againStepMin);
   const days = nextState.interval;
   
-  if (days === 0) return '10m';
+  if (days === 0) return `${againStepMin}m`;
   if (days === 1) return '1d';
   if (days < 30) return `${days}d`;
   

@@ -1453,10 +1453,10 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   }
 
   // Calculate rating button intervals
-  const againInterval = getFriendlyInterval(currentCard, 'again');
-  const hardInterval = getFriendlyInterval(currentCard, 'hard');
-  const goodInterval = getFriendlyInterval(currentCard, 'good');
-  const easyInterval = getFriendlyInterval(currentCard, 'easy');
+  const againInterval = getFriendlyInterval(currentCard, 'again', targetRetention, settings.againStepMin || 10);
+  const hardInterval = getFriendlyInterval(currentCard, 'hard', targetRetention, settings.againStepMin || 10);
+  const goodInterval = getFriendlyInterval(currentCard, 'good', targetRetention, settings.againStepMin || 10);
+  const easyInterval = getFriendlyInterval(currentCard, 'easy', targetRetention, settings.againStepMin || 10);
 
   return (
     <>
@@ -3116,7 +3116,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 <div style={{ textAlign: 'center' }}>
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>FSRS Auto-Scheduled Interval</span>
                   <h4 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-primary)', marginTop: '0.15rem' }}>
-                    Next Review: {getFriendlyInterval(currentCard, finalRating, targetRetention)}
+                    Next Review: {getFriendlyInterval(currentCard, finalRating, targetRetention, settings.againStepMin || 10)}
                   </h4>
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
                     {settings.relaxedMode && suggestedRating === 'again' ? (

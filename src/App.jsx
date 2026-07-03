@@ -197,7 +197,8 @@ const getSettingsPayload = (s) => {
     streak: s.streak || 0,
     lastStudyDate: s.lastStudyDate || '',
     unlockAllFeatures: s.unlockAllFeatures ?? true,
-    maxHardCardsPer5Min: s.maxHardCardsPer5Min ?? 2
+    maxHardCardsPer5Min: s.maxHardCardsPer5Min ?? 2,
+    againStepMin: s.againStepMin || 10
   };
 };
 
@@ -216,7 +217,8 @@ export default function App() {
     xp: 0,
     streak: 0,
     lastStudyDate: '',
-    maxHardCardsPer5Min: 2
+    maxHardCardsPer5Min: 2,
+    againStepMin: 10
   });
   const [decks, setDecks] = useState(initialDecks);
   const [cards, setCards] = useState(initialCards);
@@ -1216,7 +1218,7 @@ export default function App() {
 
       const updatedCards = cards.map(card => {
         if (card.id === cardId) {
-          const nextState = calculateNextState(card, finalRating, settings.targetRetention);
+          const nextState = calculateNextState(card, finalRating, settings.targetRetention, null, settings.againStepMin || 10);
                 // Log history entry
           const historyEntry = {
             date: new Date().toISOString(),
@@ -1253,7 +1255,7 @@ export default function App() {
       // Update local sessionCards to keep stable indices
       setSessionCards(prev => prev.map(c => {
         if (c.id === cardId) {
-          const nextState = calculateNextState(c, finalRating, settings.targetRetention);
+          const nextState = calculateNextState(c, finalRating, settings.targetRetention, null, settings.againStepMin || 10);
           const historyEntry = {
             date: new Date().toISOString(),
             userAnswer: userAnswer || '',
@@ -1353,7 +1355,7 @@ export default function App() {
           fontFamily: 'monospace'
         }}
       >
-        v2.3.0
+        v2.4.0
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (

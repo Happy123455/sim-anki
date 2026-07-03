@@ -69,6 +69,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [deckTab, setDeckTab] = useState('cards'); // 'cards' | 'mindmap'
   const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
   const [mindMapGenError, setMindMapGenError] = useState(null);
+  const [mindMapInstructions, setMindMapInstructions] = useState('');
 
   // Clear selection and reset tab when deck, search, or filters change
   useEffect(() => {
@@ -256,7 +257,8 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
         settings.model || 'gemini-3.5-flash',
         deck.title,
         deck.description || '',
-        deckCards
+        deckCards,
+        mindMapInstructions
       );
       
       onUpdateDeckMindMap(activeDeckId, mindMap);
@@ -1803,6 +1805,57 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                     )}
                   </div>
 
+                  {/* Custom Mind Map Instructions */}
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: '12px',
+                    padding: '1rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    textAlign: 'left'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        AI Mind Map Instructions (Optional)
+                      </label>
+                      {mindMapInstructions && (
+                        <button
+                          onClick={() => setMindMapInstructions('')}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--text-muted)',
+                            fontSize: '0.72rem',
+                            cursor: 'pointer',
+                            textDecoration: 'underline'
+                          }}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      placeholder="e.g. 'Organize cards into main concepts. Label any missing points/gaps in my knowledge as (Missing) or white so they stand out.'"
+                      value={mindMapInstructions}
+                      onChange={(e) => setMindMapInstructions(e.target.value)}
+                      disabled={isGeneratingMindMap}
+                      style={{
+                        width: '100%',
+                        height: '60px',
+                        background: 'rgba(0, 0, 0, 0.25)',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        borderRadius: '8px',
+                        color: 'var(--text-primary)',
+                        padding: '0.5rem 0.75rem',
+                        fontSize: '0.85rem',
+                        lineHeight: '1.4',
+                        resize: 'vertical'
+                      }}
+                    />
+                  </div>
+
                   {isGeneratingMindMap && (
                     <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
                       <div className="animate-spin" style={{ width: '32px', height: '32px', border: '3px solid var(--border-light)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%' }} />
@@ -2408,10 +2461,21 @@ function MindMapNode({ node, cards, onOpenCardDetails }) {
 
   const hasChildren = node.children && node.children.length > 0;
 
-  // Red at HSL 0 (score=0), Green at HSL 120 (score=100)
-  const nodeColor = averageScore !== null 
-    ? `hsl(${averageScore * 1.2}, 85%, 60%)` 
-    : (hasChildren ? 'var(--text-primary)' : 'var(--text-secondary)');
+  const isMissingNode = (!hasChildren && associatedCardIds.length === 0) || 
+    (node.label && (
+      node.label.toLowerCase().includes('white') || 
+      node.label.toLowerCase().includes('missing') || 
+      node.label.toLowerCase().includes('empty') || 
+      node.label.toLowerCase().includes('(missing)')
+    )) || 
+    node.isWhite === true;
+
+  // Red at HSL 0 (score=0), Green at HSL 120 (score=100), White for missing nodes
+  const nodeColor = isMissingNode
+    ? '#ffffff'
+    : (averageScore !== null 
+        ? `hsl(${averageScore * 1.2}, 85%, 60%)` 
+        : (hasChildren ? 'var(--text-primary)' : 'var(--text-secondary)'));
 
   const handleNodeClick = (e) => {
     if (associatedCards.length === 1 && onOpenCardDetails) {
@@ -2444,27 +2508,41 @@ function MindMapNode({ node, cards, onOpenCardDetails }) {
             {isCollapsed ? <ChevronRight size={14} style={{ color: 'var(--accent-primary)' }} /> : <ChevronDown size={14} style={{ color: 'var(--accent-primary)' }} />}
           </span>
         ) : (
-          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: averageScore !== null ? nodeColor : 'var(--text-muted)', margin: '0 4px' }} />
+          <div style={{ 
+            width: '8px', 
+            height: '8px', 
+            borderRadius: '50%', 
+            background: isMissingNode ? 'transparent' : (averageScore !== null ? nodeColor : 'var(--text-muted)'),
+            border: isMissingNode ? '1px dashed #ffffff' : 'none',
+            margin: '0 4px' 
+          }} />
         )}
         <span 
           style={{ 
             fontWeight: hasChildren ? 600 : 400, 
             fontSize: hasChildren ? '0.95rem' : '0.9rem',
             color: nodeColor,
+            fontStyle: isMissingNode ? 'italic' : 'normal',
             textDecoration: associatedCards.length === 1 ? 'underline' : 'none',
             textDecorationColor: associatedCards.length === 1 ? 'rgba(255,255,255,0.2)' : 'transparent',
             textDecorationStyle: 'dashed',
+            opacity: isMissingNode ? 0.9 : 1,
             transition: 'all 0.2s ease'
           }}
           title={associatedCards.length === 1 ? "Click to view flashcard progress & history" : ""}
         >
           {node.label}
-          {associatedCards.length === 1 && (
+          {isMissingNode && (
+            <span style={{ fontSize: '0.72rem', opacity: 0.8, marginLeft: '0.4rem', color: '#f87171', fontWeight: 600 }}>
+              (Missing Point / Gap)
+            </span>
+          )}
+          {associatedCards.length === 1 && !isMissingNode && (
             <span style={{ fontSize: '0.7rem', opacity: 0.7, marginLeft: '0.4rem', color: 'var(--text-muted)' }}>
               ({averageScore !== null ? `${Math.round(averageScore)}%` : 'New'})
             </span>
           )}
-          {associatedCards.length > 1 && (
+          {associatedCards.length > 1 && !isMissingNode && (
             <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: '0.4rem', color: 'var(--text-muted)', fontWeight: 500 }}>
               (Avg: {averageScore !== null ? `${Math.round(averageScore)}%` : 'New'})
             </span>
