@@ -70,6 +70,13 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [isGeneratingMindMap, setIsGeneratingMindMap] = useState(false);
   const [mindMapGenError, setMindMapGenError] = useState(null);
   const [mindMapInstructions, setMindMapInstructions] = useState('');
+  const [mindMapModel, setMindMapModel] = useState(settings.model || 'gemini-3.5-flash');
+
+  useEffect(() => {
+    if (settings.model) {
+      setMindMapModel(settings.model);
+    }
+  }, [settings.model]);
 
   // Clear selection and reset tab when deck, search, or filters change
   useEffect(() => {
@@ -254,7 +261,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
       const deckCards = Cards.filter(c => c.deckId === activeDeckId);
       const mindMap = await generateMindMap(
         settings.apiKey,
-        settings.model || 'gemini-3.5-flash',
+        mindMapModel,
         deck.title,
         deck.description || '',
         deckCards,
@@ -1854,6 +1861,31 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                         resize: 'vertical'
                       }}
                     />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.75rem' }}>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        AI Model Selection
+                      </label>
+                      <select
+                        value={mindMapModel}
+                        onChange={(e) => setMindMapModel(e.target.value)}
+                        disabled={isGeneratingMindMap}
+                        style={{
+                          width: '100%',
+                          maxWidth: '300px',
+                          background: 'rgba(0,0,0,0.25)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '6px',
+                          color: 'var(--text-primary)',
+                          padding: '0.35rem 0.5rem',
+                          fontSize: '0.8rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended)</option>
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                        <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                      </select>
+                    </div>
                   </div>
 
                   {isGeneratingMindMap && (
