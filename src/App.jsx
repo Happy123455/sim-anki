@@ -277,11 +277,34 @@ export default function App() {
     });
   };
 
+  const safeLocalStorageSetItem = (key, value) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn(`[LocalStorage] Failed to set ${key}:`, e);
+      if (e.name === 'QuotaExceededError' || e.code === 22) {
+        if (key === 'simanki_cloud_backups') {
+          try {
+            const parsed = JSON.parse(value);
+            if (Array.isArray(parsed) && parsed.length > 1) {
+              const minimal = [parsed[0]];
+              localStorage.setItem(key, JSON.stringify(minimal));
+              console.log("[LocalStorage] Successfully saved minimal cloud backup to fit quota.");
+              return;
+            }
+          } catch (innerEx) {
+            console.error("[LocalStorage] Failed to save minimal cloud backup:", innerEx);
+          }
+        }
+      }
+    }
+  };
+
   const saveLocalBackup = (currentDecks, currentCards) => {
     try {
       let nextIdx = Number(localStorage.getItem('simanki_backup_index') || 0) + 1;
       if (nextIdx > 3) nextIdx = 1;
-      localStorage.setItem('simanki_backup_index', String(nextIdx));
+      safeLocalStorageSetItem('simanki_backup_index', String(nextIdx));
 
       const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
       const deviceName = localSettings.deviceName || getDefaultDeviceName();
@@ -294,7 +317,7 @@ export default function App() {
         decks: currentDecks,
         cards: sanitizedCards
       };
-      localStorage.setItem(`simanki_local_backup_${nextIdx}`, JSON.stringify(backupData));
+      safeLocalStorageSetItem(`simanki_local_backup_${nextIdx}`, JSON.stringify(backupData));
     } catch (e) {
       console.error("Failed to save local backup:", e);
     }
@@ -314,7 +337,7 @@ export default function App() {
     };
     const cleaned = (currentCloudBackups || []).filter(b => b.timestamp !== newBackup.timestamp);
     const updated = [newBackup, ...cleaned].slice(0, 3);
-    localStorage.setItem('simanki_cloud_backups', JSON.stringify(updated));
+    safeLocalStorageSetItem('simanki_cloud_backups', JSON.stringify(updated));
     return updated;
   };
 
@@ -397,23 +420,23 @@ export default function App() {
         setSettings(mergedSettings);
         setCloudBackups(finalCloudBackups);
 
-        localStorage.setItem('simanki_decks', mergedDecksStr);
+        safeLocalStorageSetItem('simanki_decks', mergedDecksStr);
         setVal('simanki_cards', mergedCards);
-        localStorage.setItem('simanki_cards', JSON.stringify(sanitizeCardsForLocalStorage(mergedCards)));
-        localStorage.setItem('simanki_settings', JSON.stringify(mergedSettings));
-        localStorage.setItem('simanki_cloud_backups', JSON.stringify(finalCloudBackups));
+        safeLocalStorageSetItem('simanki_cards', JSON.stringify(sanitizeCardsForLocalStorage(mergedCards)));
+        safeLocalStorageSetItem('simanki_settings', JSON.stringify(mergedSettings));
+        safeLocalStorageSetItem('simanki_cloud_backups', JSON.stringify(finalCloudBackups));
         
         saveLocalBackup(mergedDecks, mergedCards);
       } else {
         setSettings(mergedSettings);
         setCloudBackups(finalCloudBackups);
-        localStorage.setItem('simanki_settings', JSON.stringify(mergedSettings));
-        localStorage.setItem('simanki_cloud_backups', JSON.stringify(finalCloudBackups));
+        safeLocalStorageSetItem('simanki_settings', JSON.stringify(mergedSettings));
+        safeLocalStorageSetItem('simanki_cloud_backups', JSON.stringify(finalCloudBackups));
       }
 
       if (cloudHasChanges) {
         const finalTS = now;
-        localStorage.setItem('simanki_last_modified', String(finalTS));
+        safeLocalStorageSetItem('simanki_last_modified', String(finalTS));
         setLastModified(finalTS);
 
         const payload = {
@@ -428,7 +451,7 @@ export default function App() {
         console.log("Self-healing Sync: Pushed merged changes and backups to Gist successfully!");
       } else {
         const finalTS = Math.max(localTS, cloudLastModified);
-        localStorage.setItem('simanki_last_modified', String(finalTS));
+        safeLocalStorageSetItem('simanki_last_modified', String(finalTS));
         setLastModified(finalTS);
       }
 
@@ -483,7 +506,7 @@ export default function App() {
         }
 
         if (needsSave) {
-          localStorage.setItem('simanki_settings', JSON.stringify(parsed));
+          safeLocalStorageSetItem('simanki_settings', JSON.stringify(parsed));
         }
         setSettings(parsed);
       }
@@ -529,7 +552,7 @@ export default function App() {
             ...backup,
             cards: sanitizeCardsForBackup(backup.cards)
           }));
-          localStorage.setItem('simanki_cloud_backups', JSON.stringify(cleaned));
+          safeLocalStorageSetItem('simanki_cloud_backups', JSON.stringify(cleaned));
         }
       }
       
@@ -542,7 +565,7 @@ export default function App() {
               ...parsed,
               cards: sanitizeCardsForBackup(parsed.cards)
             };
-            localStorage.setItem(`simanki_local_backup_${i}`, JSON.stringify(cleaned));
+            safeLocalStorageSetItem(`simanki_local_backup_${i}`, JSON.stringify(cleaned));
           }
         }
       }
@@ -650,7 +673,7 @@ export default function App() {
               }),
               keepalive: true
             }).catch(() => {});
-            localStorage.setItem('simanki_last_modified', String(now));
+            safeLocalStorageSetItem('simanki_last_modified', String(now));
           }
         } catch (e) {
           console.error('Auto-sync push on hide failed:', e);
@@ -718,10 +741,10 @@ export default function App() {
   // Save changes to localStorage helper
   const saveDecks = (newDecks, skipAutoPush = false) => {
     setDecks(newDecks);
-    localStorage.setItem('simanki_decks', JSON.stringify(newDecks));
+    safeLocalStorageSetItem('simanki_decks', JSON.stringify(newDecks));
     const now = Date.now();
     setLastModified(now);
-    localStorage.setItem('simanki_last_modified', String(now));
+    safeLocalStorageSetItem('simanki_last_modified', String(now));
 
     // Update cloud backups and save local snapshot
     const updatedCloudBackups = createNewCloudBackup(newDecks, cards, cloudBackups);
@@ -761,10 +784,10 @@ export default function App() {
 
       setCards(limitedCards);
       setVal('simanki_cards', limitedCards);
-      localStorage.setItem('simanki_cards', JSON.stringify(sanitizeCardsForLocalStorage(limitedCards)));
+      safeLocalStorageSetItem('simanki_cards', JSON.stringify(sanitizeCardsForLocalStorage(limitedCards)));
       const now = Date.now();
       setLastModified(now);
-      localStorage.setItem('simanki_last_modified', String(now));
+      safeLocalStorageSetItem('simanki_last_modified', String(now));
 
       // Update cloud backups and save local snapshot
       const updatedCloudBackups = createNewCloudBackup(decks, limitedCards, cloudBackups);
@@ -790,10 +813,10 @@ export default function App() {
       syncCode: sanitizeGistId(newSettings.syncCode)
     };
     setSettings(cleaned);
-    localStorage.setItem('simanki_settings', JSON.stringify(cleaned));
+    safeLocalStorageSetItem('simanki_settings', JSON.stringify(cleaned));
     const now = Date.now();
     setLastModified(now);
-    localStorage.setItem('simanki_last_modified', String(now));
+    safeLocalStorageSetItem('simanki_last_modified', String(now));
     if (cleaned.syncCode) {
       triggerAutoPush(decks, cards, cleaned, now);
     }
@@ -895,7 +918,7 @@ export default function App() {
         syncCode: syncCodeToUse
       };
       setSettings(updatedSettings);
-      localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
+      safeLocalStorageSetItem('simanki_settings', JSON.stringify(updatedSettings));
 
       const now = Date.now();
       const payload = {
@@ -910,10 +933,10 @@ export default function App() {
       
       const finalSettings = { ...updatedSettings, syncCode: gistId };
       setSettings(finalSettings);
-      localStorage.setItem('simanki_settings', JSON.stringify(finalSettings));
+      safeLocalStorageSetItem('simanki_settings', JSON.stringify(finalSettings));
       
       setLastModified(now);
-      localStorage.setItem('simanki_last_modified', String(now));
+      safeLocalStorageSetItem('simanki_last_modified', String(now));
       alert(`Sync completed successfully!\n\nYour Gist ID (Sync Code) is: ${gistId}\n\nUse this Gist ID on your other devices to pull your cards and progress.`);
       return gistId;
     } catch (err) {
@@ -961,7 +984,7 @@ export default function App() {
         syncCode: codeToUse
       };
       setSettings(preSavedSettings);
-      localStorage.setItem('simanki_settings', JSON.stringify(preSavedSettings));
+      safeLocalStorageSetItem('simanki_settings', JSON.stringify(preSavedSettings));
 
       const data = await pullFromGist(patToUse, codeToUse);
       const cloudTS = Number(data.lastModified) || Date.now();
@@ -1189,7 +1212,7 @@ export default function App() {
       };
 
       setSettings(updatedSettings);
-      localStorage.setItem('simanki_settings', JSON.stringify(updatedSettings));
+      safeLocalStorageSetItem('simanki_settings', JSON.stringify(updatedSettings));
 
       const updatedCards = cards.map(card => {
         if (card.id === cardId) {
