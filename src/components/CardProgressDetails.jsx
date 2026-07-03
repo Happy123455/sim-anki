@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Award, Clock, Star, Layers, X, TrendingUp, ChevronDown, ChevronUp, Sparkles, Trash2, RefreshCw } from 'lucide-react';
 import SimulationRenderer from './SimulationRenderer';
 import { highlightAnswerText, highlightConceptText } from './StudySession';
-import { generate3DVisualAnimation } from '../utils/gemini';
+import { generate3DVisualAnimation, getDetailedAnalysis, chatTutorStep } from '../utils/gemini';
+import { getFriendlyInterval } from '../utils/srs';
 
 
 function parseMarkdown(text) {
@@ -1006,6 +1007,31 @@ function PastGradingReportModal({ card, log, onClose, settings }) {
   const [isFullscreenSim, setIsFullscreenSim] = useState(false);
   const [showCodeViewer, setShowCodeViewer] = useState(false);
 
+  // Tutor chat states
+  const [chatMessages, setChatMessages] = useState(() => {
+    if (log.chatMessages && log.chatMessages.length > 0) return log.chatMessages;
+    return [
+      { 
+        sender: 'tutor', 
+        text: `🤖 Hello! This is your study archive for the attempt scored ${log.score || 0}%. Let's review what you missed and clarify the concept. Feel free to ask me follow-up questions!`, 
+        highlights: [] 
+      }
+    ];
+  });
+  const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+
+  // Puzzle puzzle states
+  const [puzzleScrambled, setPuzzleScrambled] = useState([]);
+  const [puzzlePlaced, setPuzzlePlaced] = useState([]);
+  const [puzzleSolved, setPuzzleSolved] = useState(false);
+  const [puzzlePieces, setPuzzlePieces] = useState([]);
+
+  // Lazy-loaded detailed analysis states
+  const [detailedAnalysis, setDetailedAnalysis] = useState(null);
+  const [isDetailedLoading, setIsDetailedLoading] = useState(false);
+  const [detailedError, setDetailedError] = useState(null);
+
   // Fallbacks
   const score = log.score ?? 0;
   const memoryAnchor = log.memoryAnchor || '';
@@ -1017,6 +1043,133 @@ function PastGradingReportModal({ card, log, onClose, settings }) {
   // SVGs active items
   const activeQSvg = questionSvgs[activeQuestionSvgIdx]?.svg || '';
   const activeASvg = answerSvgs[activeAnswerSvgIdx]?.svg || '';
+
+  // Fallback puzzle generator
+  const generateFallbackPuzzlePieces = (conceptText) => {
+    if (!conceptText) return [];
+    const cleaned = conceptText.replace(/[#*`]/g, '').trim();
+    const splits = cleaned.split(/(?<=[\.\?,])\s+|(?<=,)\s+/);
+    let pieces = splits.map(s => s.trim()).filter(s => s.length > 0);
+    
+    if (pieces.length <= 1) {
+      const words = cleaned.split(/\s+/);
+      pieces = [];
+      for (let i = 0; i < words.length; i += 4) {
+        pieces.push(words.slice(i, i + 4).join(' '));
+      }
+    }
+    return pieces.filter(p => p.length > 0);
+  };
+
+  useEffect(() => {
+    const pieces = log.puzzlePieces || generateFallbackPuzzlePieces(card.concept);
+    setPuzzlePieces(pieces);
+    
+    // Shuffle
+    const indices = Array.from({ length: pieces.length }, (_, i) => i);
+    const scrambledIndices = [...indices].sort(() => Math.random() - 0.5);
+    setPuzzleScrambled(scrambledIndices.map(idx => pieces[idx]));
+    setPuzzlePlaced([]);
+    setPuzzleSolved(false);
+  }, [card.concept, log.puzzlePieces]);
+
+  // Puzzle handlers
+  const handlePlacePiece = (pieceIdx) => {
+    if (puzzleSolved) return;
+    const piece = puzzleScrambled[pieceIdx];
+    const newPlaced = [...puzzlePlaced, piece];
+    setPuzzlePlaced(newPlaced);
+    
+    const newScrambled = puzzleScrambled.filter((_, idx) => idx !== pieceIdx);
+    setPuzzleScrambled(newScrambled);
+    
+    if (newPlaced.length === puzzlePieces.length) {
+      const isCorrect = newPlaced.every((p, idx) => p === puzzlePieces[idx]);
+      if (isCorrect) {
+        setPuzzleSolved(true);
+      } else {
+        alert("Incorrect order! Resetting puzzle.");
+        handleResetPuzzle();
+      }
+    }
+  };
+
+  const handleResetPuzzle = () => {
+    const indices = Array.from({ length: puzzlePieces.length }, (_, i) => i);
+    const scrambledIndices = [...indices].sort(() => Math.random() - 0.5);
+    setPuzzleScrambled(scrambledIndices.map(idx => puzzlePieces[idx]));
+    setPuzzlePlaced([]);
+    setPuzzleSolved(false);
+  };
+
+  // Detailed Analysis handler
+  const handleFetchDetailedAnalysis = async () => {
+    if (!settings.apiKey) {
+      alert("Please configure your Gemini API key in Settings first.");
+      return;
+    }
+    setIsDetailedLoading(true);
+    setDetailedError(null);
+    try {
+      const data = await getDetailedAnalysis(
+        settings.apiKey,
+        settings.model || 'gemini-3.5-flash',
+        card.question,
+        card.concept,
+        log.userAnswer
+      );
+      setDetailedAnalysis(data);
+    } catch (e) {
+      console.error(e);
+      setDetailedError(e.message || "Failed to fetch detailed analysis.");
+    } finally {
+      setIsDetailedLoading(false);
+    }
+  };
+
+  // Tutor Chat handler
+  const handleSendChatMessage = async () => {
+    if (!chatInput.trim() || isChatLoading) return;
+    if (!settings.apiKey) {
+      alert("Please configure your Gemini API key in Settings first.");
+      return;
+    }
+    const userText = chatInput;
+    setChatInput('');
+    setIsChatLoading(true);
+
+    const newMsg = { sender: 'user', text: userText, highlights: [] };
+    const updatedHistory = [...chatMessages, newMsg];
+    setChatMessages(updatedHistory);
+
+    try {
+      const result = await chatTutorStep(
+        settings.apiKey,
+        settings.model || 'gemini-3.5-flash',
+        card.question,
+        card.concept,
+        log.userAnswer,
+        '',
+        chatMessages,
+        userText
+      );
+      
+      const updatedMessages = [...updatedHistory];
+      updatedMessages[updatedMessages.length - 1].highlights = result.highlights || [];
+      
+      const tutorMsg = { sender: 'tutor', text: result.response, highlights: [] };
+      updatedMessages.push(tutorMsg);
+      setChatMessages(updatedMessages);
+    } catch (e) {
+      console.error(e);
+      setChatMessages(prev => [
+        ...prev,
+        { sender: 'tutor', text: `⚠️ Error contacting tutoring assistant: ${e.message || "Failed to get tutor response."}`, highlights: [] }
+      ]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
 
   // Text highlighting
   const userHighlightHtml = highlightAnswerText(log.userAnswer || '', log.highlights || []);
@@ -1034,6 +1187,9 @@ function PastGradingReportModal({ card, log, onClose, settings }) {
       window.speechSynthesis.speak(utterance);
     }
   };
+
+  const FSRSRating = log.rating ? log.rating.toUpperCase() : 'GOOD';
+  const nextReviewInterval = getFriendlyInterval(card, log.rating || 'good', settings.targetRetention);
 
   return (
     <div style={{
@@ -1102,14 +1258,22 @@ function PastGradingReportModal({ card, log, onClose, settings }) {
         {/* Content */}
         <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           
-          {/* Answer Compare & Rating Section */}
+          {/* Question Display */}
+          <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-light)', padding: '1rem', borderRadius: '12px', textAlign: 'left' }}>
+            <strong style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.35rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Question Display:</strong>
+            <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)', fontWeight: 600 }}>
+              {card.question}
+            </div>
+          </div>
+
+          {/* Answer Compare Section */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', textAlign: 'left' }}>
             <div style={{ background: 'rgba(255,255,255,0.01)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
               <strong style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>Your Answer:</strong>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }} dangerouslySetInnerHTML={{ __html: userHighlightHtml }} />
             </div>
             <div style={{ background: 'rgba(255,255,255,0.01)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
-              <strong style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>Reference Answer:</strong>
+              <strong style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>Reference Answer (Original Concept):</strong>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }} dangerouslySetInnerHTML={{ __html: conceptHighlightHtml }} />
             </div>
           </div>
@@ -1150,10 +1314,15 @@ function PastGradingReportModal({ card, log, onClose, settings }) {
 
             {/* Strengths & Weaknesses / Logic Gaps */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {log.logicAnalysis && (
+              {log.logicAnalysis ? (
                 <div style={{ background: 'rgba(245, 158, 11, 0.04)', border: '1px solid rgba(245, 158, 11, 0.15)', padding: '0.75rem', borderRadius: '8px' }}>
-                  <strong style={{ color: '#fbbf24', fontSize: '0.75rem', display: 'block', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Logic gap to address:</strong>
+                  <strong style={{ color: '#fbbf24', fontSize: '0.75rem', display: 'block', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Logical Analysis (Feedback Display):</strong>
                   <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>{log.logicAnalysis}</p>
+                </div>
+              ) : (
+                <div style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', padding: '0.75rem', borderRadius: '8px' }}>
+                  <strong style={{ color: 'var(--text-muted)', fontSize: '0.75rem', display: 'block', marginBottom: '0.25rem', textTransform: 'uppercase' }}>Logical Analysis:</strong>
+                  <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No Logical Analysis recorded.</p>
                 </div>
               )}
               {log.correctExplanation && (
@@ -1190,12 +1359,12 @@ function PastGradingReportModal({ card, log, onClose, settings }) {
           </div>
 
           {/* Memory Anchor (Backstory & Quirky Fact) */}
-          {memoryAnchor && (
-            <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px dashed var(--accent-primary)', padding: '1rem 1.25rem', borderRadius: '12px', position: 'relative', textAlign: 'left' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <strong style={{ color: 'var(--accent-secondary)', fontSize: '0.82rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  ⚓ Memory Anchor (Backstory & Quirky Fact)
-                </strong>
+          <div style={{ background: 'rgba(255, 255, 255, 0.01)', border: '1px dashed var(--accent-primary)', padding: '1rem 1.25rem', borderRadius: '12px', position: 'relative', textAlign: 'left' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <strong style={{ color: 'var(--accent-secondary)', fontSize: '0.82rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                ⚓ Memory Anchor (Backstory & Quirky Fact)
+              </strong>
+              {memoryAnchor && (
                 <button
                   type="button"
                   onClick={handleVoiceReadAloud}
@@ -1211,55 +1380,324 @@ function PastGradingReportModal({ card, log, onClose, settings }) {
                 >
                   🔊 Voice Read-Aloud
                 </button>
-              </div>
+              )}
+            </div>
+            {memoryAnchor ? (
               <div
                 className="markdown-content"
                 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}
                 dangerouslySetInnerHTML={{ __html: parseMarkdown(memoryAnchor) }}
               />
-            </div>
-          )}
+            ) : (
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                No Memory Anchor generated for this card.
+              </div>
+            )}
+          </div>
 
-          {/* Simulation Previewer Block */}
-          {activeSimHtml && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(255,255,255,0.01)', padding: '1.25rem', borderRadius: '14px', border: '1px solid var(--border-light)', textAlign: 'left' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed rgba(255,255,255,0.06)', paddingBottom: '0.5rem' }}>
-                <strong style={{ color: '#a78bfa', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  🎮 Gemini Interactive Simulation Canvas (Archived)
-                </strong>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {simulationHtmlList.length > 0 && (
-                    <div style={{ display: 'flex', gap: '0.2rem' }}>
-                      {simulationHtmlList.map((sim, sIdx) => (
+          {/* Interactive Concept Tutor (Chat Interface) */}
+          <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-light)', padding: '1.25rem', borderRadius: '14px', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <strong style={{ color: 'var(--accent-secondary)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              💬 Interactive Concept Tutor (Chat Archive)
+            </strong>
+            <div style={{ 
+              background: 'rgba(0, 0, 0, 0.15)', 
+              border: '1px solid var(--border-light)', 
+              borderRadius: '10px', 
+              padding: '0.75rem', 
+              height: '180px', 
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.75rem'
+            }}>
+              {chatMessages.map((msg, idx) => {
+                const isTutor = msg.sender === 'tutor';
+                return (
+                  <div key={idx} style={{ alignSelf: isTutor ? 'flex-start' : 'flex-end', maxWidth: '85%', textAlign: 'left' }}>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '0.15rem', textAlign: isTutor ? 'left' : 'right' }}>
+                      {isTutor ? '🤖 AI Tutor' : '👤 You'}
+                    </div>
+                    <div style={{ 
+                      background: isTutor ? 'rgba(255, 255, 255, 0.03)' : 'rgba(139, 92, 246, 0.12)', 
+                      border: isTutor ? '1px solid var(--border-light)' : '1px solid rgba(139, 92, 246, 0.25)', 
+                      color: isTutor ? 'var(--text-primary)' : '#e0dbff',
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: isTutor ? '0 10px 10px 10px' : '10px 0 10px 10px',
+                      fontSize: '0.82rem',
+                      lineHeight: '1.45'
+                    }}>
+                      {isTutor ? msg.text : highlightAnswerText(msg.text, msg.highlights)}
+                    </div>
+                  </div>
+                );
+              })}
+              {isChatLoading && (
+                <div style={{ alignSelf: 'flex-start', maxWidth: '85%' }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>
+                    🤖 AI Tutor
+                  </div>
+                  <div style={{ 
+                    background: 'rgba(255, 255, 255, 0.03)', 
+                    border: '1px solid var(--border-light)', 
+                    padding: '0.5rem 0.75rem', 
+                    borderRadius: '0 10px 10px 10px',
+                    fontSize: '0.82rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    color: 'var(--text-muted)'
+                  }}>
+                    <RefreshCw className="animate-float" size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                    Thinking...
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSendChatMessage();
+              }}
+              style={{ display: 'flex', gap: '0.5rem', margin: 0 }}
+            >
+              <input
+                type="text"
+                placeholder="Ask the tutor a follow-up question about this attempt..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                disabled={isChatLoading}
+                style={{ flex: 1, background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-light)', borderRadius: '8px', color: 'var(--text-primary)', padding: '0.5rem 0.75rem', fontSize: '0.9rem' }}
+              />
+              <button 
+                type="submit" 
+                className="btn btn-primary"
+                disabled={!chatInput.trim() || isChatLoading}
+                style={{ padding: '0 1.5rem', borderRadius: '8px' }}
+              >
+                Send
+              </button>
+            </form>
+          </div>
+
+          {/* Reconstruct the 100% Model Answer (Puzzle Game) */}
+          <div style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h4 style={{ fontSize: '0.95rem', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.4rem', margin: 0 }}>
+                🧩 Reconstruct the 100% Model Answer
+              </h4>
+              <button
+                className="btn btn-secondary"
+                onClick={handleResetPuzzle}
+                style={{ padding: '0.15rem 0.6rem', fontSize: '0.68rem', minHeight: 'auto' }}
+              >
+                Reset Button
+              </button>
+            </div>
+
+            {puzzlePieces.length > 0 ? (
+              <>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                  Click the scrambled blocks below in order to build the perfect target answer.
+                </p>
+
+                {/* Placed Area */}
+                <div style={{ 
+                  background: 'rgba(0,0,0,0.25)', 
+                  border: '1px dashed rgba(139,92,246,0.3)', 
+                  borderRadius: '10px', 
+                  minHeight: '80px', 
+                  padding: '0.75rem', 
+                  display: 'flex', 
+                  flexWrap: 'wrap', 
+                  gap: '0.5rem', 
+                  alignContent: 'flex-start',
+                  borderColors: puzzleSolved ? 'var(--success)' : 'rgba(139,92,246,0.3)'
+                }}>
+                  {puzzlePlaced.length === 0 && (
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem', margin: 'auto' }}>Reconstruction Area (click blocks below)</span>
+                  )}
+                  {puzzlePlaced.map((piece, idx) => (
+                    <span key={idx} style={{ 
+                      background: 'rgba(139, 92, 246, 0.15)', 
+                      border: '1px solid rgba(139, 92, 246, 0.3)', 
+                      borderRadius: '6px', 
+                      padding: '0.35rem 0.65rem', 
+                      fontSize: '0.82rem', 
+                      color: '#d8b4fe'
+                    }}>
+                      {piece}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Scrambled Pool */}
+                {puzzleScrambled.length > 0 ? (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', background: 'rgba(255,255,255,0.01)', padding: '0.75rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                    {puzzleScrambled.map((piece, idx) => {
+                      return (
                         <button
-                          key={sIdx}
-                          onClick={() => setActiveSimulationIdx(sIdx)}
+                          key={idx}
+                          onClick={() => handlePlacePiece(idx)}
                           style={{
-                            background: sIdx === activeSimulationIdx ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)',
-                            border: 'none',
-                            borderRadius: '3px',
-                            color: 'white',
-                            fontSize: '0.65rem',
-                            padding: '0.1rem 0.35rem',
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: '6px',
+                            padding: '0.35rem 0.65rem',
+                            fontSize: '0.82rem',
+                            color: 'var(--text-secondary)',
                             cursor: 'pointer',
-                            fontWeight: 700
+                            transition: 'all 0.15s ease'
                           }}
                         >
-                          v{sIdx + 1}
+                          {piece}
                         </button>
-                      ))}
+                      );
+                    })}
+                  </div>
+                ) : (
+                  puzzleSolved && (
+                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '8px', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#6ee7b7', fontSize: '0.85rem', fontWeight: 600 }}>
+                      🎉 Reconstruction Solved! You've perfectly built the concept.
                     </div>
+                  )
+                )}
+              </>
+            ) : (
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                Reconstruction game not available for this card concept.
+              </div>
+            )}
+          </div>
+
+          {/* Detailed AI Analysis Toggle */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(255,255,255,0.01)', padding: '1.25rem', borderRadius: '14px', border: '1px solid var(--border-light)', textAlign: 'left' }}>
+            {!detailedAnalysis ? (
+              <div style={{ textAlign: 'left' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleFetchDetailedAnalysis}
+                  disabled={isDetailedLoading}
+                  style={{ width: '100%', padding: '0.65rem', background: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.25)', color: '#c084fc', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 600 }}
+                >
+                  {isDetailedLoading ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      Lazy-Loading Deep AI Analysis...
+                    </>
+                  ) : (
+                    <>
+                      <BookOpen size={16} />
+                      🔍 Read Detailed AI Analysis (Read Analysis Toggle)
+                    </>
                   )}
+                </button>
+                {detailedError && (
+                  <p style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: '0.5rem' }}>{detailedError}</p>
+                )}
+              </div>
+            ) : (
+              <div className="glass-panel animate-fade-in" style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0.5rem' }}>
+                  <h4 style={{ fontSize: '0.95rem', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.35rem', margin: 0 }}>
+                    📚 Comprehensive Detailed AI Analysis
+                  </h4>
                   <button
                     className="btn btn-secondary"
-                    onClick={() => setIsFullscreenSim(true)}
+                    onClick={() => setDetailedAnalysis(null)}
                     style={{ padding: '0.15rem 0.5rem', fontSize: '0.68rem', minHeight: 'auto' }}
                   >
-                    🖥️ Maximize
+                    Hide
                   </button>
                 </div>
-              </div>
 
+                {detailedAnalysis.pros && detailedAnalysis.pros.length > 0 && (
+                  <div>
+                    <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.85rem', color: '#34d399' }}>✓ What you did well</h5>
+                    <ul style={{ margin: 0, paddingLeft: '1.15rem', fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      {detailedAnalysis.pros.map((pro, i) => <li key={i}>{pro}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {detailedAnalysis.cons && detailedAnalysis.cons.length > 0 && (
+                  <div>
+                    <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.85rem', color: '#fca5a5' }}>✗ Misconceptions / Gaps</h5>
+                    <ul style={{ margin: 0, paddingLeft: '1.15rem', fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      {detailedAnalysis.cons.map((con, i) => <li key={i}>{con}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                <div>
+                  <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.85rem', color: 'var(--text-primary)' }}>Concept Explanation</h5>
+                  <div 
+                    className="markdown-content"
+                    dangerouslySetInnerHTML={{ __html: parseMarkdown(detailedAnalysis.detailedExplanation) }}
+                    style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* AI Suggested Card Status (Rating Recommendation) & Scheduled Display */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', textAlign: 'left' }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-light)', padding: '1rem', borderRadius: '12px' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>AI Suggested Card Status</span>
+              <h5 style={{ fontSize: '1.1rem', color: '#a78bfa', margin: '0.25rem 0 0 0', fontWeight: 700 }}>
+                Rating Recommendation: {FSRSRating}
+              </h5>
+            </div>
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-light)', padding: '1rem', borderRadius: '12px' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>FSRS Auto-Scheduled Interval</span>
+              <h5 style={{ fontSize: '1.1rem', color: 'var(--accent-primary)', margin: '0.25rem 0 0 0', fontWeight: 700 }}>
+                Next Review Display: {nextReviewInterval}
+              </h5>
+            </div>
+          </div>
+
+          {/* Gemini Interactive Simulation Canvas */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(255,255,255,0.01)', padding: '1.25rem', borderRadius: '14px', border: '1px solid var(--border-light)', textAlign: 'left' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed rgba(255,255,255,0.06)', paddingBottom: '0.5rem' }}>
+              <strong style={{ color: '#a78bfa', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                🎮 Gemini Interactive Simulation Canvas (Canvas Builder)
+              </strong>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {simulationHtmlList.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.2rem' }}>
+                    {simulationHtmlList.map((sim, sIdx) => (
+                      <button
+                        key={sIdx}
+                        onClick={() => setActiveSimulationIdx(sIdx)}
+                        style={{
+                          background: sIdx === activeSimulationIdx ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)',
+                          border: 'none',
+                          borderRadius: '3px',
+                          color: 'white',
+                          fontSize: '0.65rem',
+                          padding: '0.1rem 0.35rem',
+                          cursor: 'pointer',
+                          fontWeight: 700
+                        }}
+                      >
+                        v{sIdx + 1}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setIsFullscreenSim(true)}
+                  style={{ padding: '0.15rem 0.5rem', fontSize: '0.68rem', minHeight: 'auto' }}
+                >
+                  🖥️ Maximize
+                </button>
+              </div>
+            </div>
+
+            {activeSimHtml ? (
               <iframe
                 title="Archived Simulation Preview"
                 srcDoc={activeSimHtml}
@@ -1272,31 +1710,46 @@ function PastGradingReportModal({ card, log, onClose, settings }) {
                   background: '#0d0e15'
                 }}
               />
+            ) : (
+              <div style={{ background: '#090a0f', height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)', fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                No active simulation html generated for this review.
+              </div>
+            )}
 
-              {/* View Simulation Code */}
-              <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', background: 'rgba(0,0,0,0.15)' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowCodeViewer(!showCodeViewer)}
-                  style={{
-                    width: '100%',
-                    background: 'none',
-                    border: 'none',
-                    padding: '0.4rem 0.6rem',
-                    color: 'var(--text-secondary)',
-                    fontSize: '0.72rem',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <span>📋 View Simulation Source Code</span>
-                  <span>{showCodeViewer ? '▲ Hide' : '▼ Show'}</span>
-                </button>
-                {showCodeViewer && (
-                  <div style={{ padding: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            {/* View Simulation Code (Manual Code Loader & Prompt Viewer) */}
+            <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', background: 'rgba(0,0,0,0.15)' }}>
+              <button
+                type="button"
+                onClick={() => setShowCodeViewer(!showCodeViewer)}
+                style={{
+                  width: '100%',
+                  background: 'none',
+                  border: 'none',
+                  padding: '0.4rem 0.6rem',
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.72rem',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer'
+                }}
+              >
+                <span>📋 Prompt Viewer & Manual Code Loader</span>
+                <span>{showCodeViewer ? '▲ Hide' : '▼ Show'}</span>
+              </button>
+              {showCodeViewer && (
+                <div style={{ padding: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {log.simulation?.prompt && (
+                    <div>
+                      <strong style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>AI Prompt used for generation:</strong>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.2)', padding: '0.4rem', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.03)', whiteSpace: 'pre-wrap' }}>
+                        {log.simulation.prompt}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <strong style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.15rem' }}>Simulation Code (Click to select & edit/load manually):</strong>
                     <textarea
-                      readOnly
+                      readOnly={!activeSimHtml}
                       value={activeSimHtml}
                       style={{
                         width: '100%',
@@ -1309,124 +1762,123 @@ function PastGradingReportModal({ card, log, onClose, settings }) {
                         color: '#a7f3d0'
                       }}
                       onClick={e => e.target.select()}
+                      placeholder="No simulation source code found."
                     />
                   </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* 3D Visualizations block */}
-          {((questionSvgs && questionSvgs.length > 0) || (answerSvgs && answerSvgs.length > 0)) && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(255,255,255,0.01)', padding: '1.25rem', borderRadius: '14px', border: '1px solid var(--border-light)', textAlign: 'left' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <strong style={{ color: 'var(--accent-secondary)', fontSize: '0.85rem' }}>
-                  📐 3D Visual Explanations (Archived)
-                </strong>
-                
-                {/* Visual tabs selectors */}
-                <div style={{ display: 'flex', gap: '0.35rem', background: 'rgba(0,0,0,0.2)', padding: '0.2rem', borderRadius: '6px' }}>
-                  <button
-                    onClick={() => setActiveVisualTab('question')}
-                    style={{
-                      border: 'none',
-                      borderRadius: '4px',
-                      background: activeVisualTab === 'question' ? 'var(--accent-primary)' : 'transparent',
-                      color: activeVisualTab === 'question' ? '#ffffff' : 'var(--text-secondary)',
-                      fontSize: '0.7rem',
-                      padding: '0.25rem 0.5rem',
-                      cursor: 'pointer',
-                      fontWeight: 600
-                    }}
-                  >
-                    Question Diagram
-                  </button>
-                  <button
-                    onClick={() => setActiveVisualTab('answer')}
-                    style={{
-                      border: 'none',
-                      borderRadius: '4px',
-                      background: activeVisualTab === 'answer' ? 'var(--accent-primary)' : 'transparent',
-                      color: activeVisualTab === 'answer' ? '#ffffff' : 'var(--text-secondary)',
-                      fontSize: '0.7rem',
-                      padding: '0.25rem 0.5rem',
-                      cursor: 'pointer',
-                      fontWeight: 600
-                    }}
-                  >
-                    Answer Diagram
-                  </button>
                 </div>
-              </div>
-
-              {/* Diagrams renderer block */}
-              {activeVisualTab === 'question' ? (
-                questionSvgs.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {questionSvgs.length > 1 && (
-                      <div style={{ display: 'flex', gap: '0.2rem' }}>
-                        {questionSvgs.map((_, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => setActiveQuestionSvgIdx(idx)}
-                            style={{
-                              background: idx === activeQuestionSvgIdx ? 'var(--accent-secondary)' : 'rgba(255,255,255,0.05)',
-                              border: 'none',
-                              color: 'white',
-                              fontSize: '0.65rem',
-                              padding: '0.1rem 0.35rem',
-                              borderRadius: '3px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            v{idx + 1}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    <div
-                      style={{ background: '#090a0f', borderRadius: '10px', padding: '1rem', display: 'flex', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.05)' }}
-                      dangerouslySetInnerHTML={{ __html: activeQSvg }}
-                    />
-                  </div>
-                ) : (
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem' }}>No question diagram recorded.</div>
-                )
-              ) : (
-                answerSvgs.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {answerSvgs.length > 1 && (
-                      <div style={{ display: 'flex', gap: '0.2rem' }}>
-                        {answerSvgs.map((_, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => setActiveAnswerSvgIdx(idx)}
-                            style={{
-                              background: idx === activeAnswerSvgIdx ? 'var(--accent-secondary)' : 'rgba(255,255,255,0.05)',
-                              border: 'none',
-                              color: 'white',
-                              fontSize: '0.65rem',
-                              padding: '0.1rem 0.35rem',
-                              borderRadius: '3px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            v{idx + 1}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    <div
-                      style={{ background: '#090a0f', borderRadius: '10px', padding: '1rem', display: 'flex', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.05)' }}
-                      dangerouslySetInnerHTML={{ __html: activeASvg }}
-                    />
-                  </div>
-                ) : (
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem' }}>No answer diagram recorded.</div>
-                )
               )}
             </div>
-          )}
+          </div>
+
+          {/* 3D Visualizations block (SVG Diagrams) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'rgba(255,255,255,0.01)', padding: '1.25rem', borderRadius: '14px', border: '1px solid var(--border-light)', textAlign: 'left' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <strong style={{ color: 'var(--accent-secondary)', fontSize: '0.85rem' }}>
+                📐 3D Visual Explanations / SVG Diagrams (Generate Answer Animation)
+              </strong>
+              
+              {/* Visual tabs selectors */}
+              <div style={{ display: 'flex', gap: '0.35rem', background: 'rgba(0,0,0,0.2)', padding: '0.2rem', borderRadius: '6px' }}>
+                <button
+                  onClick={() => setActiveVisualTab('question')}
+                  style={{
+                    border: 'none',
+                    borderRadius: '4px',
+                    background: activeVisualTab === 'question' ? 'var(--accent-primary)' : 'transparent',
+                    color: activeVisualTab === 'question' ? '#ffffff' : 'var(--text-secondary)',
+                    fontSize: '0.7rem',
+                    padding: '0.25rem 0.5rem',
+                    cursor: 'pointer',
+                    fontWeight: 600
+                  }}
+                >
+                  Question Diagram
+                </button>
+                <button
+                  onClick={() => setActiveVisualTab('answer')}
+                  style={{
+                    border: 'none',
+                    borderRadius: '4px',
+                    background: activeVisualTab === 'answer' ? 'var(--accent-primary)' : 'transparent',
+                    color: activeVisualTab === 'answer' ? '#ffffff' : 'var(--text-secondary)',
+                    fontSize: '0.7rem',
+                    padding: '0.25rem 0.5rem',
+                    cursor: 'pointer',
+                    fontWeight: 600
+                  }}
+                >
+                  Answer Diagram
+                </button>
+              </div>
+            </div>
+
+            {/* Diagrams renderer block */}
+            {activeVisualTab === 'question' ? (
+              questionSvgs.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {questionSvgs.length > 1 && (
+                    <div style={{ display: 'flex', gap: '0.2rem' }}>
+                      {questionSvgs.map((_, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setActiveQuestionSvgIdx(idx)}
+                          style={{
+                            background: idx === activeQuestionSvgIdx ? 'var(--accent-secondary)' : 'rgba(255,255,255,0.05)',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '0.65rem',
+                            padding: '0.1rem 0.35rem',
+                            borderRadius: '3px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          v{idx + 1}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div
+                    style={{ background: '#090a0f', borderRadius: '10px', padding: '1rem', display: 'flex', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.05)' }}
+                    dangerouslySetInnerHTML={{ __html: activeQSvg }}
+                  />
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem' }}>No question diagram recorded.</div>
+              )
+            ) : (
+              answerSvgs.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {answerSvgs.length > 1 && (
+                    <div style={{ display: 'flex', gap: '0.2rem' }}>
+                      {answerSvgs.map((_, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setActiveAnswerSvgIdx(idx)}
+                          style={{
+                            background: idx === activeAnswerSvgIdx ? 'var(--accent-secondary)' : 'rgba(255,255,255,0.05)',
+                            border: 'none',
+                            color: 'white',
+                            fontSize: '0.65rem',
+                            padding: '0.1rem 0.35rem',
+                            borderRadius: '3px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          v{idx + 1}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div
+                    style={{ background: '#090a0f', borderRadius: '10px', padding: '1rem', display: 'flex', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.05)' }}
+                    dangerouslySetInnerHTML={{ __html: activeASvg }}
+                  />
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1.5rem' }}>No answer diagram recorded.</div>
+              )
+            )}
+          </div>
 
         </div>
 

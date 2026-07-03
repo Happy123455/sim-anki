@@ -1233,6 +1233,7 @@ export default function App() {
             highlights: evaluation?.highlights || [],
             conceptHighlights: evaluation?.conceptHighlights || [],
             memoryAnchor: evaluation?.memoryAnchor || card.evaluation?.memoryAnchor || card.memoryAnchor || '',
+            puzzlePieces: evaluation?.puzzlePieces || [],
             simulationHtml: card.simulationHtml || null,
             simulationHtmlList: card.simulationHtmlList || [],
             questionSvgs: card.questionSvgs || [],
@@ -1267,7 +1268,8 @@ export default function App() {
             simulation: evaluation?.simulation || null,
             highlights: evaluation?.highlights || [],
             conceptHighlights: evaluation?.conceptHighlights || [],
-            memoryAnchor: evaluation?.memoryAnchor || c.evaluation?.memoryAnchor || c.memoryAnchor || '',
+            memoryAnchor: evaluation?.memoryAnchor || c.evaluation?.memoryAnchor || c.concept || '',
+            puzzlePieces: evaluation?.puzzlePieces || [],
             simulationHtml: c.simulationHtml || null,
             simulationHtmlList: c.simulationHtmlList || [],
             questionSvgs: c.questionSvgs || [],
@@ -1351,7 +1353,7 @@ export default function App() {
           fontFamily: 'monospace'
         }}
       >
-        v2.2.1
+        v2.3.0
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (
