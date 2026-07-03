@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Award, Clock, Star, Layers, X, TrendingUp, ChevronDown, ChevronUp, Sparkles, Trash2, RefreshCw } from 'lucide-react';
+import { Calendar, Award, Clock, Star, Layers, X, TrendingUp, ChevronDown, ChevronUp, Sparkles, Trash2, RefreshCw, BookOpen } from 'lucide-react';
 import SimulationRenderer from './SimulationRenderer';
 import { highlightAnswerText, highlightConceptText } from './StudySession';
 import { generate3DVisualAnimation, getDetailedAnalysis, chatTutorStep } from '../utils/gemini';
