@@ -253,6 +253,12 @@ export default function App() {
     if (!Array.isArray(cardsList)) return [];
     return cardsList.map(card => {
       const { simulationHtml, simulationHtmlList, answerSvgs, questionSvgs, ...rest } = card;
+      if (Array.isArray(rest.history)) {
+        rest.history = rest.history.map(log => {
+          const { simulationHtml: logSim, simulationHtmlList: logSimList, questionSvgs: logQS, answerSvgs: logAS, ...logRest } = log;
+          return logRest;
+        });
+      }
       return rest;
     });
   };
@@ -1322,7 +1328,7 @@ export default function App() {
           fontFamily: 'monospace'
         }}
       >
-        v2.0.0
+        v2.2.0
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (
