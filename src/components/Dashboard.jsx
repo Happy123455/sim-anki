@@ -545,6 +545,9 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     } else if (sortBy === 'recent') {
       valA = a.history && a.history.length > 0 ? new Date(a.history[a.history.length - 1].date).getTime() : 0;
       valB = b.history && b.history.length > 0 ? new Date(b.history[b.history.length - 1].date).getTime() : 0;
+    } else if (sortBy === 'aiComplexity') {
+      valA = a.predictedDifficultyScore !== undefined && a.predictedDifficultyScore !== null ? a.predictedDifficultyScore : -1;
+      valB = b.predictedDifficultyScore !== undefined && b.predictedDifficultyScore !== null ? b.predictedDifficultyScore : -1;
     }
     
     if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
@@ -1419,26 +1422,22 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
             </div>
 
             <div className="ai-actions-row">
-               {hasFeatureUnlocked(settings, 'categorization') && (
-                 <>
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={handleCategorize}
-                    disabled={isCategorizing || Cards.filter(c => c.deckId === activeDeckId).length === 0}
-                    style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(139, 92, 246, 0.1)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}
-                  >
-                    {isCategorizing ? '🤖 Categorizing...' : '🤖 Auto-Categorize Cards'}
-                  </button>
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={handlePredictiveGrading}
-                    disabled={isPredicting || Cards.filter(c => c.deckId === activeDeckId).length === 0}
-                    style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(236, 72, 153, 0.1)', color: '#f472b6', border: '1px solid rgba(236, 72, 153, 0.3)', gap: '0.3rem' }}
-                  >
-                    {isPredicting ? '🔮 Predicting...' : '🔮 Predict Card Difficulties'}
-                  </button>
-                 </>
-               )}
+              <button 
+                className="btn btn-secondary" 
+                onClick={handleCategorize}
+                disabled={isCategorizing || Cards.filter(c => c.deckId === activeDeckId).length === 0}
+                style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(139, 92, 246, 0.1)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}
+              >
+                {isCategorizing ? '🤖 Categorizing...' : '🤖 Auto-Categorize Cards'}
+              </button>
+              <button 
+                className="btn btn-secondary" 
+                onClick={handlePredictiveGrading}
+                disabled={isPredicting || Cards.filter(c => c.deckId === activeDeckId).length === 0}
+                style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(236, 72, 153, 0.1)', color: '#f472b6', border: '1px solid rgba(236, 72, 153, 0.3)', gap: '0.3rem' }}
+              >
+                {isPredicting ? '🔮 Predicting...' : '🔮 Predict Card Difficulties'}
+              </button>
             </div>
 
             {deckTab === 'cards' && (
@@ -1612,6 +1611,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                     <option value="reps">Repetitions</option>
                     <option value="fails">Lapses (Fails)</option>
                     <option value="recent">Recently Reviewed</option>
+                    <option value="aiComplexity">🔮 AI Complexity</option>
                   </select>
 
                   <select 
@@ -1853,7 +1853,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                       </div>
 
                       <div className="card-actions">
-                        {hasFeatureUnlocked(settings, 'categorization') && !card.paused && !card.suspended && settings.deviceMode !== 'mac' && (
+                        {!card.paused && !card.suspended && settings.deviceMode !== 'mac' && (
                           <button 
                             className="card-action-btn" 
                             onClick={() => handleOpenRefactorModal(card)}
@@ -2624,7 +2624,7 @@ function MindMapNode({ node, cards, onOpenCardDetails }) {
   };
 
   return (
-    <div style={{ paddingLeft: '1.25rem', textAlign: 'left', borderLeft: '1px dashed var(--border-light)', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+    <div className="mindmap-node" style={{ textAlign: 'left', borderLeft: '1px dashed var(--border-light)', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
       <div 
         style={{ 
           display: 'flex', 

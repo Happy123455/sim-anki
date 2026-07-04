@@ -492,6 +492,10 @@ textarea {
   align-items: center;
 }
 
+.mindmap-node {
+  padding-left: 1.25rem;
+}
+
 /* ═══════════════════════════════════════════════ */
 /* 📱 Mobile — Review Mode Optimization           */
 /* Touch targets ≥ 44px, vertical stacking,       */
@@ -723,6 +727,14 @@ textarea {
     justify-content: center;
     padding: 0.65rem 0.5rem !important;
     font-size: 0.88rem !important;
+  }
+
+  .mindmap-node {
+    padding-left: 0.6rem !important;
+  }
+
+  .mindmap-node span {
+    font-size: 0.82rem !important;
   }
 
   /* Smaller headings on mobile */
