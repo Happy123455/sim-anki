@@ -1383,24 +1383,14 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-start', marginBottom: '-0.5rem' }}>
                {hasFeatureUnlocked(settings, 'categorization') && (
-                 <>
-                   <button 
-                     className="btn btn-secondary" 
-                     onClick={handleCategorize}
-                     disabled={isCategorizing || Cards.filter(c => c.deckId === activeDeckId).length === 0}
-                     style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(139, 92, 246, 0.1)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}
-                   >
-                     {isCategorizing ? '🤖 Categorizing...' : '🤖 Auto-Categorize Cards'}
-                   </button>
-                   <button 
-                     className="btn btn-secondary" 
-                     onClick={handlePredictiveGrading}
-                     disabled={isPredicting || Cards.filter(c => c.deckId === activeDeckId).length === 0}
-                     style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(236, 72, 153, 0.1)', color: '#f472b6', border: '1px solid rgba(236, 72, 153, 0.3)', gap: '0.3rem' }}
-                   >
-                     {isPredicting ? '🔮 Predicting...' : '🔮 Predict Card Difficulties'}
-                   </button>
-                 </>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={handleCategorize}
+                    disabled={isCategorizing || Cards.filter(c => c.deckId === activeDeckId).length === 0}
+                    style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(139, 92, 246, 0.1)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}
+                  >
+                    {isCategorizing ? '🤖 Categorizing...' : '🤖 Auto-Categorize Cards'}
+                  </button>
                )}
             </div>
 
@@ -1530,22 +1520,6 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                     <option value="rote">Rote Card</option>
                     <option value="vocabulary">Vocabulary Card</option>
                     <option value="default">Default / Other</option>
-                  </select>
-                </div>
-
-                {/* AI Predict Filter */}
-                <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, paddingLeft: '0.2rem' }}>AI Predict</span>
-                  <select 
-                    value={aiPredictFilter} 
-                    onChange={e => setAiPredictFilter(e.target.value)}
-                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', borderRadius: '6px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
-                  >
-                    <option value="">All</option>
-                    <option value="easy">Predicted Easy</option>
-                    <option value="medium">Predicted Medium</option>
-                    <option value="hard">Predicted Hard</option>
-                    <option value="unpredicted">Unpredicted / None</option>
                   </select>
                 </div>
               </div>
@@ -1802,23 +1776,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                             <span className={`badge ${dueStatus ? 'badge-due' : 'badge-learn'}`} style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
                               {dueStatus ? 'Due' : 'Scheduled'}
                             </span>
-                            {card.predictedDifficulty && (
-                              <span 
-                                title={card.predictedDifficultyReason} 
-                                style={{ 
-                                  fontSize: '0.75rem', 
-                                  color: card.predictedDifficulty === 'easy' ? '#34d399' : card.predictedDifficulty === 'hard' ? '#fca5a5' : '#fbbf24', 
-                                  background: card.predictedDifficulty === 'easy' ? 'rgba(16, 185, 129, 0.1)' : card.predictedDifficulty === 'hard' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)', 
-                                  border: `1px solid ${card.predictedDifficulty === 'easy' ? 'rgba(16, 185, 129, 0.2)' : card.predictedDifficulty === 'hard' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)'}`,
-                                  padding: '0.1rem 0.5rem', 
-                                  borderRadius: '4px',
-                                  fontWeight: 600,
-                                  cursor: 'help'
-                                }}
-                              >
-                                AI Predict: {card.predictedDifficulty.toUpperCase()}
-                              </span>
-                            )}
+
                             {(card.paused || card.suspended) && (
                               <span style={{ fontSize: '0.75rem', color: '#9ca3af', background: 'rgba(156, 163, 175, 0.15)', border: '1px solid rgba(156, 163, 175, 0.3)', padding: '0.1rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>
                                 PAUSED (SPLIT)
