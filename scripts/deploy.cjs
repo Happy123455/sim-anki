@@ -24,7 +24,7 @@ async function deploy() {
         // Delete older inactive or conflict deployments to clear the Pages compilation queue
         for (const dep of deployments) {
           const age = Date.now() - new Date(dep.created_at).getTime();
-          if (age < 60 * 60 * 1000) { // Limit to deployments from the last 1 hour
+          if (age < 48 * 60 * 60 * 1000) { // Limit to deployments from the last 48 hours
             console.log(`🗑️ Deleting deployment: ${dep.id} (${dep.created_at})`);
             await fetch(`https://api.github.com/repos/${repo}/deployments/${dep.id}`, {
               method: 'DELETE',
