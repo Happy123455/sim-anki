@@ -1011,6 +1011,16 @@ export default function App() {
   };
 
   // --- DECK MANAGEMENT HANDLERS ---
+  const handleUpdateDeck = (deckId, title, description) => {
+    const updatedDecks = decks.map(d => {
+      if (d.id === deckId) {
+        return { ...d, title, description };
+      }
+      return d;
+    });
+    saveDecks(updatedDecks);
+  };
+
   const handleCreateDeck = (title, description) => {
     const newId = `deck-${Date.now()}`;
     const newDeck = {
@@ -1355,7 +1365,7 @@ export default function App() {
           fontFamily: 'monospace'
         }}
       >
-        v2.4.2
+        v2.5.0
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (
@@ -1443,6 +1453,7 @@ export default function App() {
           settings={settings}
           onCreateDeck={handleCreateDeck}
           onDeleteDeck={handleDeleteDeck}
+          onUpdateDeck={handleUpdateDeck}
           onAddCard={handleAddCard}
           onDeleteCard={handleDeleteCard}
           onStartStudy={handleStartStudy}

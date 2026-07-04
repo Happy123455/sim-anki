@@ -7,7 +7,7 @@ import ImportModal from './ImportModal';
 import { generateMindMap, autoCategorizeCards, generateCognitiveProfile, predictCardDifficulties, refactorHardCard } from '../utils/gemini';
 import { hasFeatureUnlocked } from '../utils/gamification';
 
-export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards, onRefactorCard }) {
+export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onUpdateDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards, onRefactorCard }) {
   const [showCreateDeckModal, setShowCreateDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
@@ -71,6 +71,9 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [mindMapGenError, setMindMapGenError] = useState(null);
   const [mindMapInstructions, setMindMapInstructions] = useState('');
   const [mindMapModel, setMindMapModel] = useState(settings.model || 'gemini-3.5-flash');
+  const [editingDeckId, setEditingDeckId] = useState(null);
+  const [editDeckTitle, setEditDeckTitle] = useState('');
+  const [editDeckDescription, setEditDeckDescription] = useState('');
 
   useEffect(() => {
     if (settings.model) {
@@ -191,7 +194,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   // Helper to compute card counts for a deck
   const getDeckStats = (deckId) => {
     const deckCards = Cards.filter(c => c.deckId === deckId);
-    const dueCount = deckCards.filter(isDue).length;
+    const dueCount = deckCards.filter(c => c.state && c.state.repetitions > 0 && isDue(c)).length;
     const newCount = deckCards.filter(c => !c.state || c.state.repetitions === 0).length;
     return {
       total: deckCards.length,
@@ -806,32 +809,109 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 boxShadow: isSelected ? '0 0 15px rgba(139, 92, 246, 0.25)' : 'none'
               }}
             >
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
-                  <h3 style={{ fontSize: '1.4rem', color: 'var(--text-primary)' }}>{deck.title}</h3>
-                  <button 
-                    className="btn-text"
-                    onClick={() => {
-                      if (confirm(`Delete the deck "${deck.title}" and all its cards?`)) {
-                        onDeleteDeck(deck.id);
-                        if (activeDeckId === deck.id) setActiveDeckId(null);
-                      }
+              {editingDeckId === deck.id ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%', marginBottom: '1rem', textAlign: 'left' }}>
+                  <input
+                    type="text"
+                    value={editDeckTitle}
+                    onChange={(e) => setEditDeckTitle(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: 'rgba(0,0,0,0.25)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '6px',
+                      color: '#fff',
+                      padding: '0.4rem 0.6rem',
+                      fontSize: '0.95rem'
                     }}
-                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
-                  >
-                    <Trash2 size={16} hover-target="true" />
-                  </button>
+                    placeholder="Deck Title"
+                  />
+                  <textarea
+                    value={editDeckDescription}
+                    onChange={(e) => setEditDeckDescription(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: '60px',
+                      background: 'rgba(0,0,0,0.25)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '6px',
+                      color: '#fff',
+                      padding: '0.4rem 0.6rem',
+                      fontSize: '0.85rem',
+                      resize: 'none'
+                    }}
+                    placeholder="Description"
+                  />
+                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.75rem' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingDeckId(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.75rem' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (editDeckTitle.trim()) {
+                          onUpdateDeck(deck.id, editDeckTitle.trim(), editDeckDescription.trim());
+                          setEditingDeckId(null);
+                        }
+                      }}
+                    >
+                      Save
+                    </button>
+                  </div>
                 </div>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.25rem', height: '40px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {deck.description || "No description provided."}
-                </p>
+              ) : (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                    <h3 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: 0 }}>{deck.title}</h3>
+                    <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingDeckId(deck.id);
+                          setEditDeckTitle(deck.title);
+                          setEditDeckDescription(deck.description || '');
+                        }}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
+                        title="Edit Deck Info"
+                      >
+                        <Edit3 size={15} />
+                      </button>
+                      <button 
+                        className="btn-text"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`Delete the deck "${deck.title}" and all its cards?`)) {
+                            onDeleteDeck(deck.id);
+                            if (activeDeckId === deck.id) setActiveDeckId(null);
+                          }
+                        }}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
+                      >
+                        <Trash2 size={15} hover-target="true" />
+                      </button>
+                    </div>
+                  </div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.25rem', height: '40px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {deck.description || "No description provided."}
+                  </p>
 
-                {/* Badges / Stats */}
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-                  <span className="badge badge-due">{stats.due} Due</span>
-                  <span className="badge badge-new">{stats.new} New</span>
-                  <span className="badge badge-learn" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}>{stats.total} Total</span>
+                  {/* Badges / Stats */}
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                    <span className="badge badge-due">{stats.due} Due</span>
+                    <span className="badge badge-new">{stats.new} New</span>
+                    <span className="badge badge-learn" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}>{stats.total} Total</span>
+                  </div>
                 </div>
+              )}
 
                 {stats.due > 0 && (() => {
                   const est = getEstimatedStudyTime(deck.id);
@@ -855,7 +935,6 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                     </div>
                   );
                 })()}
-              </div>
 
               {/* Action Buttons */}
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>

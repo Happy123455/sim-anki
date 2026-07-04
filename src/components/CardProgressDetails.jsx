@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Award, Clock, Star, Layers, X, TrendingUp, ChevronDown, ChevronUp, Sparkles, Trash2, RefreshCw, BookOpen } from 'lucide-react';
+import { Calendar, Award, Clock, Star, Layers, X, TrendingUp, ChevronDown, ChevronUp, Sparkles, Trash2, RefreshCw, BookOpen, Edit3 } from 'lucide-react';
 import SimulationRenderer from './SimulationRenderer';
 import { highlightAnswerText, highlightConceptText } from './StudySession';
 import { generate3DVisualAnimation, getDetailedAnalysis, chatTutorStep } from '../utils/gemini';
@@ -68,6 +68,21 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose, onUp
   const [isGeneratingVisual, setIsGeneratingVisual] = useState(false);
   const [visualError, setVisualError] = useState(null);
   const [showVisualPanel, setShowVisualPanel] = useState(true);
+
+  // Card Edit States
+  const [isEditing, setIsEditing] = useState(false);
+  const [editQuestion, setEditQuestion] = useState(card.question);
+  const [editConcept, setEditConcept] = useState(card.concept);
+  const [editImageUrl, setEditImageUrl] = useState(card.imageUrl || '');
+  const [editYoutubeUrl, setEditYoutubeUrl] = useState(card.youtubeUrl || '');
+
+  useEffect(() => {
+    setEditQuestion(card.question);
+    setEditConcept(card.concept);
+    setEditImageUrl(card.imageUrl || '');
+    setEditYoutubeUrl(card.youtubeUrl || '');
+    setIsEditing(false);
+  }, [card]);
 
   const handleGenerateVisual = async () => {
     if (!apiKey) {
@@ -465,27 +480,151 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose, onUp
         }}
       >
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <span className="badge badge-learn" style={{ gap: '0.25rem', marginBottom: '0.5rem' }}>
-              <Layers size={12} /> FSRS Progress Statistics
-            </span>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>{card.question}</h2>
-            <p style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', marginTop: '0.25rem' }}>Concept: {card.concept}</p>
-            {card.simplifiedQuestion && (
-              <div 
-                style={{
-                  background: 'rgba(139, 92, 246, 0.06)',
-                  borderLeft: '3px solid var(--accent-primary)',
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: '0 6px 6px 0',
-                  marginTop: '0.5rem',
-                  fontSize: '0.82rem',
-                  color: 'var(--text-secondary)'
-                }}
-              >
-                <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.72rem', textTransform: 'uppercase', marginBottom: '0.15rem' }}>Simplified Question Breakdown</strong>
-                "{card.simplifiedQuestion}"
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+          <div style={{ flexGrow: 1, marginRight: '1rem', textAlign: 'left' }}>
+            {isEditing ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: '600px', background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Question</label>
+                  <input
+                    type="text"
+                    value={editQuestion}
+                    onChange={(e) => setEditQuestion(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: 'rgba(0,0,0,0.25)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '6px',
+                      color: '#fff',
+                      padding: '0.4rem 0.6rem',
+                      fontSize: '0.95rem'
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Reference Concept / Answer</label>
+                  <textarea
+                    value={editConcept}
+                    onChange={(e) => setEditConcept(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: '80px',
+                      background: 'rgba(0,0,0,0.25)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: '6px',
+                      color: '#fff',
+                      padding: '0.4rem 0.6rem',
+                      fontSize: '0.85rem',
+                      resize: 'vertical'
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Image URL (Optional)</label>
+                    <input
+                      type="text"
+                      value={editImageUrl}
+                      onChange={(e) => setEditImageUrl(e.target.value)}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.25)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '6px',
+                        color: '#fff',
+                        padding: '0.4rem 0.6rem',
+                        fontSize: '0.85rem'
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>YouTube Video URL (Optional)</label>
+                    <input
+                      type="text"
+                      value={editYoutubeUrl}
+                      onChange={(e) => setEditYoutubeUrl(e.target.value)}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.25)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '6px',
+                        color: '#fff',
+                        padding: '0.4rem 0.6rem',
+                        fontSize: '0.85rem'
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.25rem' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.75rem' }}
+                    onClick={() => setIsEditing(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.75rem' }}
+                    onClick={() => {
+                      if (editQuestion.trim() && editConcept.trim()) {
+                        onUpdateCard({
+                          ...card,
+                          question: editQuestion.trim(),
+                          concept: editConcept.trim(),
+                          imageUrl: editImageUrl.trim(),
+                          youtubeUrl: editYoutubeUrl.trim()
+                        });
+                        setIsEditing(false);
+                      }
+                    }}
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <span className="badge badge-learn" style={{ gap: '0.25rem', marginBottom: 0 }}>
+                    <Layers size={12} /> FSRS Progress Statistics
+                  </span>
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '6px',
+                      color: 'var(--text-secondary)',
+                      padding: '0.2rem 0.5rem',
+                      fontSize: '0.72rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.25rem'
+                    }}
+                  >
+                    <Edit3 size={11} /> Edit Card Info
+                  </button>
+                </div>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>{card.question}</h2>
+                <p style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', marginTop: '0.25rem' }}>Concept: {card.concept}</p>
+                {card.simplifiedQuestion && (
+                  <div 
+                    style={{
+                      background: 'rgba(139, 92, 246, 0.06)',
+                      borderLeft: '3px solid var(--accent-primary)',
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '0 6px 6px 0',
+                      marginTop: '0.5rem',
+                      fontSize: '0.82rem',
+                      color: 'var(--text-secondary)'
+                    }}
+                  >
+                    <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.72rem', textTransform: 'uppercase', marginBottom: '0.15rem' }}>Simplified Question Breakdown</strong>
+                    "{card.simplifiedQuestion}"
+                  </div>
+                )}
               </div>
             )}
           </div>
