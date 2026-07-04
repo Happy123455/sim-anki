@@ -580,7 +580,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     <>
       <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* Top Header Section */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 0' }}>
+      <div className="dashboard-header">
         <div>
           <h1 style={{ background: 'linear-gradient(135deg, #a78bfa, #ec4899)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '3rem', margin: 0, fontWeight: 800 }}>
             SimAnki
@@ -589,7 +589,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
             Spaced Repetition with AI Grading & Interactive Simulations
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+        <div className="dashboard-header-actions">
           <button className="btn btn-secondary" onClick={onOpenSettings} style={{ gap: '0.5rem' }}>
             <Settings size={18} /> Settings
           </button>
@@ -642,7 +642,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
         const streak = settings.streak || 0;
 
         return (
-          <div className="glass-panel animate-fade-in" style={{ padding: '1.5rem 2rem', background: 'rgba(20, 15, 45, 0.45)', border: '1px solid rgba(139, 92, 246, 0.2)', display: 'grid', gridTemplateColumns: '1fr auto', gap: '2rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="glass-panel animate-fade-in player-profile">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <Trophy size={20} style={{ color: '#fbbf24' }} />
@@ -728,7 +728,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 </p>
 
                 {/* Local Performance progress bars */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem' }}>
+                <div className="cognitive-grid">
                   {heuristics.map(h => {
                     const hasReviews = h.successRate !== null;
                     const successColor = h.successRate >= 80 ? '#34d399' : h.successRate >= 60 ? '#fbbf24' : '#ef4444';
@@ -770,7 +770,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
                   {!isProfilingLoading && cognitiveProfile && (
                     <div className="glass-panel" style={{ background: 'rgba(15, 10, 30, 0.45)', border: '1px solid rgba(139, 92, 246, 0.15)', padding: '1.5rem', borderRadius: '14px', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                      <div className="cognitive-insights-grid">
                         <div>
                           <h4 style={{ margin: '0 0 0.5rem 0', color: '#86efac', fontSize: '0.9rem', fontWeight: 700 }}>🌟 Excels At</h4>
                           <ul style={{ paddingLeft: '1.2rem', margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -814,7 +814,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
       )}
 
       {/* Decks Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '1.5rem', marginTop: '1rem' }}>
+      <div className="deck-grid">
         {Decks.map(deck => {
           const stats = getDeckStats(deck.id);
           const isSelected = activeDeckId === deck.id;
@@ -962,7 +962,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 })()}
 
               {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+              <div className="deck-action-buttons">
                 <button 
                   className="btn btn-primary" 
                   onClick={() => {
@@ -1191,7 +1191,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
             };
 
             return (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem', marginTop: '1.25rem' }}>
+              <div className="stats-grid">
                 
                 {/* ── Future Due Card ── */}
                 <div className="glass-panel" style={{ padding: '1.5rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '12px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -1360,8 +1360,8 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
       {/* Card Manager Panel (Slide down for selected deck) */}
       {activeDeckId && (
-        <div ref={cardManagerRef} className="glass-panel animate-fade-in" style={{ padding: '2rem', border: '1px solid var(--border-light)', marginTop: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <div ref={cardManagerRef} className="glass-panel animate-fade-in card-manager-panel" style={{ padding: '2rem', border: '1px solid var(--border-light)', marginTop: '1rem' }}>
+          <div className="card-manager-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
             <h2 style={{ fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Layers size={22} style={{ color: 'var(--accent-primary)' }} />
               Manage Cards: {Decks.find(d => d.id === activeDeckId)?.title}
@@ -1377,7 +1377,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', alignItems: 'stretch' }}>
             {/* Tab Switcher */}
-            <div style={{ 
+            <div className="deck-tabs" style={{ 
               display: 'flex', 
               gap: '0.5rem', 
               borderBottom: '1px solid var(--border-light)', 
@@ -1418,7 +1418,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
               </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-start', marginBottom: '-0.5rem' }}>
+            <div className="ai-actions-row">
                {hasFeatureUnlocked(settings, 'categorization') && (
                  <>
                   <button 
@@ -1443,7 +1443,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
             {deckTab === 'cards' && (
               <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="card-manager-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ fontSize: '1.2rem', textAlign: 'left', margin: 0 }}>
                 Existing Cards ({Cards.filter(c => c.deckId === activeDeckId).length})
               </h3>
@@ -1457,7 +1457,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
             </div>
 
             {/* Filter and Search Bar */}
-            <div className="glass-panel" style={{ 
+            <div className="glass-panel filter-panel" style={{ 
               padding: '1rem', 
               display: 'flex', 
               flexDirection: 'column', 
@@ -1491,9 +1491,9 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 )}
               </div>
 
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <div className="filter-grid">
                 {/* Difficulty Filter */}
-                <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <div className="filter-item">
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, paddingLeft: '0.2rem' }}>Difficulty</span>
                   <select 
                     value={difficultyFilter} 
@@ -1509,7 +1509,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 </div>
 
                 {/* Stability Filter */}
-                <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <div className="filter-item">
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, paddingLeft: '0.2rem' }}>Stability</span>
                   <select 
                     value={stabilityFilter} 
@@ -1525,7 +1525,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 </div>
 
                 {/* Repetitions Filter */}
-                <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <div className="filter-item">
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, paddingLeft: '0.2rem' }}>Repetitions</span>
                   <select 
                     value={repsFilter} 
@@ -1540,7 +1540,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 </div>
 
                 {/* Consecutive Fails Filter */}
-                <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <div className="filter-item">
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, paddingLeft: '0.2rem' }}>Lapses (Fails)</span>
                   <select 
                     value={failsFilter} 
@@ -1555,7 +1555,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 </div>
 
                 {/* Type Filter */}
-                <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <div className="filter-item">
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, paddingLeft: '0.2rem' }}>Type</span>
                   <select 
                     value={typeFilter} 
@@ -1572,7 +1572,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 </div>
 
                 {/* AI Predict Filter */}
-                <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <div className="filter-item">
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, paddingLeft: '0.2rem' }}>AI Predict</span>
                   <select 
                     value={aiPredictFilter} 
@@ -1588,7 +1588,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.75rem', marginTop: '0.25rem' }}>
+              <div className="sort-row">
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', color: 'var(--text-primary)', cursor: 'pointer', userSelect: 'none' }}>
                   <input 
                     type="checkbox" 
@@ -1599,7 +1599,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   Search / Filter All Decks
                 </label>
 
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginLeft: 'auto' }}>
+                <div className="sort-controls">
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>Sort By</span>
                   <select 
                     value={sortBy} 
@@ -1628,19 +1628,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
             {/* Selection Toolbar */}
             {sortedCards.length > 0 && (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                background: 'rgba(255, 255, 255, 0.02)',
-                padding: '0.75rem 1rem',
-                borderRadius: '8px',
-                border: '1px solid var(--border-light)',
-                marginBottom: '1rem',
-                flexWrap: 'wrap',
-                gap: '0.75rem',
-                textAlign: 'left'
-              }}>
+              <div className="selection-toolbar">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <input 
                     type="checkbox"
@@ -1676,7 +1664,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 </div>
 
                 {selectedCardIds.length > 0 && (
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <div className="selection-actions">
                     {/* Move to Deck Dropdown & Action */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-light)', borderRadius: '6px', padding: '0.1rem 0.25rem' }}>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '0.25rem' }}>Move to:</span>
@@ -1759,7 +1747,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
             )}
 
             {/* Cards List */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '550px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+            <div className="cards-list-container">
               {sortedCards.length === 0 ? (
                 <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                   {Cards.filter(c => c.deckId === activeDeckId).length === 0 
@@ -1772,17 +1760,9 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   return (
                     <div 
                       key={card.id} 
-                      className="glass-panel" 
-                      style={{ 
-                        padding: '1rem 1.25rem', 
-                        background: 'rgba(9, 9, 11, 0.2)',
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center',
-                        textAlign: 'left'
-                      }}
+                      className="glass-panel card-item" 
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, paddingRight: '1.5rem' }}>
+                      <div className="card-item-content">
                         <input
                           type="checkbox"
                           checked={selectedCardIds.includes(card.id)}
@@ -1799,7 +1779,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                           <p style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.25rem', color: 'var(--text-primary)' }}>
                             {idx + 1}. {card.question}
                           </p>
-                          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <div className="card-badges">
                             {searchAllDecks && (
                               <span style={{ fontSize: '0.75rem', color: '#c084fc', background: 'rgba(192, 132, 252, 0.1)', padding: '0.1rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>
                                 Deck: {Decks.find(d => d.id === card.deckId)?.title || "Unknown"}
@@ -1872,12 +1852,12 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <div className="card-actions">
                         {hasFeatureUnlocked(settings, 'categorization') && !card.paused && !card.suspended && settings.deviceMode !== 'mac' && (
                           <button 
-                            className="btn-text" 
+                            className="card-action-btn" 
                             onClick={() => handleOpenRefactorModal(card)}
-                            style={{ background: 'none', border: 'none', color: '#f472b6', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center' }}
+                            style={{ color: '#f472b6' }}
                             title="Make Easy (AI Simplify / Split)"
                             type="button"
                           >
@@ -1885,9 +1865,9 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                           </button>
                         )}
                         <button 
-                          className="btn-text" 
+                          className="card-action-btn" 
                           onClick={() => setActiveCardDetails(card)}
-                          style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center' }}
+                          style={{ color: 'var(--accent-primary)' }}
                           title="View Progress Details & History"
                           type="button"
                         >
@@ -1895,9 +1875,9 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                         </button>
                         {settings.deviceMode !== 'mac' && (
                           <button 
-                            className="btn-text" 
+                            className="card-action-btn" 
                             onClick={() => onDeleteCard(card.id)}
-                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center' }}
+                            style={{ color: 'var(--text-muted)' }}
                             title="Delete Card"
                           >
                             <Trash2 size={16} />

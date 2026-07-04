@@ -1444,6 +1444,7 @@ export default function App() {
       }}>
       {/* 🏷️ Top Corner Version Indicator */}
       <div 
+        className="version-badge"
         style={{
           position: 'fixed',
           top: '12px',
@@ -1462,7 +1463,7 @@ export default function App() {
           fontFamily: 'monospace'
         }}
       >
-        v2.6.1
+        v2.7.0
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (

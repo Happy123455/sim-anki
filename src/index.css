@@ -303,3 +303,472 @@ textarea {
   max-height: 350px;
   display: block;
 }
+
+/* ═══════════════════════════════════════════════ */
+/* 📐 Responsive Utility Classes                  */
+/* ═══════════════════════════════════════════════ */
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+}
+
+.dashboard-header-actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.deck-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.ai-actions-row {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-start;
+  margin-bottom: -0.5rem;
+}
+
+.filter-panel {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  background: rgba(15, 15, 20, 0.4);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+}
+
+.filter-grid {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.filter-item {
+  flex: 1 1 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.card-item {
+  padding: 1rem 1.25rem;
+  background: rgba(9, 9, 11, 0.2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+}
+
+.card-item-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  padding-right: 1.5rem;
+}
+
+.card-badges {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.card-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.card-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.card-action-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.selection-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.selection-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.25rem;
+}
+
+.player-profile {
+  padding: 1.5rem 2rem;
+  background: rgba(20, 15, 45, 0.45);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2rem;
+  align-items: center;
+}
+
+.cognitive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.cognitive-insights-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.deck-action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.cards-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: 550px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.sort-row {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.sort-controls {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-left: auto;
+}
+
+.card-manager-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ═══════════════════════════════════════════════ */
+/* 📱 Mobile — Review Mode Optimization           */
+/* Touch targets ≥ 44px, vertical stacking,       */
+/* comfortable one-handed review experience       */
+/* ═══════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+  #root {
+    padding: 0.65rem;
+    max-width: 100%;
+  }
+
+  /* Header: stack vertically */
+  .dashboard-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+  }
+
+  .dashboard-header h1 {
+    font-size: 2rem !important;
+  }
+
+  .dashboard-header p {
+    font-size: 0.88rem !important;
+  }
+
+  .dashboard-header-actions {
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .dashboard-header-actions .btn {
+    flex: 1 1 auto;
+    min-height: 44px;
+    font-size: 0.82rem;
+    padding: 0.5rem 0.75rem;
+    justify-content: center;
+  }
+
+  /* Deck Grid: single column */
+  .deck-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  /* Player profile: vertical stack */
+  .player-profile {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 1rem;
+  }
+
+  /* Cognitive grid: single column */
+  .cognitive-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .cognitive-insights-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  /* AI Actions: stack vertically, full width tappable */
+  .ai-actions-row {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .ai-actions-row .btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+    font-size: 0.88rem;
+  }
+
+  /* Filter Panel: 2-column grid on mobile */
+  .filter-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .filter-item {
+    flex: unset;
+  }
+
+  .filter-item select {
+    min-height: 40px;
+    font-size: 0.82rem;
+  }
+
+  /* Sort row: stack vertically */
+  .sort-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .sort-controls {
+    margin-left: 0;
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .sort-controls select {
+    flex: 1;
+    min-height: 40px;
+  }
+
+  /* Card manager header: stack */
+  .card-manager-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .card-manager-header .btn {
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  /* Selection Toolbar */
+  .selection-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding: 0.65rem;
+  }
+
+  .selection-actions {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .selection-actions .btn {
+    flex: 1 1 auto;
+    min-height: 40px;
+    justify-content: center;
+  }
+
+  /* Card list: remove fixed height, let it flow */
+  .cards-list-container {
+    max-height: none;
+    padding-right: 0;
+  }
+
+  /* Card item: vertical layout on mobile */
+  .card-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.85rem;
+  }
+
+  .card-item-content {
+    padding-right: 0;
+  }
+
+  .card-item-content p {
+    font-size: 0.92rem !important;
+  }
+
+  .card-badges {
+    gap: 0.4rem;
+  }
+
+  .card-badges span {
+    font-size: 0.68rem !important;
+  }
+
+  /* Card actions: horizontal, aligned right, bigger tap targets */
+  .card-actions {
+    justify-content: flex-end;
+    gap: 0.25rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    padding-top: 0.5rem;
+  }
+
+  .card-action-btn {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  /* Statistics grid: single column */
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  /* Deck action buttons: wrap nicely */
+  .deck-action-buttons {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .deck-action-buttons .btn {
+    flex: 1 1 auto;
+    min-height: 44px;
+    font-size: 0.82rem;
+    padding: 0.45rem 0.5rem;
+  }
+
+  /* Glass panels: tighter padding */
+  .glass-panel {
+    border-radius: 12px;
+  }
+
+  /* Version badge: smaller on mobile */
+  .version-badge {
+    font-size: 0.65rem !important;
+    padding: 0.2rem 0.45rem !important;
+    top: 6px !important;
+    left: 6px !important;
+  }
+
+  /* Deck tab buttons: full width */
+  .deck-tabs {
+    gap: 0;
+  }
+
+  .deck-tabs button {
+    flex: 1;
+    justify-content: center;
+    padding: 0.65rem 0.5rem !important;
+    font-size: 0.88rem !important;
+  }
+
+  /* Smaller headings on mobile */
+  h1 { font-size: 1.8rem; }
+  h2 { font-size: 1.15rem; }
+  h3 { font-size: 1.05rem; }
+}
+
+/* ═══════════════════════════════════════════════ */
+/* 🖥️ Desktop/Mac — Spacious Preview Experience    */
+/* Generous padding, larger readable fonts,        */
+/* magazine-style comfortable scanning             */
+/* ═══════════════════════════════════════════════ */
+
+@media (min-width: 1024px) {
+  .card-item {
+    padding: 1.15rem 1.5rem;
+  }
+
+  .card-item-content p {
+    font-size: 1rem !important;
+  }
+
+  .filter-panel {
+    padding: 1.25rem;
+    gap: 1rem;
+  }
+
+  .filter-item select {
+    padding: 0.45rem 0.6rem;
+  }
+
+  .cards-list-container {
+    max-height: 650px;
+  }
+
+  .stats-grid {
+    gap: 2rem;
+  }
+
+  .cognitive-grid {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .ai-actions-row .btn {
+    padding: 0.5rem 1.25rem;
+  }
+}
