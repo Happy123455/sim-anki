@@ -36,6 +36,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [unlockAllFeatures, setUnlockAllFeatures] = useState(settings.unlockAllFeatures ?? true);
   const [maxHardCardsPer5Min, setMaxHardCardsPer5Min] = useState(settings.maxHardCardsPer5Min ?? 2);
   const [againStepMin, setAgainStepMin] = useState(settings.againStepMin || 10);
+  const [deviceMode, setDeviceMode] = useState(settings.deviceMode || 'mobile');
 
   useEffect(() => {
     const loaded = [];
@@ -92,11 +93,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       setUnlockAllFeatures(settings.unlockAllFeatures ?? true);
       setMaxHardCardsPer5Min(settings.maxHardCardsPer5Min ?? 2);
       setAgainStepMin(settings.againStepMin || 10);
+      setDeviceMode(settings.deviceMode || 'mobile');
     }
   }, [settings]);
 
   const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode });
     setSaveStatus(true);
     setTimeout(() => setSaveStatus(false), 2000);
   };
@@ -107,12 +109,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode });
     const code = await onPushSync(githubPAT, syncCode);
     if (code) {
       setSyncCode(code);
       // Save again with the returned gist ID
-      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin });
+      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode });
     }
   };
 
@@ -125,7 +127,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode });
     await onPullSync(syncCode, githubPAT);
   };
 
@@ -430,6 +432,34 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
           />
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
             Give this device a recognizable name so you know where each backup snapshot originated from.
+          </p>
+        </div>
+
+        {/* Device Mode & Sync Priority Selection */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1.5rem', marginTop: '0.5rem' }}>
+          <label style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            📱 Device Mode & Sync Priority
+          </label>
+          <select
+            value={deviceMode}
+            onChange={(e) => setDeviceMode(e.target.value)}
+            style={{
+              width: '100%',
+              maxWidth: '350px',
+              background: 'rgba(0,0,0,0.25)',
+              border: '1px solid var(--border-light)',
+              borderRadius: '6px',
+              color: 'var(--text-primary)',
+              padding: '0.4rem 0.6rem',
+              fontSize: '0.9rem',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="mobile">Mobile (Review Mode - High Priority)</option>
+            <option value="mac">Mac/Desktop (Preview Mode - Yield on Clash)</option>
+          </select>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+            Choose **Mobile** for your primary review device. Mobile changes will automatically override and win during any sync conflicts. Desktop mode yields to Mobile changes to prevent clashes when previewing or editing.
           </p>
         </div>
 

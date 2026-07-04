@@ -112,6 +112,7 @@ For each card, classify its 'cardType' as EXACTLY ONE of the following:
 - "rote": Simple facts, numbers, dates, equations without proofs, names. Needs strict memorization.
 - "vocabulary": Language translation, terminology definitions, word meanings.
 - "logic": Conceptual questions, "how" or "why" questions, mechanisms, multi-step reasoning, comparisons.
+- "formula": Mathematical derivations, physics/chemistry equations, quantitative calculation steps.
 
 Respond with a JSON array where each object has "id" (the card's ID) and "cardType" (the determined category).
 `;
@@ -132,7 +133,7 @@ Respond with a JSON array where each object has "id" (the card's ID) and "cardTy
             type: "OBJECT",
             properties: {
               id: { type: "STRING" },
-              cardType: { type: "STRING", enum: ["rote", "vocabulary", "logic", "default"] }
+              cardType: { type: "STRING", enum: ["rote", "vocabulary", "logic", "formula", "default"] }
             },
             required: ["id", "cardType"]
           }
@@ -893,10 +894,11 @@ export async function predictCardDifficulties(apiKey, model, cards) {
   }));
 
   const systemPrompt = `You are an expert AI tutor. Analyze the following flashcards and predictively grade their baseline difficulty.
-Classify each card's difficulty as one of: "easy", "medium", or "hard".
-- "easy": Simple definitions, direct lookup questions, short rote facts.
-- "medium": Multi-concept translations, basic calculations, questions requiring explanation of one concept.
-- "hard": Complex system comparisons, quantitative formulas with multiple steps, lengthy or highly technical concepts.
+Assign a baseline difficultyScore as an integer from 0 to 100:
+- "0 to 25" (Easy): Simple direct definitions, direct lookup questions, vocabulary words.
+- "26 to 55" (Medium-Easy): Basic concepts, single-step conceptual connections.
+- "56 to 80" (Medium-Hard): Multi-step explanations, calculations, or formula translations.
+- "81 to 100" (Hard): Complex system comparisons, lengthy engineering/science derivations, multi-step math/logic.
 
 Provide a short 1-sentence reason explaining why it has this difficulty.
 
@@ -904,7 +906,7 @@ You must respond with a JSON array conforming exactly to this schema:
 [
   {
     "id": "card ID",
-    "difficulty": "easy" | "medium" | "hard",
+    "difficultyScore": 0-100,
     "reason": "explanation of difficulty rating"
   }
 ]`;
@@ -922,10 +924,10 @@ You must respond with a JSON array conforming exactly to this schema:
             type: "OBJECT",
             properties: {
               id: { type: "STRING" },
-              difficulty: { type: "STRING", enum: ["easy", "medium", "hard"] },
+              difficultyScore: { type: "INTEGER" },
               reason: { type: "STRING" }
             },
-            required: ["id", "difficulty", "reason"]
+            required: ["id", "difficultyScore", "reason"]
           }
         }
       }

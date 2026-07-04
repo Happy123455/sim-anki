@@ -238,7 +238,7 @@ export function getFriendlyInterval(card, ratingStr, targetRetention = 90, again
  * Chronologically merges local and cloud reviews to prevent split-brain review losses,
  * and reconstructs the correct final FSRS parameters.
  */
-export function mergeDecksAndCards(localDecks, localCards, cloudDecks, cloudCards, targetRetention = 90) {
+export function mergeDecksAndCards(localDecks, localCards, cloudDecks, cloudCards, targetRetention = 90, localDeviceMode = 'mobile', cloudDeviceMode = 'mobile') {
   // 1. Merge Decks
   const mergedDecks = [...localDecks];
   const localDeckIds = new Set(localDecks.map(d => d.id));
@@ -294,10 +294,17 @@ export function mergeDecksAndCards(localDecks, localCards, cloudDecks, cloudCard
           tempCard.state = nextState;
         });
 
-        // Decide which card is the base based on the last review timestamp
-        const localLastReview = localCard.state?.lastReview ? new Date(localCard.state.lastReview).getTime() : 0;
-        const cloudLastReview = cloudCard.state?.lastReview ? new Date(cloudCard.state.lastReview).getTime() : 0;
-        const baseCard = cloudLastReview > localLastReview ? cloudCard : localCard;
+        // Decide which card is the base based on device priority and last review timestamp
+        let baseCard;
+        if (localDeviceMode === 'mobile' && cloudDeviceMode === 'mac') {
+          baseCard = localCard;
+        } else if (cloudDeviceMode === 'mobile' && localDeviceMode === 'mac') {
+          baseCard = cloudCard;
+        } else {
+          const localLastReview = localCard.state?.lastReview ? new Date(localCard.state.lastReview).getTime() : 0;
+          const cloudLastReview = cloudCard.state?.lastReview ? new Date(cloudCard.state.lastReview).getTime() : 0;
+          baseCard = cloudLastReview > localLastReview ? cloudCard : localCard;
+        }
 
         // Merge simulation lists without duplicating identical HTML structures
         const localSims = localCard.simulationHtmlList || [];

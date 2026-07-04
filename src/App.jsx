@@ -198,7 +198,8 @@ const getSettingsPayload = (s) => {
     lastStudyDate: s.lastStudyDate || '',
     unlockAllFeatures: s.unlockAllFeatures ?? true,
     maxHardCardsPer5Min: s.maxHardCardsPer5Min ?? 2,
-    againStepMin: s.againStepMin || 10
+    againStepMin: s.againStepMin || 10,
+    deviceMode: s.deviceMode || 'mobile'
   };
 };
 
@@ -218,11 +219,13 @@ export default function App() {
     streak: 0,
     lastStudyDate: '',
     maxHardCardsPer5Min: 2,
-    againStepMin: 10
+    againStepMin: 10,
+    deviceMode: 'mobile'
   });
   const [decks, setDecks] = useState(initialDecks);
   const [cards, setCards] = useState(initialCards);
   const [activeDeckId, setActiveDeckId] = useState(null);
+  const [previewMode, setPreviewMode] = useState('mobile'); // 'mobile' | 'desktop'
   const [sessionCards, setSessionCards] = useState([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
@@ -367,12 +370,17 @@ export default function App() {
       const localCloudBackups = JSON.parse(localStorage.getItem('simanki_cloud_backups') || '[]');
 
       const targetRetention = localSettings.targetRetention || 90;
+      const localDeviceMode = localSettings.deviceMode || 'mobile';
+      const cloudDeviceMode = cloudData.settings?.deviceMode || 'mobile';
+
       const { decks: mergedDecks, cards: mergedCards } = mergeDecksAndCards(
         localDecks,
         localCards,
         cloudData.decks,
         cloudData.cards,
-        targetRetention
+        targetRetention,
+        localDeviceMode,
+        cloudDeviceMode
       );
 
       const allCloudBackups = [...(cloudData.backups || []), ...localCloudBackups];
@@ -396,6 +404,7 @@ export default function App() {
         apiKey: localSettings.apiKey || '',
         githubPAT: patToUse,
         syncCode: codeToUse,
+        deviceMode: localSettings.deviceMode || 'mobile', // Preserve machine-specific local config
         relaxedMode: cloudData.settings?.relaxedMode !== undefined ? cloudData.settings.relaxedMode : (localSettings.relaxedMode || false),
         stressMode: cloudData.settings?.stressMode !== undefined ? cloudData.settings.stressMode : (localSettings.stressMode || false),
         xp: Math.max(cloudData.settings?.xp || 0, localSettings.xp || 0),
@@ -1343,8 +1352,91 @@ export default function App() {
     return 'Waiting...';
   };
 
+  const useMobileSimulator = (settings.deviceMode === 'mobile') || (settings.deviceMode === 'mac' && previewMode === 'mobile');
+
   return (
     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', flex: 1 }}>
+      {/* 💻 Desktop Preview Console Bar */}
+      {settings.deviceMode === 'mac' && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          background: 'rgba(30, 27, 75, 0.95)',
+          borderBottom: '1px solid var(--border-light)',
+          padding: '0.6rem 1.5rem',
+          fontSize: '0.85rem',
+          color: 'var(--text-primary)',
+          backdropFilter: 'blur(12px)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 100000,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '1rem' }}>💻</span>
+            <span><strong>Mac Preview Mode</strong> (Mobile Priority Sync Active)</span>
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>Toggle Screen View:</span>
+            <button
+              onClick={() => setPreviewMode('mobile')}
+              style={{
+                background: previewMode === 'mobile' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.06)',
+                border: previewMode === 'mobile' ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                borderRadius: '6px',
+                padding: '0.3rem 0.75rem',
+                color: '#fff',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                fontWeight: 600,
+                boxShadow: previewMode === 'mobile' ? '0 0 10px rgba(139, 92, 246, 0.4)' : 'none',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              📱 Mobile Layout
+            </button>
+            <button
+              onClick={() => setPreviewMode('desktop')}
+              style={{
+                background: previewMode === 'desktop' ? 'var(--accent-primary)' : 'rgba(255,255,255,0.06)',
+                border: previewMode === 'desktop' ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                borderRadius: '6px',
+                padding: '0.3rem 0.75rem',
+                color: '#fff',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                fontWeight: 600,
+                boxShadow: previewMode === 'desktop' ? '0 0 10px rgba(139, 92, 246, 0.4)' : 'none',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              🖥️ Full Desktop Layout
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Container Wrapper */}
+      <div style={useMobileSimulator ? {
+        width: '100%',
+        maxWidth: '435px',
+        margin: '2.5rem auto',
+        borderRadius: '38px',
+        border: '12px solid #20202e',
+        boxShadow: '0 30px 60px -15px rgba(0,0,0,0.95), 0 0 0 1px rgba(255,255,255,0.05)',
+        overflow: 'hidden',
+        background: '#0a0a16',
+        minHeight: '880px',
+        display: 'flex',
+        flexDirection: 'column',
+        position: 'relative'
+      } : {
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1
+      }}>
       {/* 🏷️ Top Corner Version Indicator */}
       <div 
         style={{
@@ -1365,7 +1457,7 @@ export default function App() {
           fontFamily: 'monospace'
         }}
       >
-        v2.5.1
+        v2.6.0
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (
@@ -1526,6 +1618,7 @@ export default function App() {
           );
         })()
       )}
+      </div>
     </div>
   );
 }

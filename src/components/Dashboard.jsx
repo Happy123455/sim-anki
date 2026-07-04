@@ -351,7 +351,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
       return;
     }
     const deckCards = Cards.filter(c => c.deckId === activeDeckId);
-    const unpredictedCards = deckCards.filter(c => !c.predictedDifficulty);
+    const unpredictedCards = deckCards.filter(c => c.predictedDifficultyScore === undefined || c.predictedDifficultyScore === null);
     
     if (unpredictedCards.length === 0) {
       alert("All cards in this deck already have predictive grading!");
@@ -370,7 +370,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
       
       const resultsToSave = updatedDiffs.map(res => ({
         id: res.id,
-        predictedDifficulty: res.difficulty,
+        predictedDifficultyScore: res.difficultyScore,
         predictedDifficultyReason: res.reason
       }));
       
@@ -506,11 +506,15 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     }
 
     if (aiPredictFilter) {
-      const pred = card.predictedDifficulty;
+      const score = card.predictedDifficultyScore;
       if (aiPredictFilter === 'unpredicted') {
-        if (pred) return false;
-      } else {
-        if (pred !== aiPredictFilter) return false;
+        if (score !== undefined && score !== null) return false;
+      } else if (aiPredictFilter === 'easy') {
+        if (score === undefined || score === null || score > 30) return false;
+      } else if (aiPredictFilter === 'medium') {
+        if (score === undefined || score === null || score <= 30 || score > 70) return false;
+      } else if (aiPredictFilter === 'hard') {
+        if (score === undefined || score === null || score <= 70) return false;
       }
     }
     
@@ -1383,6 +1387,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-start', marginBottom: '-0.5rem' }}>
                {hasFeatureUnlocked(settings, 'categorization') && (
+                 <>
                   <button 
                     className="btn btn-secondary" 
                     onClick={handleCategorize}
@@ -1391,6 +1396,15 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   >
                     {isCategorizing ? '🤖 Categorizing...' : '🤖 Auto-Categorize Cards'}
                   </button>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={handlePredictiveGrading}
+                    disabled={isPredicting || Cards.filter(c => c.deckId === activeDeckId).length === 0}
+                    style={{ fontSize: '0.85rem', padding: '0.4rem 1rem', background: 'rgba(236, 72, 153, 0.1)', color: '#f472b6', border: '1px solid rgba(236, 72, 153, 0.3)', gap: '0.3rem' }}
+                  >
+                    {isPredicting ? '🔮 Predicting...' : '🔮 Predict Card Difficulties'}
+                  </button>
+                 </>
                )}
             </div>
 
@@ -1519,7 +1533,24 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                     <option value="logic">Logic Card</option>
                     <option value="rote">Rote Card</option>
                     <option value="vocabulary">Vocabulary Card</option>
+                    <option value="formula">Formula Card</option>
                     <option value="default">Default / Other</option>
+                  </select>
+                </div>
+
+                {/* AI Predict Filter */}
+                <div style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, paddingLeft: '0.2rem' }}>AI Predict</span>
+                  <select 
+                    value={aiPredictFilter} 
+                    onChange={e => setAiPredictFilter(e.target.value)}
+                    style={{ fontSize: '0.8rem', padding: '0.35rem 0.5rem', borderRadius: '6px', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
+                  >
+                    <option value="">All</option>
+                    <option value="easy">Easy (&le; 30%)</option>
+                    <option value="medium">Medium (31% - 70%)</option>
+                    <option value="hard">Hard (&ge; 71%)</option>
+                    <option value="unpredicted">Unpredicted / None</option>
                   </select>
                 </div>
               </div>
@@ -1776,6 +1807,28 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                             <span className={`badge ${dueStatus ? 'badge-due' : 'badge-learn'}`} style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
                               {dueStatus ? 'Due' : 'Scheduled'}
                             </span>
+                            {card.predictedDifficultyScore !== undefined && card.predictedDifficultyScore !== null && (() => {
+                              const score = card.predictedDifficultyScore;
+                              const hue = ((100 - score) * 1.2).toFixed(0);
+                              const scoreColor = `hsl(${hue}, 85%, 60%)`;
+                              return (
+                                <span 
+                                  title={card.predictedDifficultyReason} 
+                                  style={{ 
+                                    fontSize: '0.65rem', 
+                                    color: scoreColor, 
+                                    background: `${scoreColor}12`,
+                                    border: `1px solid ${scoreColor}30`, 
+                                    padding: '0.1rem 0.5rem', 
+                                    borderRadius: '4px',
+                                    fontWeight: 700,
+                                    cursor: 'help'
+                                  }}
+                                >
+                                  🔮 Complexity: {score}%
+                                </span>
+                              );
+                            })()}
 
                             {(card.paused || card.suspended) && (
                               <span style={{ fontSize: '0.75rem', color: '#9ca3af', background: 'rgba(156, 163, 175, 0.15)', border: '1px solid rgba(156, 163, 175, 0.3)', padding: '0.1rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>
