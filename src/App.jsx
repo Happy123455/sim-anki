@@ -1357,7 +1357,7 @@ export default function App() {
     return 'Waiting...';
   };
 
-  const useMobileSimulator = (settings.deviceMode === 'mobile') || (settings.deviceMode === 'mac' && previewMode === 'mobile');
+  const useMobileSimulator = settings.deviceMode === 'mac' && previewMode === 'mobile';
 
   return (
     <div style={{ width: '100%', display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -1463,7 +1463,7 @@ export default function App() {
           fontFamily: 'monospace'
         }}
       >
-        v2.7.0
+        v2.7.1
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (
