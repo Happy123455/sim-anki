@@ -593,24 +593,43 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           <button className="btn btn-secondary" onClick={onOpenSettings} style={{ gap: '0.5rem' }}>
             <Settings size={18} /> Settings
           </button>
-          <button 
-            className="btn btn-secondary" 
-            onClick={() => setShowImportModal(true)}
-            style={{ gap: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', color: '#c084fc' }}
-          >
-            <Upload size={18} /> Import Cards
-          </button>
-          <button 
-            className="btn btn-secondary" 
-            onClick={() => setShowAddCardModal(true)}
-            disabled={Decks.length === 0}
-            style={{ gap: '0.5rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', opacity: Decks.length === 0 ? 0.5 : 1, cursor: Decks.length === 0 ? 'not-allowed' : 'pointer' }}
-          >
-            <Plus size={18} /> Add Card
-          </button>
-          <button className="btn btn-primary" onClick={() => setShowCreateDeckModal(true)} style={{ gap: '0.5rem' }}>
-            <Plus size={18} /> Create Deck
-          </button>
+          {settings.deviceMode === 'mac' ? (
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.35rem',
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid var(--border-light)',
+              borderRadius: '8px',
+              padding: '0.5rem 1rem',
+              fontSize: '0.85rem',
+              color: 'var(--text-muted)',
+              fontWeight: 600
+            }}>
+              🔒 Read-Only Preview
+            </span>
+          ) : (
+            <>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowImportModal(true)}
+                style={{ gap: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', color: '#c084fc' }}
+              >
+                <Upload size={18} /> Import Cards
+              </button>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowAddCardModal(true)}
+                disabled={Decks.length === 0}
+                style={{ gap: '0.5rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', opacity: Decks.length === 0 ? 0.5 : 1, cursor: Decks.length === 0 ? 'not-allowed' : 'pointer' }}
+              >
+                <Plus size={18} /> Add Card
+              </button>
+              <button className="btn btn-primary" onClick={() => setShowCreateDeckModal(true)} style={{ gap: '0.5rem' }}>
+                <Plus size={18} /> Create Deck
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -876,33 +895,35 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
                     <h3 style={{ fontSize: '1.4rem', color: 'var(--text-primary)', margin: 0 }}>{deck.title}</h3>
-                    <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingDeckId(deck.id);
-                          setEditDeckTitle(deck.title);
-                          setEditDeckDescription(deck.description || '');
-                        }}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
-                        title="Edit Deck Info"
-                      >
-                        <Edit3 size={15} />
-                      </button>
-                      <button 
-                        className="btn-text"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm(`Delete the deck "${deck.title}" and all its cards?`)) {
-                            onDeleteDeck(deck.id);
-                            if (activeDeckId === deck.id) setActiveDeckId(null);
-                          }
-                        }}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
-                      >
-                        <Trash2 size={15} hover-target="true" />
-                      </button>
-                    </div>
+                    {settings.deviceMode !== 'mac' && (
+                      <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingDeckId(deck.id);
+                            setEditDeckTitle(deck.title);
+                            setEditDeckDescription(deck.description || '');
+                          }}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
+                          title="Edit Deck Info"
+                        >
+                          <Edit3 size={15} />
+                        </button>
+                        <button 
+                          className="btn-text"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Delete the deck "${deck.title}" and all its cards?`)) {
+                              onDeleteDeck(deck.id);
+                              if (activeDeckId === deck.id) setActiveDeckId(null);
+                            }
+                          }}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
+                        >
+                          <Trash2 size={15} hover-target="true" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.25rem', height: '40px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {deck.description || "No description provided."}
@@ -951,21 +972,33 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                       onStartStudy(deck.id, { filter: 'due', type: 'all' });
                     }
                   }}
-                  disabled={stats.total === 0}
-                  style={{ flex: 1.2, gap: '0.35rem', opacity: stats.total === 0 ? 0.5 : 1, cursor: stats.total === 0 ? 'not-allowed' : 'pointer', fontSize: '0.85rem', padding: '0.5rem' }}
-                >
-                  <Play size={14} /> Study
-                </button>
-                <button 
-                  className="btn btn-secondary" 
-                  onClick={() => {
-                    setActiveDeckId(deck.id);
-                    setShowAddCardModal(true);
+                  disabled={stats.total === 0 || settings.deviceMode === 'mac'}
+                  style={{ 
+                    flex: 1.2, 
+                    gap: '0.35rem', 
+                    opacity: (stats.total === 0 || settings.deviceMode === 'mac') ? 0.5 : 1, 
+                    cursor: (stats.total === 0 || settings.deviceMode === 'mac') ? 'not-allowed' : 'pointer', 
+                    fontSize: '0.85rem', 
+                    padding: '0.5rem',
+                    background: settings.deviceMode === 'mac' ? 'rgba(255,255,255,0.02)' : undefined,
+                    border: settings.deviceMode === 'mac' ? '1px solid var(--border-light)' : undefined,
+                    color: settings.deviceMode === 'mac' ? 'var(--text-muted)' : undefined
                   }}
-                  style={{ gap: '0.35rem', fontSize: '0.85rem', padding: '0.5rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', color: '#34d399' }}
                 >
-                  <Plus size={14} /> + Card
+                  {settings.deviceMode === 'mac' ? '🔒 Review Locked' : <><Play size={14} /> Study</>}
                 </button>
+                {settings.deviceMode !== 'mac' && (
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => {
+                      setActiveDeckId(deck.id);
+                      setShowAddCardModal(true);
+                    }}
+                    style={{ gap: '0.35rem', fontSize: '0.85rem', padding: '0.5rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', color: '#34d399' }}
+                  >
+                    <Plus size={14} /> + Card
+                  </button>
+                )}
                 <button 
                   className="btn btn-secondary" 
                   onClick={() => setActiveDeckId(isSelected ? null : deck.id)}
@@ -1840,7 +1873,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                       </div>
 
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        {hasFeatureUnlocked(settings, 'categorization') && !card.paused && !card.suspended && (
+                        {hasFeatureUnlocked(settings, 'categorization') && !card.paused && !card.suspended && settings.deviceMode !== 'mac' && (
                           <button 
                             className="btn-text" 
                             onClick={() => handleOpenRefactorModal(card)}
@@ -1860,14 +1893,16 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                         >
                           <TrendingUp size={16} />
                         </button>
-                        <button 
-                          className="btn-text" 
-                          onClick={() => onDeleteCard(card.id)}
-                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center' }}
-                          title="Delete Card"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {settings.deviceMode !== 'mac' && (
+                          <button 
+                            className="btn-text" 
+                            onClick={() => onDeleteCard(card.id)}
+                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center' }}
+                            title="Delete Card"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );

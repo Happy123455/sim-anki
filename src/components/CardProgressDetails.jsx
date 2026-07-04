@@ -589,23 +589,25 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose, onUp
                   <span className="badge badge-learn" style={{ gap: '0.25rem', marginBottom: 0 }}>
                     <Layers size={12} /> FSRS Progress Statistics
                   </span>
-                  <button
-                    onClick={() => setIsEditing(true)}
-                    style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '6px',
-                      color: 'var(--text-secondary)',
-                      padding: '0.2rem 0.5rem',
-                      fontSize: '0.72rem',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.25rem'
-                    }}
-                  >
-                    <Edit3 size={11} /> Edit Card Info
-                  </button>
+                  {settings.deviceMode !== 'mac' && (
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      style={{
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: '6px',
+                        color: 'var(--text-secondary)',
+                        padding: '0.2rem 0.5rem',
+                        fontSize: '0.72rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem'
+                      }}
+                    >
+                      <Edit3 size={11} /> Edit Card Info
+                    </button>
+                  )}
                 </div>
                 <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)' }}>{card.question}</h2>
                 <p style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', marginTop: '0.25rem' }}>Concept: {card.concept}</p>

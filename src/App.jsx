@@ -717,6 +717,7 @@ export default function App() {
 
   const triggerAutoPush = (newDecks, newCards, customCloudBackups = null, customSettings = null, timestamp = null) => {
     const activeSettings = customSettings || settings;
+    if (activeSettings.deviceMode === 'mac') return;
     if (!activeSettings.githubPAT || !activeSettings.syncCode) return;
     const ts = timestamp || Date.now();
     const activeBackups = customCloudBackups || cloudBackups;
@@ -895,6 +896,10 @@ export default function App() {
   };
 
   const handlePushSync = async (passedPat = null, passedSyncCode = null) => {
+    if (settings.deviceMode === 'mac') {
+      alert("Push Sync is disabled in Mac Preview Mode (Read-Only).");
+      return null;
+    }
     const patToUse = sanitizeToken(passedPat || settings.githubPAT || '');
     if (!patToUse) {
       alert("GitHub Personal Access Token (PAT) is required to push/create a Gist sync.");
@@ -1457,7 +1462,7 @@ export default function App() {
           fontFamily: 'monospace'
         }}
       >
-        v2.6.0
+        v2.6.1
       </div>
       {/* Floating Auto-Sync Status Indicator */}
       {settings.syncCode && settings.githubPAT && (

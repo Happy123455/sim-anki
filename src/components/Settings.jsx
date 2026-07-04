@@ -563,15 +563,17 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
               >
                 {isSyncing ? 'Pulling...' : 'Pull Data'}
               </button>
-              <button 
-                className="btn btn-secondary" 
-                onClick={handlePush} 
-                disabled={!githubPAT || isSyncing}
-                style={{ fontSize: '0.85rem', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
-              >
-                <RefreshCw size={14} className={isSyncing ? "animate-float" : ""} style={{ animation: isSyncing ? "spin 1s linear infinite" : "none" }} />
-                {isSyncing ? 'Syncing...' : syncCode ? 'Push Data' : 'Create Gist & Push'}
-              </button>
+              {deviceMode !== 'mac' && (
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={handlePush} 
+                  disabled={!githubPAT || isSyncing}
+                  style={{ fontSize: '0.85rem', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                >
+                  <RefreshCw size={14} className={isSyncing ? "animate-float" : ""} style={{ animation: isSyncing ? "spin 1s linear infinite" : "none" }} />
+                  {isSyncing ? 'Syncing...' : syncCode ? 'Push Data' : 'Create Gist & Push'}
+                </button>
+              )}
             </div>
             
             {syncCode && (
