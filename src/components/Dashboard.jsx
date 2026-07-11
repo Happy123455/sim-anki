@@ -293,7 +293,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     try {
       const graphData = await generateKnowledgeGraph(
         settings.apiKey,
-        settings.model || 'gemini-3.5-flash',
+        'gemini-3.5-flash',
         {
           fileName: file.name,
           decks: fileDecks.map(d => ({ id: d.id, title: d.title, description: d.description })),
