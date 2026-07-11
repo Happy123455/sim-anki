@@ -25,11 +25,25 @@ const EDGE_STYLES = {
   tagged:       { dash: [3, 3], color: 'rgba(6, 182, 212, 0.3)' }
 };
 
+// Convert difficulty to a HEX color (avoid HSL which breaks alpha appending)
 function getDifficultyColor(card) {
   if (!card || !card.state || !card.state.repetitions) return '#3b82f6';
   const d = card.state.difficulty || 5;
-  const hue = ((10 - d) / 10) * 120;
-  return `hsl(${hue.toFixed(0)}, 75%, 55%)`;
+  const ratio = (10 - d) / 10; // 0 = hard (red), 1 = easy (green)
+  // Interpolate from red (#ef4444) to green (#22c55e)
+  const r = Math.round(239 + (34 - 239) * ratio);
+  const g = Math.round(68 + (197 - 68) * ratio);
+  const b = Math.round(68 + (94 - 68) * ratio);
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
+
+// Safe color-with-alpha: works for hex colors
+function colorAlpha(hexColor, alpha255) {
+  const hex = Math.round(alpha255).toString(16).padStart(2, '0');
+  if (hexColor.startsWith('#') && hexColor.length === 7) {
+    return hexColor + hex;
+  }
+  return hexColor; // Fallback — return as-is
 }
 
 export default function KnowledgeGraph({ graphData, cards = [], decks = [], onClose, onSelectCard, onSelectDeck }) {
@@ -38,18 +52,39 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
   const animFrameRef = useRef(null);
   const nodesRef = useRef([]);
   const edgesRef = useRef([]);
+  const drawRef = useRef(null); // Stable ref to latest draw function
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
-  const [isSimulating, setIsSimulating] = useState(true);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [canvasReady, setCanvasReady] = useState(false);
 
   // Camera state
   const cameraRef = useRef({ x: 0, y: 0, zoom: 1 });
   const dragRef = useRef({ active: false, startX: 0, startY: 0, nodeId: null, lastCamX: 0, lastCamY: 0 });
 
-  // Initialize nodes with positions
+  // Initialize canvas size FIRST on mount
   useEffect(() => {
-    if (!graphData || !graphData.nodes) return;
+    const sizeCanvas = () => {
+      const canvas = canvasRef.current;
+      const container = containerRef.current;
+      if (!canvas || !container) return;
+      const rect = container.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+        setCanvasReady(true);
+      }
+    };
+    // Small delay to ensure DOM has laid out
+    const timer = setTimeout(sizeCanvas, 50);
+    window.addEventListener('resize', sizeCanvas);
+    return () => { clearTimeout(timer); window.removeEventListener('resize', sizeCanvas); };
+  }, []);
+
+  // Initialize nodes with positions (only after canvas is ready)
+  useEffect(() => {
+    if (!canvasReady || !graphData || !graphData.nodes) return;
 
     const cardMap = new Map(cards.map(c => [c.id, c]));
     const nodeCount = graphData.nodes.length;
@@ -66,25 +101,166 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
         vx: 0,
         vy: 0,
         radius: NODE_STYLES[n.type]?.radius || 8,
-        color: n.type === 'card' ? getDifficultyColor(card) : (NODE_STYLES[n.type]?.baseColor || '#888'),
-        glowColor: n.type === 'card' ? getDifficultyColor(card) : (NODE_STYLES[n.type]?.glowColor || '#888'),
+        color: n.type === 'card' ? getDifficultyColor(card) : (NODE_STYLES[n.type]?.baseColor || '#888888'),
+        glowColor: n.type === 'card' ? getDifficultyColor(card) : (NODE_STYLES[n.type]?.glowColor || '#888888'),
         pinned: false
       };
     });
 
     edgesRef.current = (graphData.edges || []).map(e => ({ ...e }));
     setIsSimulating(true);
-  }, [graphData, cards]);
+  }, [canvasReady, graphData, cards]);
 
-  // Force simulation
+  // Draw function
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width === 0 || canvas.height === 0) return;
+    const ctx = canvas.getContext('2d');
+    const { width, height } = canvas;
+    const cam = cameraRef.current;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // Background
+    ctx.fillStyle = '#0a0a16';
+    ctx.fillRect(0, 0, width, height);
+
+    // Grid pattern (subtle)
+    ctx.strokeStyle = 'rgba(255,255,255,0.02)';
+    ctx.lineWidth = 1;
+    const gridSize = 60 * cam.zoom;
+    if (gridSize > 5) {
+      const offsetX = (cam.x * cam.zoom + width / 2) % gridSize;
+      const offsetY = (cam.y * cam.zoom + height / 2) % gridSize;
+      for (let x = offsetX; x < width; x += gridSize) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+      }
+      for (let y = offsetY; y < height; y += gridSize) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+      }
+    }
+
+    ctx.save();
+    ctx.translate(width / 2 + cam.x * cam.zoom, height / 2 + cam.y * cam.zoom);
+    ctx.scale(cam.zoom, cam.zoom);
+
+    const nodes = nodesRef.current;
+    const edges = edgesRef.current;
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+    const searchLower = searchQuery.toLowerCase();
+    const matchesSearch = (n) => !searchQuery || n.label.toLowerCase().includes(searchLower);
+
+    // Draw edges
+    edges.forEach(e => {
+      const source = nodeMap.get(e.source), target = nodeMap.get(e.target);
+      if (!source || !target) return;
+
+      const style = EDGE_STYLES[e.label] || EDGE_STYLES.related;
+      const isHighlighted = hoveredNode && (e.source === hoveredNode.id || e.target === hoveredNode.id);
+
+      ctx.beginPath();
+      ctx.strokeStyle = isHighlighted ? 'rgba(255,255,255,0.6)' : style.color;
+      ctx.lineWidth = isHighlighted ? 2.5 : (1 + (e.weight || 0.5) * 1.5);
+
+      if (style.dash.length) ctx.setLineDash(style.dash);
+      else ctx.setLineDash([]);
+
+      ctx.moveTo(source.x, source.y);
+      ctx.lineTo(target.x, target.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Arrow for prerequisite
+      if (style.arrow) {
+        const dx = target.x - source.x, dy = target.y - source.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 0) {
+          const ux = dx / len, uy = dy / len;
+          const tipX = target.x - ux * target.radius * 1.5;
+          const tipY = target.y - uy * target.radius * 1.5;
+          const arrowSize = 8;
+          ctx.beginPath();
+          ctx.fillStyle = isHighlighted ? 'rgba(255,255,255,0.6)' : style.color;
+          ctx.moveTo(tipX, tipY);
+          ctx.lineTo(tipX - ux * arrowSize + uy * arrowSize * 0.5, tipY - uy * arrowSize - ux * arrowSize * 0.5);
+          ctx.lineTo(tipX - ux * arrowSize - uy * arrowSize * 0.5, tipY - uy * arrowSize + ux * arrowSize * 0.5);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    });
+
+    // Draw nodes
+    nodes.forEach(n => {
+      const matches = matchesSearch(n);
+      const isHovered = hoveredNode && hoveredNode.id === n.id;
+      const isSelected = selectedNode && selectedNode.id === n.id;
+      const dimmed = searchQuery && !matches;
+
+      // Glow
+      if (!dimmed) {
+        ctx.beginPath();
+        const glowRadius = n.radius * (isHovered ? 3.5 : 2.5);
+        const gradient = ctx.createRadialGradient(n.x, n.y, n.radius * 0.3, n.x, n.y, glowRadius);
+        gradient.addColorStop(0, colorAlpha(n.glowColor, 64));
+        gradient.addColorStop(1, colorAlpha(n.glowColor, 0));
+        ctx.fillStyle = gradient;
+        ctx.arc(n.x, n.y, glowRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Node circle
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
+      ctx.globalAlpha = dimmed ? 0.15 : 1;
+      ctx.fillStyle = n.color;
+      ctx.fill();
+      ctx.strokeStyle = isSelected ? '#fbbf24' : isHovered ? '#ffffff' : colorAlpha(n.color, 128);
+      ctx.lineWidth = isSelected ? 3 : isHovered ? 2.5 : 1.5;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Inner highlight
+      if (!dimmed) {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.radius * 0.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fill();
+      }
+
+      // Label
+      const fontSize = n.type === 'deck' ? 11 : n.type === 'concept' ? 10 : 9;
+      ctx.font = `${n.type === 'deck' ? '700' : '500'} ${fontSize}px Inter, system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.globalAlpha = dimmed ? 0.15 : 0.85;
+      ctx.fillStyle = '#ffffff';
+
+      // Truncate long labels
+      let displayLabel = n.label;
+      if (displayLabel.length > 25) displayLabel = displayLabel.substring(0, 22) + '\u2026';
+      ctx.fillText(displayLabel, n.x, n.y + n.radius + 5);
+      ctx.globalAlpha = 1;
+    });
+
+    ctx.restore();
+  }, [searchQuery, hoveredNode, selectedNode]);
+
+  // Keep drawRef always pointing to the latest draw function
+  useEffect(() => { drawRef.current = draw; }, [draw]);
+
+  // Force simulation — uses drawRef to avoid stale closure
   useEffect(() => {
     if (!isSimulating) return;
     let iterCount = 0;
+    let running = true;
 
     const simulate = () => {
+      if (!running) return;
       const nodes = nodesRef.current;
       const edges = edgesRef.current;
-      if (!nodes.length) return;
+      if (!nodes.length) { setIsSimulating(false); return; }
 
       const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
@@ -142,166 +318,23 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
 
       iterCount++;
       if (totalVelocity / nodes.length < SIMULATION.settleThreshold || iterCount > SIMULATION.maxIterations) {
+        if (drawRef.current) drawRef.current();
         setIsSimulating(false);
+        return;
       }
 
-      draw();
-      if (isSimulating) {
-        animFrameRef.current = requestAnimationFrame(simulate);
-      }
+      if (drawRef.current) drawRef.current();
+      animFrameRef.current = requestAnimationFrame(simulate);
     };
 
     animFrameRef.current = requestAnimationFrame(simulate);
-    return () => { if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current); };
+    return () => { running = false; if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current); };
   }, [isSimulating]);
 
-  // Draw
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const { width, height } = canvas;
-    const cam = cameraRef.current;
-
-    ctx.clearRect(0, 0, width, height);
-
-    // Background
-    ctx.fillStyle = '#0a0a16';
-    ctx.fillRect(0, 0, width, height);
-
-    // Grid pattern (subtle)
-    ctx.strokeStyle = 'rgba(255,255,255,0.02)';
-    ctx.lineWidth = 1;
-    const gridSize = 60 * cam.zoom;
-    const offsetX = (cam.x * cam.zoom + width / 2) % gridSize;
-    const offsetY = (cam.y * cam.zoom + height / 2) % gridSize;
-    for (let x = offsetX; x < width; x += gridSize) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
-    }
-    for (let y = offsetY; y < height; y += gridSize) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
-    }
-
-    ctx.save();
-    ctx.translate(width / 2 + cam.x * cam.zoom, height / 2 + cam.y * cam.zoom);
-    ctx.scale(cam.zoom, cam.zoom);
-
-    const nodes = nodesRef.current;
-    const edges = edgesRef.current;
-    const nodeMap = new Map(nodes.map(n => [n.id, n]));
-
-    const searchLower = searchQuery.toLowerCase();
-    const matchesSearch = (n) => !searchQuery || n.label.toLowerCase().includes(searchLower);
-
-    // Draw edges
-    edges.forEach(e => {
-      const source = nodeMap.get(e.source), target = nodeMap.get(e.target);
-      if (!source || !target) return;
-
-      const style = EDGE_STYLES[e.label] || EDGE_STYLES.related;
-      const isHighlighted = hoveredNode && (e.source === hoveredNode.id || e.target === hoveredNode.id);
-
-      ctx.beginPath();
-      ctx.strokeStyle = isHighlighted ? 'rgba(255,255,255,0.6)' : style.color;
-      ctx.lineWidth = isHighlighted ? 2.5 : (1 + (e.weight || 0.5) * 1.5);
-
-      if (style.dash.length) ctx.setLineDash(style.dash);
-      else ctx.setLineDash([]);
-
-      ctx.moveTo(source.x, source.y);
-      ctx.lineTo(target.x, target.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Arrow for prerequisite
-      if (style.arrow) {
-        const dx = target.x - source.x, dy = target.y - source.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        const ux = dx / len, uy = dy / len;
-        const tipX = target.x - ux * target.radius * 1.5;
-        const tipY = target.y - uy * target.radius * 1.5;
-        const arrowSize = 8;
-        ctx.beginPath();
-        ctx.fillStyle = isHighlighted ? 'rgba(255,255,255,0.6)' : style.color;
-        ctx.moveTo(tipX, tipY);
-        ctx.lineTo(tipX - ux * arrowSize + uy * arrowSize * 0.5, tipY - uy * arrowSize - ux * arrowSize * 0.5);
-        ctx.lineTo(tipX - ux * arrowSize - uy * arrowSize * 0.5, tipY - uy * arrowSize + ux * arrowSize * 0.5);
-        ctx.closePath();
-        ctx.fill();
-      }
-    });
-
-    // Draw nodes
-    nodes.forEach(n => {
-      const matches = matchesSearch(n);
-      const isHovered = hoveredNode && hoveredNode.id === n.id;
-      const isSelected = selectedNode && selectedNode.id === n.id;
-      const alpha = searchQuery && !matches ? 0.15 : 1;
-
-      // Glow
-      if (alpha > 0.5) {
-        ctx.beginPath();
-        const gradient = ctx.createRadialGradient(n.x, n.y, n.radius * 0.3, n.x, n.y, n.radius * (isHovered ? 3.5 : 2.5));
-        gradient.addColorStop(0, n.glowColor + '40');
-        gradient.addColorStop(1, n.glowColor + '00');
-        ctx.fillStyle = gradient;
-        ctx.arc(n.x, n.y, n.radius * (isHovered ? 3.5 : 2.5), 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Node circle
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
-      ctx.fillStyle = alpha < 1 ? (n.color + '30') : n.color;
-      ctx.fill();
-      ctx.strokeStyle = isSelected ? '#fbbf24' : isHovered ? '#fff' : (n.color + '80');
-      ctx.lineWidth = isSelected ? 3 : isHovered ? 2.5 : 1.5;
-      ctx.stroke();
-
-      // Inner highlight
-      if (alpha > 0.5) {
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, n.radius * 0.5, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.15)';
-        ctx.fill();
-      }
-
-      // Label
-      const fontSize = n.type === 'deck' ? 11 : n.type === 'concept' ? 10 : 9;
-      ctx.font = `${n.type === 'deck' ? '700' : '500'} ${fontSize}px Inter, system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = alpha < 1 ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.85)';
-
-      // Truncate long labels
-      let displayLabel = n.label;
-      if (displayLabel.length > 25) displayLabel = displayLabel.substring(0, 22) + '\u2026';
-      ctx.fillText(displayLabel, n.x, n.y + n.radius + 5);
-    });
-
-    ctx.restore();
-  }, [searchQuery, hoveredNode, selectedNode]);
-
-  // Redraw when not simulating
+  // Redraw when state changes and not simulating
   useEffect(() => {
-    if (!isSimulating) draw();
-  }, [draw, isSimulating, searchQuery, hoveredNode, selectedNode]);
-
-  // Canvas resize
-  useEffect(() => {
-    const handleResize = () => {
-      const canvas = canvasRef.current;
-      const container = containerRef.current;
-      if (!canvas || !container) return;
-      const rect = container.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-      draw();
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [draw]);
+    if (!isSimulating && canvasReady) draw();
+  }, [draw, isSimulating, canvasReady, searchQuery, hoveredNode, selectedNode]);
 
   // Mouse interactions
   const getNodeAtPos = useCallback((clientX, clientY) => {
@@ -476,13 +509,13 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <span style={{ fontWeight: 700, color: '#c084fc', fontSize: '1rem' }}>{'\uD83E\uDDE0'} Knowledge Graph</span>
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-            {nodeStats.decks}d {nodeStats.cards}c {nodeStats.concepts}concepts {nodeStats.edges}edges
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted, #888)' }}>
+            {nodeStats.decks}d \u00B7 {nodeStats.cards}c \u00B7 {nodeStats.concepts} concepts \u00B7 {nodeStats.edges} edges
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <Search size={14} style={{ position: 'absolute', left: '8px', color: 'var(--text-muted)' }} />
+            <Search size={14} style={{ position: 'absolute', left: '8px', color: '#888' }} />
             <input
               type="text"
               value={searchQuery}
@@ -496,7 +529,7 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
             />
             {searchQuery && (
               <X size={12} onClick={() => setSearchQuery('')}
-                style={{ position: 'absolute', right: '6px', color: 'var(--text-muted)', cursor: 'pointer' }} />
+                style={{ position: 'absolute', right: '6px', color: '#888', cursor: 'pointer' }} />
             )}
           </div>
           <button onClick={zoomOut} style={btnStyle} title="Zoom Out"><ZoomOut size={16} /></button>
@@ -533,9 +566,9 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
             <LegendItem color="#06b6d4" label="Concept" size={9} />
           </div>
           <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
-            <span style={{ color: 'var(--text-muted)' }}>{'\u2500\u2500'} related</span>
-            <span style={{ color: 'var(--text-muted)' }}>- - contains</span>
-            <span style={{ color: 'var(--text-muted)' }}>{'\u2500\u2500\u25B6'} prerequisite</span>
+            <span style={{ color: '#888' }}>{'\u2500\u2500'} related</span>
+            <span style={{ color: '#888' }}>- - contains</span>
+            <span style={{ color: '#888' }}>{'\u2500\u2500\u25B6'} prereq</span>
           </div>
         </div>
 
@@ -568,7 +601,7 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
 
 const btnStyle = {
   background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-  borderRadius: '6px', color: 'var(--text-secondary)', cursor: 'pointer',
+  borderRadius: '6px', color: '#ccc', cursor: 'pointer',
   padding: '0.3rem', display: 'flex', alignItems: 'center'
 };
 
@@ -576,7 +609,7 @@ function LegendItem({ color, label, size }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
       <div style={{ width: size, height: size, borderRadius: '50%', background: color, boxShadow: `0 0 6px ${color}60` }} />
-      <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      <span style={{ color: '#aaa' }}>{label}</span>
     </div>
   );
 }
