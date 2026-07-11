@@ -496,6 +496,23 @@ textarea {
   padding-left: 1.25rem;
 }
 
+.deck-drag-over {
+  border: 2px dashed var(--accent-primary) !important;
+  background: rgba(139, 92, 246, 0.05) !important;
+  transform: scale(1.02);
+  transition: transform 0.15s ease, border 0.15s ease;
+}
+
+.deck-dragging {
+  opacity: 0.45;
+  transform: scale(0.97);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.deck-difficulty-bar {
+  width: 100%;
+}
+
 /* ═══════════════════════════════════════════════ */
 /* 📱 Mobile — Review Mode Optimization           */
 /* Touch targets ≥ 44px, vertical stacking,       */

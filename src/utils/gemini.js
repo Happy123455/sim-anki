@@ -1370,3 +1370,100 @@ Return ONLY a JSON object conforming exactly to this schema:
 }
 
 
+export async function generateKnowledgeGraph(apiKey, model, fileContext) {
+  const { fileName, decks, cards } = fileContext;
+
+  const decksSummary = decks.map(d => `Deck[${d.id}]: "${d.title}" - ${d.description || 'No description'}`).join('\n');
+  const cardsSummary = cards.slice(0, 150).map(c =>
+    `Card[${c.id}] in Deck[${c.deckId}]: Q="${c.question}" Concept="${c.concept}" Type=${c.cardType || 'default'}`
+  ).join('\n');
+
+  const systemPrompt = `You are a knowledge graph builder. Analyze the semantic content, concepts, and relationships between all cards and decks in the folder "${fileName}".
+
+Generate a knowledge graph with:
+1. One node per deck (type: "deck") using the deck's actual ID
+2. One node per card (type: "card") using the card's actual ID
+3. Additional concept nodes (type: "concept") for shared themes connecting 3+ cards. Use "concept-<short-slug>" as ID.
+4. Edges representing relationships:
+   - "contains": deck → card (every card must have this edge to its parent deck)
+   - "related": card ↔ card (shared concepts or knowledge dependency)
+   - "prerequisite": card → card (concept A must be understood before concept B)
+   - "tagged": card or deck → concept
+5. Edge weight 0.0–1.0 based on relationship strength
+
+RULES:
+- Every card MUST have exactly one "contains" edge from its parent deck
+- Only create concept nodes when 3+ cards genuinely share a theme
+- Keep concept labels short (2-4 words)
+- Minimize total edges — prefer strong, meaningful connections over weak ones
+- Maximum 10 concept nodes
+
+DECKS:
+${decksSummary}
+
+CARDS:
+${cardsSummary}`;
+
+  const responseSchema = {
+    type: "object",
+    properties: {
+      nodes: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            label: { type: "string" },
+            type: { type: "string", enum: ["deck", "card", "concept"] }
+          },
+          required: ["id", "label", "type"]
+        }
+      },
+      edges: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            source: { type: "string" },
+            target: { type: "string" },
+            label: { type: "string", enum: ["contains", "related", "prerequisite", "tagged"] },
+            weight: { type: "number" }
+          },
+          required: ["source", "target", "label", "weight"]
+        }
+      }
+    },
+    required: ["nodes", "edges"]
+  };
+
+  const modelToUse = model || 'gemini-3.5-flash';
+  const url = `${API_URL}/${modelToUse}:generateContent?key=${apiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema,
+        temperature: 0.3
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to generate knowledge graph: ${response.statusText}. ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const parsed = cleanAndParseJson(rawText);
+
+  if (!parsed || !parsed.nodes || !parsed.edges) {
+    throw new Error("AI returned invalid graph data structure");
+  }
+
+  return parsed;
+}

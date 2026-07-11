@@ -242,6 +242,14 @@ export default function App() {
       return [];
     }
   });
+  const [files, setFiles] = useState(() => {
+    try {
+      const saved = localStorage.getItem('simanki_files');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
 
   const autoPushTimeoutRef = useRef(null);
 
@@ -368,6 +376,7 @@ export default function App() {
       const localSettings = JSON.parse(localStorage.getItem('simanki_settings') || '{}');
       const localTS = Number(localStorage.getItem('simanki_last_modified')) || 0;
       const localCloudBackups = JSON.parse(localStorage.getItem('simanki_cloud_backups') || '[]');
+      const localFiles = JSON.parse(localStorage.getItem('simanki_files') || '[]');
 
       const targetRetention = localSettings.targetRetention || 90;
       const localDeviceMode = localSettings.deviceMode || 'mobile';
@@ -436,6 +445,22 @@ export default function App() {
         safeLocalStorageSetItem('simanki_cards', JSON.stringify(sanitizeCardsForLocalStorage(mergedCards)));
         safeLocalStorageSetItem('simanki_settings', JSON.stringify(mergedSettings));
         safeLocalStorageSetItem('simanki_cloud_backups', JSON.stringify(finalCloudBackups));
+
+        // Merge files (union by ID, prefer cloud graph data)
+        const cloudFiles = cloudData.files || [];
+        const fileMap = new Map();
+        localFiles.forEach(f => fileMap.set(f.id, { ...f }));
+        cloudFiles.forEach(f => {
+          if (fileMap.has(f.id)) {
+            const local = fileMap.get(f.id);
+            fileMap.set(f.id, { ...local, ...f, knowledgeGraph: f.knowledgeGraph || local.knowledgeGraph });
+          } else {
+            fileMap.set(f.id, { ...f });
+          }
+        });
+        const mergedFiles = Array.from(fileMap.values());
+        setFiles(mergedFiles);
+        safeLocalStorageSetItem('simanki_files', JSON.stringify(mergedFiles));
         
         saveLocalBackup(mergedDecks, mergedCards);
       } else {
@@ -455,6 +480,7 @@ export default function App() {
           cards: mergedCards,
           settings: getSettingsPayload(mergedSettings),
           backups: finalCloudBackups,
+          files: mergedFiles,
           lastModified: finalTS
         };
 
@@ -667,6 +693,7 @@ export default function App() {
             cards: localCards,
             settings: getSettingsPayload(localSettings),
             backups: localCloudBackups,
+            files: JSON.parse(localStorage.getItem('simanki_files') || '[]'),
             lastModified: now
           };
           const gistId = sanitizeGistId(localSettings.syncCode);
@@ -734,6 +761,7 @@ export default function App() {
           cards: newCards,
           settings: getSettingsPayload(activeSettings),
           backups: activeBackups,
+          files: JSON.parse(localStorage.getItem('simanki_files') || '[]'),
           lastModified: ts
         };
         await pushToGist(activeSettings.githubPAT, activeSettings.syncCode, payload);
@@ -942,6 +970,7 @@ export default function App() {
         cards,
         settings: getSettingsPayload(updatedSettings),
         backups: cloudBackups,
+        files,
         lastModified: now
       };
 
@@ -1052,6 +1081,57 @@ export default function App() {
     // Delete all cards associated with that deck
     const updatedCards = cards.filter(c => c.deckId !== deckId);
     saveCards(updatedCards);
+  };
+
+  const handleReorderDecks = (orderedDeckIds) => {
+    const deckMap = new Map(decks.map(d => [d.id, d]));
+    const reordered = orderedDeckIds.map(id => deckMap.get(id)).filter(Boolean);
+    const remaining = decks.filter(d => !orderedDeckIds.includes(d.id));
+    saveDecks([...reordered, ...remaining]);
+  };
+
+  // --- FILE MANAGEMENT HANDLERS ---
+  const saveFiles = (newFiles) => {
+    setFiles(newFiles);
+    safeLocalStorageSetItem('simanki_files', JSON.stringify(newFiles));
+  };
+
+  const handleCreateFile = (name, color) => {
+    const newFile = {
+      id: `file-${Date.now()}`,
+      name,
+      color: color || '#8b5cf6',
+      deckIds: [],
+      isCollapsed: false,
+      knowledgeGraph: null
+    };
+    saveFiles([...files, newFile]);
+    return newFile.id;
+  };
+
+  const handleDeleteFile = (fileId) => {
+    saveFiles(files.filter(f => f.id !== fileId));
+  };
+
+  const handleUpdateFile = (fileId, updates) => {
+    saveFiles(files.map(f => f.id === fileId ? { ...f, ...updates } : f));
+  };
+
+  const handleAddDeckToFile = (deckId, fileId) => {
+    saveFiles(files.map(f => {
+      if (f.id === fileId) {
+        return { ...f, deckIds: [...f.deckIds.filter(id => id !== deckId), deckId] };
+      }
+      return { ...f, deckIds: f.deckIds.filter(id => id !== deckId) };
+    }));
+  };
+
+  const handleRemoveDeckFromFile = (deckId, fileId) => {
+    saveFiles(files.map(f => f.id === fileId ? { ...f, deckIds: f.deckIds.filter(id => id !== deckId) } : f));
+  };
+
+  const handleUpdateFileGraph = (fileId, graphData) => {
+    saveFiles(files.map(f => f.id === fileId ? { ...f, knowledgeGraph: graphData } : f));
   };
 
   // --- CARD MANAGEMENT HANDLERS ---
@@ -1552,6 +1632,7 @@ export default function App() {
           onCreateDeck={handleCreateDeck}
           onDeleteDeck={handleDeleteDeck}
           onUpdateDeck={handleUpdateDeck}
+          onReorderDecks={handleReorderDecks}
           onAddCard={handleAddCard}
           onDeleteCard={handleDeleteCard}
           onStartStudy={handleStartStudy}
@@ -1562,6 +1643,13 @@ export default function App() {
           onUpdateDeckMindMap={handleUpdateDeckMindMap}
           onUpdateCards={handleUpdateCards}
           onRefactorCard={handleRefactorCard}
+          Files={files}
+          onCreateFile={handleCreateFile}
+          onDeleteFile={handleDeleteFile}
+          onUpdateFile={handleUpdateFile}
+          onAddDeckToFile={handleAddDeckToFile}
+          onRemoveDeckFromFile={handleRemoveDeckFromFile}
+          onUpdateFileGraph={handleUpdateFileGraph}
         />
       )}
 

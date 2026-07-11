@@ -4,10 +4,11 @@ import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 
 import ImportModal from './ImportModal';
-import { generateMindMap, autoCategorizeCards, generateCognitiveProfile, predictCardDifficulties, refactorHardCard } from '../utils/gemini';
+import KnowledgeGraph from './KnowledgeGraph';
+import { generateMindMap, autoCategorizeCards, generateCognitiveProfile, predictCardDifficulties, refactorHardCard, generateKnowledgeGraph } from '../utils/gemini';
 import { hasFeatureUnlocked } from '../utils/gamification';
 
-export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onUpdateDeck, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards, onRefactorCard }) {
+export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onUpdateDeck, onReorderDecks, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards, onRefactorCard, Files = [], onCreateFile, onDeleteFile, onUpdateFile, onAddDeckToFile, onRemoveDeckFromFile, onUpdateFileGraph }) {
   const [showCreateDeckModal, setShowCreateDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
@@ -74,6 +75,17 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [editingDeckId, setEditingDeckId] = useState(null);
   const [editDeckTitle, setEditDeckTitle] = useState('');
   const [editDeckDescription, setEditDeckDescription] = useState('');
+  const [draggedDeckId, setDraggedDeckId] = useState(null);
+  const [dragOverDeckId, setDragOverDeckId] = useState(null);
+  const [showCreateFileModal, setShowCreateFileModal] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
+  const [newFileColor, setNewFileColor] = useState('#8b5cf6');
+  const [editingFileId, setEditingFileId] = useState(null);
+  const [editFileName, setEditFileName] = useState('');
+  const FILE_COLORS = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#ec4899'];
+  const [graphFileId, setGraphFileId] = useState(null);
+  const [isGeneratingGraph, setIsGeneratingGraph] = useState(false);
+  const [graphGenError, setGraphGenError] = useState(null);
 
   useEffect(() => {
     if (settings.model) {
@@ -202,6 +214,103 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
       new: newCount,
       graduated: deckCards.length - newCount
     };
+  };
+
+  const getDeckDifficulty = (deckId) => {
+    const deckCards = Cards.filter(c => c.deckId === deckId);
+    if (deckCards.length === 0) return null;
+    const reviewed = deckCards.filter(c => c.state && c.state.repetitions > 0);
+    if (reviewed.length === 0) return { score: 0, label: 'New Deck', color: '#67e8f9' };
+    const avgDifficulty = reviewed.reduce((s, c) => s + c.state.difficulty, 0) / reviewed.length;
+    const avgStability = reviewed.reduce((s, c) => s + c.state.stability, 0) / reviewed.length;
+    const failRate = reviewed.filter(c => (c.state.consecutiveFails || 0) > 0).length / reviewed.length;
+    const score = Math.round(
+      (avgDifficulty / 10) * 40 +
+      Math.max(0, 1 - avgStability / 30) * 30 +
+      failRate * 30
+    );
+    const clampedScore = Math.min(100, Math.max(0, score));
+    const hue = ((100 - clampedScore) * 1.2).toFixed(0);
+    const color = `hsl(${hue}, 80%, 55%)`;
+    const label = clampedScore < 25 ? 'Easy' : clampedScore < 50 ? 'Moderate' : clampedScore < 75 ? 'Hard' : 'Very Hard';
+    return { score: clampedScore, label, color };
+  };
+
+  const handleDeckDragStart = (e, deckId) => {
+    setDraggedDeckId(deckId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', deckId);
+  };
+
+  const handleDeckDragOver = (e, deckId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (deckId !== draggedDeckId) setDragOverDeckId(deckId);
+  };
+
+  const handleDeckDrop = (e, targetDeckId) => {
+    e.preventDefault();
+    if (!draggedDeckId || draggedDeckId === targetDeckId) {
+      setDraggedDeckId(null);
+      setDragOverDeckId(null);
+      return;
+    }
+    const currentIds = Decks.map(d => d.id);
+    const fromIdx = currentIds.indexOf(draggedDeckId);
+    const toIdx = currentIds.indexOf(targetDeckId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const reordered = [...currentIds];
+    reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, draggedDeckId);
+    if (onReorderDecks) onReorderDecks(reordered);
+    setDraggedDeckId(null);
+    setDragOverDeckId(null);
+  };
+
+  const handleDeckDragEnd = () => {
+    setDraggedDeckId(null);
+    setDragOverDeckId(null);
+  };
+
+  const handleGenerateGraph = async (fileId) => {
+    if (!settings.apiKey) {
+      alert('Please configure your Gemini API key in Settings first.');
+      return;
+    }
+    const file = Files.find(f => f.id === fileId);
+    if (!file) return;
+
+    const fileDecks = (file.deckIds || []).map(id => Decks.find(d => d.id === id)).filter(Boolean);
+    const fileCards = Cards.filter(c => fileDecks.some(d => d.id === c.deckId));
+
+    if (fileCards.length === 0) {
+      alert('No cards in this folder to generate a graph from.');
+      return;
+    }
+
+    setIsGeneratingGraph(true);
+    setGraphGenError(null);
+    try {
+      const graphData = await generateKnowledgeGraph(
+        settings.apiKey,
+        settings.model || 'gemini-3.5-flash',
+        {
+          fileName: file.name,
+          decks: fileDecks.map(d => ({ id: d.id, title: d.title, description: d.description })),
+          cards: fileCards.map(c => ({ id: c.id, deckId: c.deckId, question: c.question, concept: c.concept, cardType: c.cardType }))
+        }
+      );
+      if (onUpdateFileGraph) {
+        onUpdateFileGraph(fileId, { ...graphData, lastGenerated: new Date().toISOString() });
+      }
+      setGraphFileId(fileId);
+    } catch (err) {
+      console.error('Graph generation error:', err);
+      setGraphGenError(err.message);
+      alert(`Failed to generate graph: ${err.message}`);
+    } finally {
+      setIsGeneratingGraph(false);
+    }
   };
 
   const getEstimatedStudyTime = (deckId) => {
@@ -816,24 +925,31 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
         </div>
       )}
 
-      {/* Decks Grid */}
-      <div className="deck-grid">
-        {Decks.map(deck => {
+      {/* Decks — Grouped by File */}
+      {(() => {
+        const allFileDecks = new Set(Files.flatMap(f => f.deckIds || []));
+        const ungroupedDecks = Decks.filter(d => !allFileDecks.has(d.id));
+
+        const renderDeckCard = (deck) => {
           const stats = getDeckStats(deck.id);
           const isSelected = activeDeckId === deck.id;
-
           return (
             <div 
               key={deck.id} 
-              className={`glass-panel glass-panel-hover ${isSelected ? 'active-deck' : ''}`}
+              className={`glass-panel glass-panel-hover ${isSelected ? 'active-deck' : ''} ${dragOverDeckId === deck.id ? 'deck-drag-over' : ''} ${draggedDeckId === deck.id ? 'deck-dragging' : ''}`}
               style={{ 
                 padding: '1.5rem', 
                 display: 'flex', 
                 flexDirection: 'column', 
                 justifyContent: 'space-between',
-                border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                border: isSelected ? '1px solid var(--accent-primary)' : dragOverDeckId === deck.id ? '2px dashed var(--accent-primary)' : '1px solid var(--border-light)',
                 boxShadow: isSelected ? '0 0 15px rgba(139, 92, 246, 0.25)' : 'none'
               }}
+              draggable={settings.deviceMode !== 'mac'}
+              onDragStart={(e) => handleDeckDragStart(e, deck.id)}
+              onDragOver={(e) => handleDeckDragOver(e, deck.id)}
+              onDrop={(e) => handleDeckDrop(e, deck.id)}
+              onDragEnd={handleDeckDragEnd}
             >
               {editingDeckId === deck.id ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%', marginBottom: '1rem', textAlign: 'left' }}>
@@ -928,16 +1044,33 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                       </div>
                     )}
                   </div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.25rem', height: '40px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1rem', height: '40px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {deck.description || "No description provided."}
                   </p>
 
                   {/* Badges / Stats */}
-                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
                     <span className="badge badge-due">{stats.due} Due</span>
                     <span className="badge badge-new">{stats.new} New</span>
                     <span className="badge badge-learn" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}>{stats.total} Total</span>
                   </div>
+
+                  {/* Deck Difficulty Bar */}
+                  {(() => {
+                    const diff = getDeckDifficulty(deck.id);
+                    if (!diff) return null;
+                    return (
+                      <div className="deck-difficulty-bar" style={{ marginBottom: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Difficulty</span>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 700, color: diff.color }}>{diff.label} ({diff.score}%)</span>
+                        </div>
+                        <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div style={{ width: `${diff.score}%`, height: '100%', background: `linear-gradient(90deg, hsl(120, 80%, 45%), ${diff.color})`, borderRadius: '3px', transition: 'width 0.5s ease' }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -1012,19 +1145,191 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
               </div>
             </div>
           );
-        })}
+        };
 
-        {Decks.length === 0 && (
-          <div className="glass-panel" style={{ gridColumn: '1 / -1', padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-            <Layers size={48} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
-            <h3>No Decks Found</h3>
-            <p style={{ margin: '0.5rem 0 1.5rem' }}>Create your first deck to get started with Spaced Repetition Simulations.</p>
-            <button className="btn btn-primary" onClick={() => setShowCreateDeckModal(true)}>
-              <Plus size={18} /> Create Deck
-            </button>
-          </div>
-        )}
-      </div>
+        return (
+          <>
+            {/* File Sections */}
+            {Files.map(file => {
+              const fileDecks = (file.deckIds || []).map(id => Decks.find(d => d.id === id)).filter(Boolean);
+              const fileTotalCards = fileDecks.reduce((sum, d) => sum + Cards.filter(c => c.deckId === d.id).length, 0);
+              const fileDueCards = fileDecks.reduce((sum, d) => sum + Cards.filter(c => c.deckId === d.id && c.state && c.state.repetitions > 0 && isDue(c)).length, 0);
+
+              return (
+                <div key={file.id} className="file-section" style={{ marginBottom: '1.5rem' }}>
+                  {/* File Header */}
+                  <div 
+                    className="file-header"
+                    style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      padding: '0.75rem 1.25rem',
+                      background: `${file.color}10`,
+                      border: `1px solid ${file.color}40`,
+                      borderRadius: file.isCollapsed ? '10px' : '10px 10px 0 0',
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => onUpdateFile && onUpdateFile(file.id, { isCollapsed: !file.isCollapsed })}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const deckId = e.dataTransfer.getData('text/plain');
+                      if (deckId && onAddDeckToFile) onAddDeckToFile(deckId, file.id);
+                      setDraggedDeckId(null);
+                      setDragOverDeckId(null);
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      {file.isCollapsed ? <ChevronRight size={18} style={{ color: file.color }} /> : <ChevronDown size={18} style={{ color: file.color }} />}
+                      <span style={{ fontSize: '0.75rem', color: file.color }}>📁</span>
+                      {editingFileId === file.id ? (
+                        <input
+                          type="text"
+                          value={editFileName}
+                          onChange={(e) => setEditFileName(e.target.value)}
+                          onBlur={() => {
+                            if (editFileName.trim() && onUpdateFile) {
+                              onUpdateFile(file.id, { name: editFileName.trim() });
+                            }
+                            setEditingFileId(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              if (editFileName.trim() && onUpdateFile) onUpdateFile(file.id, { name: editFileName.trim() });
+                              setEditingFileId(null);
+                            } else if (e.key === 'Escape') {
+                              setEditingFileId(null);
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                          style={{ background: 'rgba(0,0,0,0.3)', border: `1px solid ${file.color}60`, borderRadius: '4px', color: '#fff', padding: '0.2rem 0.5rem', fontSize: '1rem', fontWeight: 700, width: '200px' }}
+                        />
+                      ) : (
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem' }}>{file.name}</span>
+                      )}
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                        {fileDecks.length} deck{fileDecks.length !== 1 ? 's' : ''} · {fileTotalCards} cards · {fileDueCards} due
+                      </span>
+                    </div>
+                    {settings.deviceMode !== 'mac' && (
+                      <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => { setEditingFileId(file.id); setEditFileName(file.name); }}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
+                          title="Rename File"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                        {/* Color picker */}
+                        <div style={{ display: 'flex', gap: '2px' }}>
+                          {FILE_COLORS.map(c => (
+                            <button
+                              key={c}
+                              onClick={() => onUpdateFile && onUpdateFile(file.id, { color: c })}
+                              style={{
+                                width: '14px', height: '14px', borderRadius: '50%',
+                                background: c, border: file.color === c ? '2px solid #fff' : '1px solid rgba(255,255,255,0.2)',
+                                cursor: 'pointer', padding: 0
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => {
+                            const file2 = Files.find(f2 => f2.id === file.id);
+                            if (file2?.knowledgeGraph) {
+                              setGraphFileId(file.id);
+                            } else {
+                              handleGenerateGraph(file.id);
+                            }
+                          }}
+                          disabled={isGeneratingGraph}
+                          style={{ background: 'none', border: 'none', color: isGeneratingGraph ? 'var(--text-muted)' : '#c084fc', cursor: isGeneratingGraph ? 'wait' : 'pointer', padding: '0.25rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
+                          title={file.knowledgeGraph ? "View Knowledge Graph" : "Generate Knowledge Graph"}
+                        >
+                          <BrainCircuit size={14} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete the folder "${file.name}"? Decks will be moved to Ungrouped.`)) {
+                              if (onDeleteFile) onDeleteFile(file.id);
+                            }
+                          }}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
+                          title="Delete File"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* File Content (Decks inside) */}
+                  {!file.isCollapsed && (
+                    <div style={{ 
+                      border: `1px solid ${file.color}20`, 
+                      borderTop: 'none', 
+                      borderRadius: '0 0 10px 10px',
+                      padding: '1rem',
+                      background: 'rgba(0,0,0,0.15)'
+                    }}>
+                      {fileDecks.length > 0 ? (
+                        <div className="deck-grid">
+                          {fileDecks.map(deck => renderDeckCard(deck))}
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                          Drag decks here or create a new deck to add to this folder.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Ungrouped Decks */}
+            {ungroupedDecks.length > 0 && (
+              <div style={{ marginBottom: '1.5rem' }}>
+                {Files.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', paddingLeft: '0.25rem' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ungrouped Decks</span>
+                  </div>
+                )}
+                <div className="deck-grid">
+                  {ungroupedDecks.map(deck => renderDeckCard(deck))}
+                </div>
+              </div>
+            )}
+
+            {/* Create File Button */}
+            {settings.deviceMode !== 'mac' && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setShowCreateFileModal(true)}
+                  style={{ fontSize: '0.8rem', padding: '0.4rem 1rem', gap: '0.35rem', background: 'rgba(139, 92, 246, 0.05)', border: '1px solid rgba(139, 92, 246, 0.2)', color: '#c084fc' }}
+                >
+                  📁 Create Folder
+                </button>
+              </div>
+            )}
+
+            {Decks.length === 0 && (
+              <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <Layers size={48} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
+                <h3>No Decks Found</h3>
+                <p style={{ margin: '0.5rem 0 1.5rem' }}>Create your first deck to get started with Spaced Repetition Simulations.</p>
+                <button className="btn btn-primary" onClick={() => setShowCreateDeckModal(true)}>
+                  <Plus size={18} /> Create Deck
+                </button>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* ──── Statistics Section: Future Due & Calendar Heatmap ──── */}
       {Cards.length > 0 && (
@@ -2052,6 +2357,75 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
       )}
       </div>
 
+      {/* Create File (Folder) Modal */}
+      {showCreateFileModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center',
+          alignItems: 'center', zIndex: 1000, padding: '1rem'
+        }} onClick={() => setShowCreateFileModal(false)}>
+          <div className="glass-panel" style={{
+            padding: '2rem', maxWidth: '420px', width: '100%',
+            border: '1px solid var(--border-light)'
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '1.25rem', color: 'var(--text-primary)' }}>📁 Create Folder</h3>
+            <input
+              type="text"
+              value={newFileName}
+              onChange={(e) => setNewFileName(e.target.value)}
+              placeholder="Folder name (e.g., Civil Engineering)"
+              autoFocus
+              style={{
+                width: '100%', background: 'rgba(0,0,0,0.25)',
+                border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px',
+                color: '#fff', padding: '0.6rem 0.8rem', fontSize: '0.95rem',
+                marginBottom: '1rem'
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newFileName.trim()) {
+                  onCreateFile(newFileName.trim(), newFileColor);
+                  setNewFileName('');
+                  setNewFileColor('#8b5cf6');
+                  setShowCreateFileModal(false);
+                }
+              }}
+            />
+            <div style={{ marginBottom: '1.25rem' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.5rem' }}>Color</span>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {FILE_COLORS.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setNewFileColor(c)}
+                    style={{
+                      width: '28px', height: '28px', borderRadius: '50%',
+                      background: c, border: newFileColor === c ? '3px solid #fff' : '2px solid rgba(255,255,255,0.15)',
+                      cursor: 'pointer', padding: 0, transition: 'transform 0.15s ease',
+                      transform: newFileColor === c ? 'scale(1.15)' : 'scale(1)'
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowCreateFileModal(false)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                disabled={!newFileName.trim()}
+                onClick={() => {
+                  onCreateFile(newFileName.trim(), newFileColor);
+                  setNewFileName('');
+                  setNewFileColor('#8b5cf6');
+                  setShowCreateFileModal(false);
+                }}
+              >
+                Create Folder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create Deck Modal */}
       {showCreateDeckModal && (
         <div style={{
@@ -2562,6 +2936,30 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           </div>
         </div>
       )}
+
+      {/* Knowledge Graph Modal */}
+      {graphFileId && (() => {
+        const graphFile = Files.find(f => f.id === graphFileId);
+        if (!graphFile || !graphFile.knowledgeGraph) return null;
+        const graphDecks = (graphFile.deckIds || []).map(id => Decks.find(d => d.id === id)).filter(Boolean);
+        const graphCards = Cards.filter(c => graphDecks.some(d => d.id === c.deckId));
+        return (
+          <KnowledgeGraph
+            graphData={graphFile.knowledgeGraph}
+            cards={graphCards}
+            decks={graphDecks}
+            onClose={() => setGraphFileId(null)}
+            onSelectCard={(cardId) => {
+              const card = Cards.find(c => c.id === cardId);
+              if (card) setActiveCardDetails(card);
+            }}
+            onSelectDeck={(deckId) => {
+              setGraphFileId(null);
+              setActiveDeckId(deckId);
+            }}
+          />
+        );
+      })()}
     </>
   );
 }
