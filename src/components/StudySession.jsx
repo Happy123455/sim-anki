@@ -603,7 +603,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     const updateTimer = () => {
       const lastTime = settings.lastHeartReplenishedTime || Date.now();
       const elapsed = Date.now() - lastTime;
-      const remainingMs = Math.max(0, 2 * 60 * 1000 - elapsed);
+      const remainingMs = Math.max(0, 10 * 60 * 1000 - elapsed);
       
       const mins = Math.floor(remainingMs / 60000);
       const secs = Math.floor((remainingMs % 60000) / 1000);
@@ -1742,7 +1742,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             <div style={{ fontSize: '4rem' }}>💔</div>
             <h2 style={{ color: '#f87171', fontWeight: 800, fontSize: '1.5rem', margin: 0 }}>Out of Hearts!</h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.5' }}>
-              You've used all your lives. Hearts replenish automatically over time (1 heart every 2 minutes).
+              You've used all your lives. Hearts replenish automatically over time (1 heart every 10 minutes).
             </p>
             {hearts < maxHearts && (
               <div style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>

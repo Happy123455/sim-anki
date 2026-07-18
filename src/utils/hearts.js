@@ -1,9 +1,9 @@
 /**
  * Gamified Hearts/Lives Replenishment System
- * Handles automatic, time-based recovery of hearts (1 heart every 2 minutes).
+ * Handles automatic, time-based recovery of hearts (1 heart every 10 minutes).
  */
 
-const RECOVER_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+const RECOVER_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
  * Calculates current replenished hearts and the millisecond duration until the next heart.
