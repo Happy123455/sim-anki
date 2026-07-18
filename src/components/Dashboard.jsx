@@ -4,11 +4,12 @@ import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 
 import ImportModal from './ImportModal';
+import { exportToCSV, exportToMarkdown, exportToAnkiTSV } from '../utils/export';
 import KnowledgeGraph from './KnowledgeGraph';
 import { generateMindMap, autoCategorizeCards, generateCognitiveProfile, predictCardDifficulties, refactorHardCard, generateKnowledgeGraph } from '../utils/gemini';
 import { hasFeatureUnlocked } from '../utils/gamification';
 
-export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onUpdateDeck, onReorderDecks, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards, onRefactorCard, Files = [], onCreateFile, onDeleteFile, onUpdateFile, onAddDeckToFile, onRemoveDeckFromFile, onUpdateFileGraph }) {
+export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onUpdateDeck, onReorderDecks, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onOpenAnalytics, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards, onRefactorCard, Files = [], onCreateFile, onDeleteFile, onUpdateFile, onAddDeckToFile, onRemoveDeckFromFile, onUpdateFileGraph }) {
   const [showCreateDeckModal, setShowCreateDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
@@ -47,6 +48,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [activeCardDetails, setActiveCardDetails] = useState(null); // To open stats/progress details modal
   const [showAddCardModal, setShowAddCardModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [selectedDeckId, setSelectedDeckId] = useState('');
 
   // Filters State for Manage Cards
@@ -705,6 +707,9 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           <button className="btn btn-secondary" onClick={onOpenSettings} style={{ gap: '0.5rem' }}>
             <Settings size={18} /> Settings
           </button>
+          <button className="btn btn-secondary" onClick={onOpenAnalytics} style={{ gap: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', color: '#c084fc' }}>
+            <Activity size={18} /> Analytics
+          </button>
           {settings.deviceMode === 'mac' ? (
             <span style={{
               display: 'inline-flex',
@@ -728,6 +733,14 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 style={{ gap: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', color: '#c084fc' }}
               >
                 <Upload size={18} /> Import Cards
+              </button>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowExportModal(true)}
+                disabled={Cards.length === 0}
+                style={{ gap: '0.5rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#60a5fa', opacity: Cards.length === 0 ? 0.5 : 1 }}
+              >
+                <Download size={18} /> Export
               </button>
               <button 
                 className="btn btn-secondary" 
@@ -2661,6 +2674,47 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           onImportCards={onImportCards}
           onClose={() => setShowImportModal(false)}
         />
+      )}
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div className="glass-panel" style={{ padding: '2rem', borderRadius: '16px', maxWidth: '420px', width: '90%', border: '1px solid rgba(59,130,246,0.3)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h3 style={{ margin: 0, color: '#60a5fa', fontWeight: 700 }}>📦 Export Data</h3>
+              <button onClick={() => setShowExportModal(false)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+              Export {Cards.length} cards across {Decks.length} decks.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <button onClick={() => { const n = exportToCSV(Decks, Cards); alert(`Exported ${n} cards to CSV!`); setShowExportModal(false); }}
+                style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '10px', color: '#34d399', padding: '0.75rem 1rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontSize: '1.3rem' }}>📊</span>
+                <div>
+                  <div>CSV Spreadsheet</div>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 400, color: 'var(--text-muted)', marginTop: '0.15rem' }}>For Google Sheets, Excel, etc.</div>
+                </div>
+              </button>
+              <button onClick={() => { const n = exportToMarkdown(Decks, Cards); alert(`Exported ${n} cards to Markdown!`); setShowExportModal(false); }}
+                style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: '10px', color: '#c084fc', padding: '0.75rem 1rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontSize: '1.3rem' }}>📝</span>
+                <div>
+                  <div>Markdown Notes</div>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 400, color: 'var(--text-muted)', marginTop: '0.15rem' }}>For Obsidian, Notion, etc.</div>
+                </div>
+              </button>
+              <button onClick={() => { const n = exportToAnkiTSV(Decks, Cards); alert(`Exported ${n} cards to Anki TSV!`); setShowExportModal(false); }}
+                style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '10px', color: '#fbbf24', padding: '0.75rem 1rem', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, textAlign: 'left', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ fontSize: '1.3rem' }}>🃏</span>
+                <div>
+                  <div>Anki Import (TSV)</div>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 400, color: 'var(--text-muted)', marginTop: '0.15rem' }}>Anki → File → Import</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Study Options Modal */}

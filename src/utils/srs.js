@@ -235,6 +235,36 @@ export function getFriendlyInterval(card, ratingStr, targetRetention = 90, again
 }
 
 /**
+ * Returns the intraday re-insertion delay in milliseconds for the priority queue.
+ * 'again' cards reappear after againStepMin minutes.
+ * 'hard' cards reappear after againStepMin * 2.5 minutes.
+ * 'good'/'easy' cards don't get intraday re-insertion (returns 0).
+ */
+export function getIntradayIntervalMs(rating, againStepMin = 1) {
+  switch (rating) {
+    case 'again': return againStepMin * 60 * 1000;         // e.g. 1 minute
+    case 'hard':  return againStepMin * 2.5 * 60 * 1000;   // e.g. 2.5 minutes
+    default:      return 0;                                 // no re-insertion
+  }
+}
+
+/**
+ * Returns a category for the next-review interval visualizer popup.
+ * Used to pick the right emoji/animation after rating.
+ */
+export function getIntervalCategory(card, ratingStr, targetRetention = 90, againStepMin = 10) {
+  const nextState = calculateNextState(card, ratingStr, targetRetention, null, againStepMin);
+  const days = nextState.interval;
+  
+  if (days === 0) return { key: 'soon', emoji: '⚡', label: 'Coming right back!', color: '#ef4444' };
+  if (days === 1) return { key: 'tomorrow', emoji: '🌅', label: 'Tomorrow', color: '#f59e0b' };
+  if (days <= 3) return { key: 'few_days', emoji: '🔄', label: `${days} days`, color: '#3b82f6' };
+  if (days <= 7) return { key: 'week', emoji: '📅', label: `${days} days`, color: '#8b5cf6' };
+  if (days <= 30) return { key: 'month', emoji: '🚀', label: `${days} days`, color: '#10b981' };
+  return { key: 'mastered', emoji: '🏆', label: `${Math.round(days / 30)}+ months`, color: '#fbbf24' };
+}
+
+/**
  * Chronologically merges local and cloud reviews to prevent split-brain review losses,
  * and reconstructs the correct final FSRS parameters.
  */

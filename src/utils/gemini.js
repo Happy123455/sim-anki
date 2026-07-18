@@ -1467,3 +1467,162 @@ ${cardsSummary}`;
 
   return parsed;
 }
+
+/**
+ * Generates MCQ distractor options for a flashcard.
+ * Returns 3 plausible but incorrect alternatives + the correct answer position.
+ */
+export async function generateMCQOptions(apiKey, model, question, correctAnswer) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const modelToUse = cleanModelName(model || 'gemini-3.5-flash');
+
+  const systemPrompt = `You are an expert question designer. Given a flashcard question and its correct answer, generate 3 plausible but INCORRECT distractor options.
+
+The distractors must:
+- Be similar in length and style to the correct answer
+- Sound plausible to someone who hasn't fully learned the material
+- Cover common misconceptions related to the topic
+- NOT be obviously wrong
+
+Question: ${question}
+Correct Answer: ${correctAnswer}
+
+Return exactly 3 distractor options.`;
+
+  const responseSchema = {
+    type: "OBJECT",
+    properties: {
+      distractors: {
+        type: "ARRAY",
+        items: { type: "STRING" },
+        description: "Exactly 3 plausible but incorrect alternatives"
+      }
+    },
+    required: ["distractors"]
+  };
+
+  const url = `${API_URL}/${modelToUse}:generateContent?key=${trimmedKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema,
+        temperature: 0.7
+      }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`MCQ generation failed: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const parsed = cleanAndParseJson(rawText);
+
+  if (!parsed || !parsed.distractors || parsed.distractors.length < 3) {
+    throw new Error("AI returned insufficient distractor options");
+  }
+
+  return parsed.distractors.slice(0, 3);
+}
+
+/**
+ * Generates a Weekly AI Coach report comparing user performance to their past self.
+ */
+export async function generateWeeklyCoachReport(apiKey, model, weeklyData) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const modelToUse = cleanModelName(model || 'gemini-3.5-flash');
+
+  const systemPrompt = `You are an expert spaced repetition learning coach. Analyze this student's weekly study data and write a personalized performance report.
+
+Compare them to their PREVIOUS WEEK (self-vs-self), NOT to other users.
+
+Weekly Study Data:
+${JSON.stringify(weeklyData, null, 2)}
+
+Write a motivating but honest analysis covering:
+1. Overall Performance Summary (brief, 2-3 sentences)
+2. Key Metrics Change (compared to last week - improved/declined/stable)
+3. Top 3 Weak Areas (specific topics/decks with lowest scores)
+4. Top 3 Strengths (what they're doing well)
+5. Actionable Recommendations (3 specific tips for next week)
+6. Motivational Closing (1 sentence)
+
+Be specific with numbers. Use the data provided.`;
+
+  const responseSchema = {
+    type: "OBJECT",
+    properties: {
+      overallSummary: { type: "STRING" },
+      metricsComparison: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            metric: { type: "STRING" },
+            thisWeek: { type: "STRING" },
+            lastWeek: { type: "STRING" },
+            trend: { type: "STRING", description: "up, down, or stable" }
+          },
+          required: ["metric", "thisWeek", "lastWeek", "trend"]
+        }
+      },
+      weakAreas: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            area: { type: "STRING" },
+            detail: { type: "STRING" }
+          },
+          required: ["area", "detail"]
+        }
+      },
+      strengths: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            strength: { type: "STRING" },
+            detail: { type: "STRING" }
+          },
+          required: ["strength", "detail"]
+        }
+      },
+      recommendations: {
+        type: "ARRAY",
+        items: { type: "STRING" }
+      },
+      motivationalClosing: { type: "STRING" }
+    },
+    required: ["overallSummary", "metricsComparison", "weakAreas", "strengths", "recommendations", "motivationalClosing"]
+  };
+
+  const url = `${API_URL}/${modelToUse}:generateContent?key=${trimmedKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema,
+        temperature: 0.5
+      }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Weekly coach report failed: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}

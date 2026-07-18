@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, X, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
-import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation, generateDetailedMemoryAnchor, generateAnswerNudge } from '../utils/gemini';
-import { getFriendlyInterval } from '../utils/srs';
+import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation, generateDetailedMemoryAnchor, generateAnswerNudge, generateMCQOptions } from '../utils/gemini';
+import { getFriendlyInterval, getIntradayIntervalMs, getIntervalCategory } from '../utils/srs';
 import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
 import InlineTTSButton from './InlineTTSButton';
@@ -551,9 +551,33 @@ function NumericalGuessSlider({ actualValue, userGuess, valueUnit, history }) {
 }
 
 export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {}, onRefactorCard, onUpdateCard }) {
-  const [sessionQueue, setSessionQueue] = useState(() => [...(DueCards || [])]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const currentCard = sessionQueue[currentIndex];
+  // ─── Priority Queue Engine ───
+  const [mainQueue, setMainQueue] = useState(() => [...(DueCards || [])]);
+  const [lapseQueue, setLapseQueue] = useState([]);  // { card, dueAt }
+  const [currentCard, setCurrentCard] = useState(() => (DueCards && DueCards.length > 0) ? DueCards[0] : null);
+  const [completedCount, setCompletedCount] = useState(0);
+  const totalCards = (DueCards || []).length;
+  const [mainQueueIndex, setMainQueueIndex] = useState(1); // starts at 1 because 0th card is already set as currentCard
+  const [waitingForLapse, setWaitingForLapse] = useState(false);
+  const [lapseCountdown, setLapseCountdown] = useState(0);
+
+  // Backwards compat shims — these let all existing code work without changes
+  const sessionQueue = mainQueue;
+  const setSessionQueue = setMainQueue;
+  const currentIndex = mainQueueIndex > 0 ? mainQueueIndex - 1 : 0;
+  const setCurrentIndex = (fn) => {
+    // This shim is only used by the pacing engine swap. For safety, just ignore.
+  };
+
+  // ─── Hearts / Lives System ───
+  const maxHearts = settings.maxHearts || 5;
+  const [hearts, setHearts] = useState(maxHearts);
+  const [heartsEnabled] = useState(settings.heartsEnabled !== false);
+  const [sessionPaused, setSessionPaused] = useState(false);
+  const [heartLostAnim, setHeartLostAnim] = useState(false);
+
+  // ─── Next-Review Visualizer ───
+  const [reviewVisualizer, setReviewVisualizer] = useState(null); // { emoji, label, color }
 
   const [step, setStep] = useState('question'); // 'question' | 'grading' | 'simulation' | 'completed'
   const [userAnswer, setUserAnswer] = useState('');
@@ -562,6 +586,156 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [showHint, setShowHint] = useState(false);
   const [hardCardTimestamps, setHardCardTimestamps] = useState([]);
   const [pacingNotice, setPacingNotice] = useState('');
+
+  // ─── Priority Queue: getNextCard ───
+  const getNextCard = useCallback(() => {
+    // 1. Check lapse queue for any due card
+    const now = Date.now();
+    const dueIdx = lapseQueue.findIndex(l => now >= l.dueAt);
+    if (dueIdx !== -1) {
+      const lapseEntry = lapseQueue[dueIdx];
+      setLapseQueue(prev => prev.filter((_, i) => i !== dueIdx));
+      setWaitingForLapse(false);
+      return lapseEntry.card;
+    }
+
+    // 2. If main queue has cards, take next
+    if (mainQueueIndex < mainQueue.length) {
+      const card = mainQueue[mainQueueIndex];
+      setMainQueueIndex(prev => prev + 1);
+      setWaitingForLapse(false);
+      return card;
+    }
+
+    // 3. If lapse queue has cards but none due yet, wait
+    if (lapseQueue.length > 0) {
+      setWaitingForLapse(true);
+      return null;
+    }
+
+    // 4. All done
+    return 'DONE';
+  }, [lapseQueue, mainQueue, mainQueueIndex]);
+
+  // ─── Lapse queue ticker (checks every second) ───
+  useEffect(() => {
+    if (lapseQueue.length === 0 && !waitingForLapse) return;
+    const ticker = setInterval(() => {
+      const now = Date.now();
+      const dueEntry = lapseQueue.find(l => now >= l.dueAt);
+
+      if (dueEntry && waitingForLapse && !currentCard) {
+        // A lapse card became due while we were waiting
+        setLapseQueue(prev => prev.filter(l => l !== dueEntry));
+        setCurrentCard(dueEntry.card);
+        setWaitingForLapse(false);
+        setStep('question');
+      }
+
+      // Update countdown
+      if (waitingForLapse && lapseQueue.length > 0) {
+        const nearest = Math.min(...lapseQueue.map(l => l.dueAt));
+        setLapseCountdown(Math.max(0, Math.ceil((nearest - now) / 1000)));
+      }
+    }, 1000);
+    return () => clearInterval(ticker);
+  }, [lapseQueue, waitingForLapse, currentCard]);
+
+  // ─── MCQ Mode State ───
+  const [cardFormat, setCardFormat] = useState('standard'); // 'standard' | 'mcq'
+  const [mcqOptions, setMcqOptions] = useState([]); // [string, string, string, string]
+  const [mcqRevealed, setMcqRevealed] = useState(false);
+  const [mcqSelected, setMcqSelected] = useState(null); // index
+  const [mcqCorrectIdx, setMcqCorrectIdx] = useState(-1);
+  const [mcqLoading, setMcqLoading] = useState(false);
+  const [mcqCountdown, setMcqCountdown] = useState(0);
+  const mcqTimerRef = useRef(null);
+
+  // Determine if MCQ should be auto-triggered for this card
+  const shouldAutoMCQ = useCallback((card) => {
+    if (!card) return false;
+    const fails = card.state?.consecutiveFails || 0;
+    const diff = card.state?.difficulty || 0;
+    if (fails >= 2) return true;
+    if (diff >= 7) return true;
+    return false;
+  }, []);
+
+  // Auto-detect card format when currentCard changes
+  useEffect(() => {
+    if (!currentCard) return;
+    if (shouldAutoMCQ(currentCard)) {
+      setCardFormat('mcq');
+    } else {
+      setCardFormat('standard');
+    }
+    setMcqOptions([]);
+    setMcqRevealed(false);
+    setMcqSelected(null);
+    setMcqCorrectIdx(-1);
+    setMcqCountdown(0);
+    if (mcqTimerRef.current) clearInterval(mcqTimerRef.current);
+  }, [currentCard, shouldAutoMCQ]);
+
+  // Load MCQ options when format is 'mcq'
+  useEffect(() => {
+    if (cardFormat !== 'mcq' || !currentCard || mcqOptions.length > 0 || mcqLoading) return;
+    if (!apiKey) return;
+
+    const loadMCQ = async () => {
+      setMcqLoading(true);
+      try {
+        const distractors = await generateMCQOptions(apiKey, model, currentCard.question, currentCard.concept);
+        const correctIdx = Math.floor(Math.random() * 4);
+        const options = [...distractors];
+        options.splice(correctIdx, 0, currentCard.concept);
+        setMcqOptions(options);
+        setMcqCorrectIdx(correctIdx);
+
+        // Start 3-second think countdown before revealing
+        setMcqCountdown(3);
+        mcqTimerRef.current = setInterval(() => {
+          setMcqCountdown(prev => {
+            if (prev <= 1) {
+              clearInterval(mcqTimerRef.current);
+              setMcqRevealed(true);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } catch (e) {
+        console.error('MCQ generation failed:', e);
+        setCardFormat('standard'); // fallback
+      } finally {
+        setMcqLoading(false);
+      }
+    };
+    loadMCQ();
+
+    return () => {
+      if (mcqTimerRef.current) clearInterval(mcqTimerRef.current);
+    };
+  }, [cardFormat, currentCard, mcqOptions.length, mcqLoading, apiKey, model]);
+
+  // Handle MCQ selection
+  const handleMCQSelect = (idx) => {
+    if (mcqSelected !== null) return; // already selected
+    setMcqSelected(idx);
+    const isCorrect = idx === mcqCorrectIdx;
+    setUserAnswer(mcqOptions[idx]);
+
+    if (isCorrect) {
+      playSuccess();
+    } else {
+      playFailure();
+    }
+
+    // Auto-advance to grading after 1 second
+    setTimeout(() => {
+      setStep('grading');
+    }, 1000);
+  };
 
   // Question Simplifier States
   const [showSimplification, setShowSimplification] = useState(false);
@@ -1334,9 +1508,37 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
         evaluation.logicAnalysis || '',
         confidence,
         elapsedTime,
-        evaluation // Pass the full evaluation object to archive the report
+        evaluation
       );
-      
+
+      // ─── Hearts system: lose a heart on 'again' ───
+      const isFailed = rating === 'again';
+      if (isFailed && heartsEnabled) {
+        const newHearts = hearts - 1;
+        setHearts(newHearts);
+        setHeartLostAnim(true);
+        setTimeout(() => setHeartLostAnim(false), 600);
+        if (newHearts <= 0) {
+          setSessionPaused(true);
+          return;
+        }
+      }
+
+      // ─── Next-Review Visualizer popup ───
+      try {
+        const intervalCat = getIntervalCategory(currentCard, rating, targetRetention, settings.againStepMin || 10);
+        setReviewVisualizer(intervalCat);
+        setTimeout(() => setReviewVisualizer(null), 1200);
+      } catch(e) { /* non-critical */ }
+
+      // ─── Priority Queue: re-insert failed/hard cards with timed delay ───
+      const intradayMs = getIntradayIntervalMs(rating, settings.intradayStepMin || 1);
+      if (intradayMs > 0) {
+        setLapseQueue(prev => [...prev, { card: currentCard, dueAt: Date.now() + intradayMs }]);
+      }
+
+      setCompletedCount(prev => prev + 1);
+
       // Reset states for next card
       setUserAnswer('');
       setConfidence(3);
@@ -1349,19 +1551,19 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setNudgeError(null);
       setEditingCodeSim(null);
 
-      const isFailed = rating === 'again';
-      let nextQueueLength = sessionQueue.length;
-      if (isFailed) {
-        setSessionQueue(prev => [...prev, currentCard]);
-        nextQueueLength += 1;
-      }
-
-      if (currentIndex + 1 < nextQueueLength) {
-        setCurrentIndex(prev => prev + 1);
-        setStep('question');
-      } else {
+      // ─── Advance to next card via priority queue ───
+      const next = getNextCard();
+      if (next === 'DONE') {
+        setCurrentCard(null);
         setStep('completed');
         playSimWin();
+      } else if (next === null) {
+        // Waiting for lapse card
+        setCurrentCard(null);
+        setWaitingForLapse(true);
+      } else {
+        setCurrentCard(next);
+        setStep('question');
       }
     } catch (err) {
       console.error('Save & Proceed error:', err);
@@ -1397,11 +1599,11 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '1rem' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cards Studied</span>
-              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0.25rem 0 0 0' }}>{sessionQueue.length}</p>
+              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0.25rem 0 0 0' }}>{completedCount}</p>
             </div>
             <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '1rem' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>XP Earned</span>
-              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#34d399', margin: '0.25rem 0 0 0' }}>+{sessionQueue.length * 15} XP</p>
+              <p style={{ fontSize: '1.5rem', fontWeight: 800, color: '#34d399', margin: '0.25rem 0 0 0' }}>+{completedCount * 15} XP</p>
             </div>
           </div>
 
@@ -1452,6 +1654,32 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     );
   }
 
+  // If waiting for lapse card, show countdown
+  if (waitingForLapse && !currentCard) {
+    return (
+      <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '1.5rem' }}>
+        <div style={{ fontSize: '4rem', animation: 'pulse 2s ease-in-out infinite' }}>⏳</div>
+        <h2 style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '1.5rem', margin: 0 }}>Card Coming Back</h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', textAlign: 'center', maxWidth: '400px' }}>
+          A failed card is scheduled to return. It will reappear in:
+        </p>
+        <div style={{ fontSize: '3rem', fontWeight: 800, color: '#f59e0b', fontVariantNumeric: 'tabular-nums' }}>
+          {lapseCountdown}s
+        </div>
+        <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#ccc', padding: '0.5rem 1.5rem', cursor: 'pointer', fontSize: '0.85rem' }}>
+            End Session
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // If no current card somehow, show loading
+  if (!currentCard) {
+    return <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>Loading...</div>;
+  }
+
   // Calculate rating button intervals
   const againInterval = getFriendlyInterval(currentCard, 'again', targetRetention, settings.againStepMin || 10);
   const hardInterval = getFriendlyInterval(currentCard, 'hard', targetRetention, settings.againStepMin || 10);
@@ -1460,17 +1688,89 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
   return (
     <>
+      {/* ─── Session Paused Overlay (Hearts depleted) ─── */}
+      {sessionPaused && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)' }}>
+          <div className="glass-panel" style={{ padding: '2.5rem', borderRadius: '24px', textAlign: 'center', maxWidth: '420px', border: '1px solid rgba(239,68,68,0.3)', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ fontSize: '4rem' }}>💔</div>
+            <h2 style={{ color: '#f87171', fontWeight: 800, fontSize: '1.5rem', margin: 0 }}>Out of Hearts!</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+              You've used all your lives. Take a breather and come back stronger.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <button onClick={() => { setHearts(maxHearts); setSessionPaused(false); }} style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', border: 'none', borderRadius: '10px', color: '#fff', padding: '0.75rem', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+                ❤️ Restore Hearts & Continue
+              </button>
+              <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', color: '#ccc', padding: '0.6rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                End Session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Next-Review Visualizer Popup ─── */}
+      {reviewVisualizer && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1150,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none'
+        }}>
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem',
+            animation: 'reviewVisualizerPop 1.2s ease-out forwards',
+          }}>
+            <div style={{ fontSize: '5rem', filter: `drop-shadow(0 0 20px ${reviewVisualizer.color})` }}>{reviewVisualizer.emoji}</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 700, color: reviewVisualizer.color, textShadow: `0 0 15px ${reviewVisualizer.color}40` }}>{reviewVisualizer.label}</div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes reviewVisualizerPop {
+          0% { transform: scale(0.3); opacity: 0; }
+          20% { transform: scale(1.15); opacity: 1; }
+          35% { transform: scale(0.95); }
+          50% { transform: scale(1); }
+          80% { opacity: 1; }
+          100% { transform: scale(1.1) translateY(-20px); opacity: 0; }
+        }
+        @keyframes heartPulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(0.6); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
+
       <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', maxWidth: '900px', margin: '0 auto' }}>
       
       {/* Active Session Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-glass)', border: '1px solid var(--border-light)', padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-glass)', border: '1px solid var(--border-light)', padding: '0.75rem 1.25rem', borderRadius: '12px', flexWrap: 'wrap', gap: '0.5rem' }}>
         <div>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Reviewing Deck: </span>
           <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{Deck.title}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {/* Hearts Display */}
+          {heartsEnabled && (
+            <div style={{ display: 'flex', gap: '0.2rem', alignItems: 'center' }}>
+              {Array.from({ length: maxHearts }).map((_, i) => (
+                <span key={i} style={{
+                  fontSize: '1.1rem',
+                  opacity: i < hearts ? 1 : 0.2,
+                  transition: 'opacity 0.3s, transform 0.3s',
+                  animation: (heartLostAnim && i === hearts) ? 'heartPulse 0.6s ease-out' : 'none',
+                  display: 'inline-block'
+                }}>
+                  {i < hearts ? '❤️' : '🖤'}
+                </span>
+              ))}
+            </div>
+          )}
           <span style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
-            Card {currentIndex + 1} of {sessionQueue.length}
+            Card {completedCount + 1} of {totalCards}{lapseQueue.length > 0 ? ` (+${lapseQueue.length} lapse)` : ''}
           </span>
           <button 
             className="btn-text" 
@@ -1756,7 +2056,92 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             </div>
           )}
 
-          {/* User Text Answer */}
+          {/* ─── Card Format Toggle ─── */}
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginBottom: '0.5rem' }}>
+            <button onClick={() => { setCardFormat('standard'); setMcqOptions([]); setMcqRevealed(false); setMcqSelected(null); }}
+              style={{ padding: '0.35rem 1rem', borderRadius: '20px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', border: cardFormat === 'standard' ? '1px solid #8b5cf6' : '1px solid rgba(255,255,255,0.1)', background: cardFormat === 'standard' ? 'rgba(139,92,246,0.2)' : 'transparent', color: cardFormat === 'standard' ? '#c084fc' : '#888', transition: 'all 0.2s' }}>
+              ✍️ Q&A
+            </button>
+            <button onClick={() => setCardFormat('mcq')}
+              style={{ padding: '0.35rem 1rem', borderRadius: '20px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', border: cardFormat === 'mcq' ? '1px solid #f59e0b' : '1px solid rgba(255,255,255,0.1)', background: cardFormat === 'mcq' ? 'rgba(245,158,11,0.2)' : 'transparent', color: cardFormat === 'mcq' ? '#fbbf24' : '#888', transition: 'all 0.2s' }}>
+              🔘 MCQ
+            </button>
+          </div>
+
+          {/* ─── MCQ Mode ─── */}
+          {cardFormat === 'mcq' && step === 'question' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left' }}>
+              {mcqLoading ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem', animation: 'pulse 1.5s ease-in-out infinite' }}>🧠</div>
+                  Generating options...
+                </div>
+              ) : !mcqRevealed ? (
+                <div style={{ textAlign: 'center', padding: '2rem' }}>
+                  <div style={{ fontSize: '1.2rem', color: '#f59e0b', fontWeight: 700, marginBottom: '0.75rem' }}>
+                    🤔 Think of your answer first!
+                  </div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                    Try to recall the answer before seeing the options.
+                  </p>
+                  {mcqCountdown > 0 ? (
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color: '#8b5cf6', fontVariantNumeric: 'tabular-nums' }}>{mcqCountdown}</div>
+                  ) : (
+                    <button onClick={() => setMcqRevealed(true)}
+                      style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', border: 'none', borderRadius: '10px', color: '#fff', padding: '0.6rem 1.5rem', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+                      Reveal Options →
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Select the correct answer:
+                  </label>
+                  {mcqOptions.map((option, idx) => {
+                    const isSelected = mcqSelected === idx;
+                    const isCorrect = idx === mcqCorrectIdx;
+                    const showResult = mcqSelected !== null;
+
+                    let bg = 'rgba(255,255,255,0.03)';
+                    let border = '1px solid rgba(255,255,255,0.1)';
+                    let textColor = 'var(--text-primary)';
+
+                    if (showResult) {
+                      if (isCorrect) {
+                        bg = 'rgba(16,185,129,0.15)';
+                        border = '1px solid rgba(16,185,129,0.5)';
+                        textColor = '#34d399';
+                      } else if (isSelected && !isCorrect) {
+                        bg = 'rgba(239,68,68,0.15)';
+                        border = '1px solid rgba(239,68,68,0.5)';
+                        textColor = '#f87171';
+                      }
+                    }
+
+                    return (
+                      <button key={idx} onClick={() => handleMCQSelect(idx)}
+                        disabled={mcqSelected !== null}
+                        style={{
+                          padding: '0.85rem 1rem', borderRadius: '10px', cursor: mcqSelected !== null ? 'default' : 'pointer',
+                          background: bg, border, color: textColor, fontSize: '0.9rem', textAlign: 'left',
+                          display: 'flex', alignItems: 'center', gap: '0.75rem', transition: 'all 0.2s',
+                          opacity: showResult && !isCorrect && !isSelected ? 0.4 : 1
+                        }}>
+                        <span style={{ width: '24px', height: '24px', borderRadius: '50%', border: showResult && isCorrect ? '2px solid #34d399' : showResult && isSelected ? '2px solid #ef4444' : '2px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', flexShrink: 0 }}>
+                          {showResult && isCorrect ? '✓' : showResult && isSelected ? '✗' : String.fromCharCode(65 + idx)}
+                        </span>
+                        <span style={{ lineHeight: '1.4' }}>{option}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* User Text Answer (Standard mode only) */}
+          {cardFormat === 'standard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
             <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
               Type your logical explanation (paragraph):
@@ -1769,6 +2154,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               style={{ minHeight: '180px', fontSize: '1rem', lineHeight: '1.5' }}
             />
           </div>
+          )}
 
           {/* User Confidence & Submit */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>

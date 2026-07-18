@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import StudySession from './components/StudySession';
+import AnalyticsDashboard from './components/AnalyticsDashboard';
 import { calculateNextState, mergeDecksAndCards } from './utils/srs';
 import { ShieldAlert, BookOpen, Layers, CloudOff, Cloud, RefreshCw } from 'lucide-react';
 import { cleanApiKey, cleanModelName } from './utils/gemini';
@@ -204,7 +205,7 @@ const getSettingsPayload = (s) => {
 };
 
 export default function App() {
-  const [view, setView] = useState('dashboard'); // 'dashboard' | 'settings' | 'study'
+  const [view, setView] = useState('dashboard'); // 'dashboard' | 'settings' | 'study' | 'analytics'
   const [settings, setSettings] = useState({ 
     apiKey: '', 
     model: 'gemini-3.5-flash', 
@@ -1637,6 +1638,7 @@ export default function App() {
           onDeleteCard={handleDeleteCard}
           onStartStudy={handleStartStudy}
           onOpenSettings={() => setView('settings')}
+          onOpenAnalytics={() => setView('analytics')}
           onImportCards={handleImportAnkiCards}
           onBulkDeleteCards={handleBulkDeleteCards}
           onMoveCards={handleMoveCards}
@@ -1667,6 +1669,17 @@ export default function App() {
           isSyncing={isSyncing}
           onRestoreBackup={handleRestoreBackup}
           cloudBackups={cloudBackups}
+        />
+      )}
+
+      {view === 'analytics' && (
+        <AnalyticsDashboard
+          Cards={cards}
+          Decks={decks}
+          settings={settings}
+          apiKey={settings.apiKey}
+          model={settings.model}
+          onClose={() => setView('dashboard')}
         />
       )}
 

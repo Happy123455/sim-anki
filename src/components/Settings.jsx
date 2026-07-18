@@ -37,6 +37,9 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   const [maxHardCardsPer5Min, setMaxHardCardsPer5Min] = useState(settings.maxHardCardsPer5Min ?? 2);
   const [againStepMin, setAgainStepMin] = useState(settings.againStepMin || 10);
   const [deviceMode, setDeviceMode] = useState(settings.deviceMode || 'mobile');
+  const [heartsEnabled, setHeartsEnabled] = useState(settings.heartsEnabled !== false);
+  const [maxHearts, setMaxHearts] = useState(settings.maxHearts || 5);
+  const [intradayStepMin, setIntradayStepMin] = useState(settings.intradayStepMin || 1);
 
   useEffect(() => {
     const loaded = [];
@@ -98,7 +101,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
   }, [settings]);
 
   const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode, heartsEnabled, maxHearts, intradayStepMin });
     setSaveStatus(true);
     setTimeout(() => setSaveStatus(false), 2000);
   };
@@ -109,12 +112,12 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode, heartsEnabled, maxHearts, intradayStepMin });
     const code = await onPushSync(githubPAT, syncCode);
     if (code) {
       setSyncCode(code);
       // Save again with the returned gist ID
-      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode });
+      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode, heartsEnabled, maxHearts, intradayStepMin });
     }
   };
 
@@ -127,7 +130,7 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       return;
     }
     // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode });
+    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode, heartsEnabled, maxHearts, intradayStepMin });
     await onPullSync(syncCode, githubPAT);
   };
 
@@ -339,6 +342,47 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
             Controls how quickly a failed card reappears. Anki's default is 10 minutes, but setting this to a shorter interval (e.g. **1 to 5 minutes**) makes learning lapses much faster to review.
           </p>
+        </div>
+
+        {/* Hearts System & Intraday Re-insertion */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1.25rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input 
+                type="checkbox"
+                id="heartsToggle"
+                checked={heartsEnabled}
+                onChange={(e) => setHeartsEnabled(e.target.checked)}
+                style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#ef4444' }}
+              />
+              <label htmlFor="heartsToggle" style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
+                ❤️ Hearts System
+              </label>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, paddingLeft: '1.6rem', lineHeight: '1.4' }}>
+              Lose a heart for each wrong answer. Session pauses when hearts run out.
+            </p>
+            {heartsEnabled && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingLeft: '1.6rem', marginTop: '0.3rem' }}>
+                <span style={{ fontSize: '0.8rem', color: '#888' }}>Max:</span>
+                <input type="range" min="3" max="10" value={maxHearts} onChange={(e) => setMaxHearts(Number(e.target.value))}
+                  style={{ flex: 1, accentColor: '#ef4444' }} />
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f87171', width: '30px', textAlign: 'center' }}>{maxHearts}</span>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
+            <label style={{ fontWeight: 700, color: 'var(--text-primary)' }}>⚡ Intraday Re-insertion</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input type="range" min="1" max="10" value={intradayStepMin} onChange={(e) => setIntradayStepMin(Number(e.target.value))}
+                style={{ flex: 1, accentColor: '#f59e0b' }} />
+              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fbbf24', width: '50px', textAlign: 'center' }}>{intradayStepMin}m</span>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.4' }}>
+              Failed cards reappear after this many minutes during the session (priority queue).
+            </p>
+          </div>
         </div>
 
         {/* Cognitive & Pacing Support Modes */}
