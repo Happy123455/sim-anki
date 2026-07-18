@@ -352,7 +352,9 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose, onUp
     );
   };
 
-  // Render FSRS Memory Retention Forgetting Curve SVG chart
+  // Render FSRS Memory Retention Forgetting Curve — Enhanced Interactive Version
+  const [hoverInfo, setHoverInfo] = useState(null); // { x, y, day, retention }
+
   const renderForgettingCurve = () => {
     if (!card.state || !card.state.stability || !card.state.lastReviewDate) {
       return (
@@ -362,90 +364,453 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose, onUp
       );
     }
 
+    // ─── FSRS v6 Constants ───
+    const W20 = 0.1542; // decay weight
+    const decay = -W20;
+    const factor = Math.exp(Math.log(0.9) / decay) - 1.0;
+    const calcR = (t, s) => {
+      const safeS = Math.max(s, 0.001);
+      return Math.pow(1.0 + (factor * t) / safeS, decay);
+    };
+
     const S = card.state.stability;
-    const elapsedMs = new Date() - new Date(card.state.lastReviewDate);
-    const elapsedDays = Math.max(0, Math.round(elapsedMs / (1000 * 60 * 60 * 24)));
+    const D = card.state.difficulty || 5;
+    const targetRetPct = settings?.targetRetention || 90;
+    const targetR = targetRetPct / 100;
 
-    // Define X-axis range: up to 3 * S or at least 7 days (capped at 60 days to look reasonable)
-    const maxDays = Math.max(7, Math.min(60, Math.round(S * 3)));
-    
-    const width = 550;
-    const height = 180;
-    const paddingX = 40;
-    const paddingY = 25;
-    const chartW = width - 2 * paddingX;
-    const chartH = height - 2 * paddingY;
+    // ─── Interval Calculation ───
+    const IM = (Math.pow(targetR, 1.0 / decay) - 1.0) / factor;
+    const dueIntervalDays = Math.max(1, Math.round(S * IM));
 
-    // Generate curve points: 30 steps
-    const steps = 30;
-    const points = [];
+    const elapsedMs = Date.now() - new Date(card.state.lastReviewDate).getTime();
+    const elapsedDays = Math.max(0, elapsedMs / (1000 * 60 * 60 * 24));
+
+    // ─── Chart Dimensions ───
+    const width = 580;
+    const height = 260;
+    const paddingLeft = 48;
+    const paddingRight = 20;
+    const paddingTop = 30;
+    const paddingBottom = 45;
+    const chartW = width - paddingLeft - paddingRight;
+    const chartH = height - paddingTop - paddingBottom;
+
+    // X-axis range: show at least to due date + 30%, or 7 days minimum
+    const maxDays = Math.max(7, Math.round(dueIntervalDays * 1.4), Math.round(elapsedDays * 1.3));
+
+    // ─── Helper: coords ───
+    const toX = (day) => paddingLeft + (day / maxDays) * chartW;
+    const toY = (r) => paddingTop + chartH - (r * chartH);
+
+    // ─── Generate smooth curve points (100 steps for smoothness) ───
+    const steps = 100;
+    const curvePoints = [];
     for (let i = 0; i <= steps; i++) {
       const d = (i / steps) * maxDays;
-      const R = Math.pow(0.9, d / S) * 100;
-      const x = paddingX + (i / steps) * chartW;
-      const y = paddingY + chartH - (R / 100) * chartH;
-      points.push({ x, y });
+      const r = calcR(d, S);
+      curvePoints.push({ day: d, r, x: toX(d), y: toY(r) });
     }
 
-    // Build SVG path
-    let curvePath = `M ${points[0].x} ${points[0].y}`;
-    let fillPath = `M ${points[0].x} ${paddingY + chartH} L ${points[0].x} ${points[0].y}`;
-    for (let i = 1; i < points.length; i++) {
-      curvePath += ` L ${points[i].x} ${points[i].y}`;
-      fillPath += ` L ${points[i].x} ${points[i].y}`;
+    // Build SVG path for current curve
+    let curvePath = `M ${curvePoints[0].x} ${curvePoints[0].y}`;
+    let fillPath = `M ${curvePoints[0].x} ${toY(0)} L ${curvePoints[0].x} ${curvePoints[0].y}`;
+    for (let i = 1; i < curvePoints.length; i++) {
+      curvePath += ` L ${curvePoints[i].x} ${curvePoints[i].y}`;
+      fillPath += ` L ${curvePoints[i].x} ${curvePoints[i].y}`;
     }
-    fillPath += ` L ${points[points.length - 1].x} ${paddingY + chartH} Z`;
+    fillPath += ` L ${curvePoints[curvePoints.length - 1].x} ${toY(0)} Z`;
 
-    // Active marker coordinates
-    const currentR = Math.pow(0.9, elapsedDays / S) * 100;
-    const markerX = paddingX + Math.min(1, elapsedDays / maxDays) * chartW;
-    const markerY = paddingY + chartH - (Math.min(100, Math.max(0, currentR)) / 100) * chartH;
+    // ─── Repetition History Curves ───
+    // Reconstruct past forgetting curves from history. Each review "resets" the curve
+    // with a new stability. We use a simplified estimation based on rating quality.
+    const historySegments = [];
+    const reviewHistory = card.history || [];
+    if (reviewHistory.length >= 1) {
+      // We'll estimate past stabilities by working backwards from the known current state
+      // For a visual approximation, we use S_init based on first rating, then scale up
+      const ratingToG = { again: 1, hard: 2, good: 3, easy: 4 };
+      const initStabilities = [0.212, 1.2931, 2.3065, 8.2956]; // w[0..3]
+      
+      let prevS = initStabilities[(ratingToG[reviewHistory[0]?.rating] || 3) - 1];
+      let prevDate = reviewHistory[0]?.date ? new Date(reviewHistory[0].date) : null;
+      
+      for (let rIdx = 0; rIdx < reviewHistory.length; rIdx++) {
+        const review = reviewHistory[rIdx];
+        const reviewDate = new Date(review.date);
+        const nextReview = reviewHistory[rIdx + 1];
+        const nextDate = nextReview ? new Date(nextReview.date) : new Date(card.state.lastReviewDate);
+        
+        const segmentDays = Math.max(0.5, (nextDate - reviewDate) / (1000 * 60 * 60 * 24));
+        
+        // Generate curve for this segment
+        const segSteps = 30;
+        const segPoints = [];
+        for (let i = 0; i <= segSteps; i++) {
+          const d = (i / segSteps) * segmentDays;
+          const r = calcR(d, prevS);
+          // Map to absolute timeline position
+          const absoluteDay = (reviewDate - new Date(card.state.lastReviewDate)) / (1000 * 60 * 60 * 24);
+          // Only show segments that fall in the past (negative values from current review)
+          segPoints.push({ r });
+        }
+        
+        historySegments.push({
+          stability: prevS,
+          rating: review.rating,
+          date: reviewDate,
+          points: segPoints
+        });
+        
+        // Estimate next stability based on rating
+        const G = ratingToG[review.rating] || 3;
+        if (G === 1) {
+          prevS = Math.max(0.1, prevS * 0.3);
+        } else {
+          prevS = Math.min(365, prevS * (1.2 + (G - 2) * 0.6));
+        }
+      }
+    }
+
+    // ─── Key Data Points ───
+    const keyPoints = [];
+    const keyTimes = [
+      { label: '1 hour', days: 1 / 24 },
+      { label: '1 day', days: 1 },
+      { label: '3 days', days: 3 },
+      { label: '1 week', days: 7 },
+      { label: '2 weeks', days: 14 },
+      { label: '1 month', days: 30 },
+    ];
+    for (const kt of keyTimes) {
+      if (kt.days <= maxDays && kt.days >= maxDays * 0.02) {
+        const r = calcR(kt.days, S) * 100;
+        keyPoints.push({ ...kt, r, x: toX(kt.days), y: toY(r / 100) });
+      }
+    }
+
+    // ─── Current Position ───
+    const currentR = calcR(elapsedDays, S) * 100;
+    const currentX = toX(Math.min(elapsedDays, maxDays));
+    const currentY = toY(currentR / 100);
+
+    // ─── Due Date Position ───
+    const dueR = calcR(dueIntervalDays, S) * 100;
+    const dueX = toX(Math.min(dueIntervalDays, maxDays));
+    const dueY = toY(dueR / 100);
+
+    // ─── Target Retention Line Y ───
+    const targetY = toY(targetR);
+
+    // ─── X Axis Tick Labels ───
+    const xTicks = [];
+    const tickCandidates = [1, 2, 3, 5, 7, 10, 14, 21, 30, 45, 60, 90, 120, 180, 365];
+    let lastTickX = -Infinity;
+    for (const tc of tickCandidates) {
+      if (tc <= maxDays) {
+        const tx = toX(tc);
+        if (tx - lastTickX > 40) {
+          let label = tc + 'd';
+          if (tc === 7) label = '1w';
+          else if (tc === 14) label = '2w';
+          else if (tc === 21) label = '3w';
+          else if (tc === 30) label = '1mo';
+          else if (tc === 60) label = '2mo';
+          else if (tc === 90) label = '3mo';
+          else if (tc === 180) label = '6mo';
+          else if (tc === 365) label = '1y';
+          xTicks.push({ day: tc, x: tx, label });
+          lastTickX = tx;
+        }
+      }
+    }
+
+    // ─── Hover Handler ───
+    const handleMouseMove = (e) => {
+      const svgEl = e.currentTarget;
+      const rect = svgEl.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      
+      // Convert pixel X to days
+      const dayAtMouse = ((mouseX - paddingLeft) / chartW) * maxDays;
+      if (dayAtMouse < 0 || dayAtMouse > maxDays) {
+        setHoverInfo(null);
+        return;
+      }
+      
+      const rAtMouse = calcR(dayAtMouse, S);
+      setHoverInfo({
+        x: toX(dayAtMouse),
+        y: toY(rAtMouse),
+        day: dayAtMouse,
+        retention: rAtMouse * 100,
+        pixelX: mouseX,
+        pixelY: mouseY
+      });
+    };
+
+    const handleMouseLeave = () => setHoverInfo(null);
+
+    // ─── Format day label ───
+    const formatDayLabel = (days) => {
+      if (days < 1 / 24) return `${Math.round(days * 24 * 60)}m`;
+      if (days < 1) return `${(days * 24).toFixed(1)}h`;
+      if (days < 7) return `${days.toFixed(1)}d`;
+      if (days < 30) return `${(days / 7).toFixed(1)}w`;
+      if (days < 365) return `${(days / 30).toFixed(1)}mo`;
+      return `${(days / 365).toFixed(1)}y`;
+    };
+
+    // ─── Status ───
+    const isOverdue = elapsedDays > dueIntervalDays;
+    const statusColor = currentR >= 85 ? '#4ade80' : currentR >= 60 ? '#fbbf24' : '#f87171';
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-          <span>Elapsed Time: <strong>{elapsedDays} days</strong> since last review</span>
-          <span>Current Retention: <strong style={{ color: currentR >= 85 ? 'var(--success)' : 'var(--warning)' }}>{Math.round(currentR)}%</strong></span>
+        {/* ─── Info Bar ─── */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.82rem' }}>
+          <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)', borderRadius: '8px', padding: '0.35rem 0.65rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <span style={{ color: '#a78bfa' }}>S</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{S.toFixed(2)}d</span>
+          </div>
+          <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.18)', borderRadius: '8px', padding: '0.35rem 0.65rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <span style={{ color: '#fbbf24' }}>D</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{D.toFixed(1)}/10</span>
+          </div>
+          <div style={{ background: `rgba(${currentR >= 85 ? '74,222,128' : currentR >= 60 ? '251,191,36' : '248,113,113'},0.08)`, border: `1px solid rgba(${currentR >= 85 ? '74,222,128' : currentR >= 60 ? '251,191,36' : '248,113,113'},0.18)`, borderRadius: '8px', padding: '0.35rem 0.65rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <span style={{ color: statusColor }}>R</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{currentR.toFixed(1)}%</span>
+          </div>
+          <div style={{ background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.18)', borderRadius: '8px', padding: '0.35rem 0.65rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <span style={{ color: '#60a5fa' }}>⏱</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{formatDayLabel(elapsedDays)} elapsed</span>
+          </div>
+          <div style={{ background: isOverdue ? 'rgba(248,113,113,0.1)' : 'rgba(52,211,153,0.08)', border: `1px solid ${isOverdue ? 'rgba(248,113,113,0.2)' : 'rgba(52,211,153,0.18)'}`, borderRadius: '8px', padding: '0.35rem 0.65rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <span style={{ color: isOverdue ? '#f87171' : '#34d399' }}>{isOverdue ? '⚠️' : '📅'}</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+              {isOverdue ? `Overdue by ${formatDayLabel(elapsedDays - dueIntervalDays)}` : `Due in ${formatDayLabel(dueIntervalDays - elapsedDays)}`}
+            </span>
+          </div>
         </div>
-        <div style={{ position: 'relative', width: '100%', overflowX: 'auto' }}>
-          <svg width={width} height={height} style={{ overflow: 'visible' }}>
+
+        {/* ─── SVG Chart ─── */}
+        <div style={{ position: 'relative', width: '100%', overflowX: 'auto', background: 'rgba(0,0,0,0.15)', borderRadius: '12px', padding: '0.5rem 0', border: '1px solid rgba(255,255,255,0.04)' }}>
+          <svg
+            width={width}
+            height={height}
+            style={{ overflow: 'visible', display: 'block', margin: '0 auto', cursor: 'crosshair' }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+          >
             <defs>
-              <linearGradient id="decayGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.35" />
-                <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.0" />
+              <linearGradient id="fcrGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.3" />
+                <stop offset="60%" stopColor="#6366f1" stopOpacity="0.08" />
+                <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
               </linearGradient>
+              <linearGradient id="targetGrad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#34d399" stopOpacity="0.6" />
+                <stop offset="100%" stopColor="#34d399" stopOpacity="0.1" />
+              </linearGradient>
+              <filter id="glowDot">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
             </defs>
 
-            {/* Grid lines */}
-            <line x1={paddingX} y1={paddingY} x2={paddingX + chartW} y2={paddingY} stroke="rgba(255,255,255,0.05)" strokeDasharray="4" />
-            <line x1={paddingX} y1={paddingY + chartH / 2} x2={paddingX + chartW} y2={paddingY + chartH / 2} stroke="rgba(255,255,255,0.05)" strokeDasharray="4" />
-            <line x1={paddingX} y1={paddingY + chartH} x2={paddingX + chartW} y2={paddingY + chartH} stroke="rgba(255,255,255,0.08)" />
+            {/* ─── Grid Lines ─── */}
+            {[0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0].map(r => (
+              <line key={r} x1={paddingLeft} y1={toY(r)} x2={paddingLeft + chartW} y2={toY(r)}
+                stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
+            ))}
 
-            {/* Shaded Area */}
-            <path d={fillPath} fill="url(#decayGrad)" />
+            {/* ─── Target Retention Threshold Line ─── */}
+            <line
+              x1={paddingLeft} y1={targetY} x2={paddingLeft + chartW} y2={targetY}
+              stroke="#34d399" strokeWidth="1.5" strokeDasharray="8,4" opacity="0.7"
+            />
+            <text x={paddingLeft + chartW + 4} y={targetY + 4} fill="#34d399" fontSize="9" fontWeight="600">
+              Target {targetRetPct}%
+            </text>
 
-            {/* Decay Curve Line */}
-            <path d={curvePath} fill="none" stroke="#8b5cf6" strokeWidth="3" strokeLinecap="round" />
+            {/* ─── Shaded Area Under Curve ─── */}
+            <path d={fillPath} fill="url(#fcrGrad)" />
 
-            {/* Y Axis labels */}
-            <text x={paddingX - 10} y={paddingY + 4} fill="var(--text-muted)" fontSize="10" textAnchor="end">100%</text>
-            <text x={paddingX - 10} y={paddingY + chartH / 2 + 4} fill="var(--text-muted)" fontSize="10" textAnchor="end">50%</text>
-            <text x={paddingX - 10} y={paddingY + chartH + 4} fill="var(--text-muted)" fontSize="10" textAnchor="end">0%</text>
+            {/* ─── Main Forgetting Curve ─── */}
+            <path d={curvePath} fill="none" stroke="#8b5cf6" strokeWidth="2.5" strokeLinecap="round" />
 
-            {/* X Axis labels */}
-            <text x={paddingX} y={paddingY + chartH + 18} fill="var(--text-muted)" fontSize="10" textAnchor="middle">0d (Review)</text>
-            <text x={paddingX + chartW / 2} y={paddingY + chartH + 18} fill="var(--text-muted)" fontSize="10" textAnchor="middle">{Math.round(maxDays / 2)}d</text>
-            <text x={paddingX + chartW} y={paddingY + chartH + 18} fill="var(--text-muted)" fontSize="10" textAnchor="middle">{maxDays}d</text>
+            {/* ─── Due Date Vertical Line ─── */}
+            <line
+              x1={dueX} y1={paddingTop} x2={dueX} y2={paddingTop + chartH}
+              stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="6,3" opacity="0.8"
+            />
+            {/* Due date label bg */}
+            <rect x={dueX - 32} y={paddingTop - 18} width="64" height="16" rx="4" fill="rgba(245,158,11,0.15)" stroke="rgba(245,158,11,0.3)" strokeWidth="0.5" />
+            <text x={dueX} y={paddingTop - 7} fill="#fbbf24" fontSize="8.5" fontWeight="700" textAnchor="middle">
+              📅 Review
+            </text>
+            {/* Due date intersection dot */}
+            <circle cx={dueX} cy={dueY} r="4" fill="#f59e0b" stroke="#1a1a2e" strokeWidth="2" />
+            <text x={dueX} y={dueY + 16} fill="#fbbf24" fontSize="8" fontWeight="600" textAnchor="middle">
+              {dueR.toFixed(0)}%
+            </text>
 
-            {/* Active Marker Dot */}
-            <g>
-              <line x1={markerX} y1={paddingY} x2={markerX} y2={paddingY + chartH} stroke="rgba(139, 92, 246, 0.25)" strokeDasharray="3" />
-              <circle cx={markerX} cy={markerY} r="7" fill="var(--accent-secondary)" stroke="#fff" strokeWidth="2" style={{ boxShadow: '0 0 10px var(--accent-secondary)' }} />
-              <text x={markerX} y={markerY - 14} fill="var(--text-primary)" fontSize="9" fontWeight="700" textAnchor="middle">
-                {Math.round(currentR)}%
+            {/* ─── Key Data Point Annotations ─── */}
+            {keyPoints.map((kp, idx) => (
+              <g key={idx}>
+                <circle cx={kp.x} cy={kp.y} r="3" fill="rgba(255,255,255,0.6)" stroke="#8b5cf6" strokeWidth="1" />
+                {/* Tooltip bubble */}
+                <rect x={kp.x - 22} y={kp.y - 22} width="44" height="14" rx="3"
+                  fill="rgba(0,0,0,0.7)" stroke="rgba(139,92,246,0.3)" strokeWidth="0.5" />
+                <text x={kp.x} y={kp.y - 12} fill="#e2e8f0" fontSize="7.5" fontWeight="600" textAnchor="middle">
+                  {kp.r.toFixed(0)}% @ {kp.label}
+                </text>
+              </g>
+            ))}
+
+            {/* ─── Current Position Marker (Now) ─── */}
+            {elapsedDays <= maxDays && (
+              <g filter="url(#glowDot)">
+                <line x1={currentX} y1={paddingTop} x2={currentX} y2={paddingTop + chartH}
+                  stroke="rgba(139,92,246,0.2)" strokeDasharray="3" />
+                <circle cx={currentX} cy={currentY} r="6" fill={statusColor} stroke="#fff" strokeWidth="2" />
+                <text x={currentX} y={currentY - 16} fill="#fff" fontSize="10" fontWeight="700" textAnchor="middle">
+                  {currentR.toFixed(1)}%
+                </text>
+                <text x={currentX} y={currentY - 6} fill="var(--text-muted)" fontSize="7" textAnchor="middle">
+                  NOW
+                </text>
+              </g>
+            )}
+
+            {/* ─── Y Axis Labels ─── */}
+            {[0, 20, 40, 60, 80, 100].map(pct => (
+              <text key={pct} x={paddingLeft - 8} y={toY(pct / 100) + 3.5} fill="var(--text-muted)" fontSize="9" textAnchor="end">
+                {pct}%
               </text>
-            </g>
+            ))}
+
+            {/* ─── X Axis Labels ─── */}
+            <line x1={paddingLeft} y1={paddingTop + chartH} x2={paddingLeft + chartW} y2={paddingTop + chartH} stroke="rgba(255,255,255,0.08)" />
+            <text x={paddingLeft} y={paddingTop + chartH + 16} fill="var(--text-muted)" fontSize="8.5" textAnchor="middle">0</text>
+            {xTicks.map((tick, idx) => (
+              <g key={idx}>
+                <line x1={tick.x} y1={paddingTop + chartH} x2={tick.x} y2={paddingTop + chartH + 4} stroke="rgba(255,255,255,0.1)" />
+                <text x={tick.x} y={paddingTop + chartH + 16} fill="var(--text-muted)" fontSize="8.5" textAnchor="middle">
+                  {tick.label}
+                </text>
+              </g>
+            ))}
+
+            {/* ─── Axis Titles ─── */}
+            <text x={paddingLeft + chartW / 2} y={height - 2} fill="var(--text-muted)" fontSize="9" textAnchor="middle" fontWeight="600">
+              TIME (days since review)
+            </text>
+            <text x={12} y={paddingTop + chartH / 2} fill="var(--text-muted)" fontSize="9" textAnchor="middle" fontWeight="600"
+              transform={`rotate(-90, 12, ${paddingTop + chartH / 2})`}>
+              RETENTION %
+            </text>
+
+            {/* ─── Hover Crosshair + Tooltip ─── */}
+            {hoverInfo && hoverInfo.day >= 0 && (
+              <g>
+                {/* Vertical crosshair */}
+                <line x1={hoverInfo.x} y1={paddingTop} x2={hoverInfo.x} y2={paddingTop + chartH}
+                  stroke="rgba(255,255,255,0.3)" strokeWidth="1" strokeDasharray="3,2" />
+                {/* Horizontal crosshair */}
+                <line x1={paddingLeft} y1={hoverInfo.y} x2={paddingLeft + chartW} y2={hoverInfo.y}
+                  stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3,2" />
+                {/* Dot on curve */}
+                <circle cx={hoverInfo.x} cy={hoverInfo.y} r="5" fill="#a78bfa" stroke="#fff" strokeWidth="1.5" />
+                
+                {/* Tooltip box */}
+                {(() => {
+                  const tooltipW = 140;
+                  const tooltipH = 58;
+                  let tx = hoverInfo.x + 12;
+                  let ty = hoverInfo.y - tooltipH - 8;
+                  // Keep tooltip in bounds
+                  if (tx + tooltipW > width) tx = hoverInfo.x - tooltipW - 12;
+                  if (ty < paddingTop) ty = hoverInfo.y + 12;
+                  
+                  const hDay = hoverInfo.day;
+                  const hR = hoverInfo.retention;
+                  const passedDue = hDay > dueIntervalDays;
+                  
+                  return (
+                    <g>
+                      <rect x={tx} y={ty} width={tooltipW} height={tooltipH} rx="6"
+                        fill="rgba(15,15,30,0.92)" stroke="rgba(139,92,246,0.4)" strokeWidth="1" />
+                      <text x={tx + 8} y={ty + 15} fill="#e2e8f0" fontSize="10" fontWeight="700">
+                        📊 Retention: {hR.toFixed(1)}%
+                      </text>
+                      <text x={tx + 8} y={ty + 29} fill="#94a3b8" fontSize="9">
+                        ⏱ Time: {formatDayLabel(hDay)} after review
+                      </text>
+                      <text x={tx + 8} y={ty + 43} fill={passedDue ? '#f87171' : '#34d399'} fontSize="9" fontWeight="600">
+                        {passedDue
+                          ? `⚠️ ${formatDayLabel(hDay - dueIntervalDays)} past due`
+                          : `✅ ${formatDayLabel(dueIntervalDays - hDay)} until due`
+                        }
+                      </text>
+                      <text x={tx + 8} y={ty + 54} fill="#64748b" fontSize="8">
+                        S={S.toFixed(2)} • Target={targetRetPct}%
+                      </text>
+                    </g>
+                  );
+                })()}
+              </g>
+            )}
+
+            {/* ─── Invisible overlay for mouse tracking ─── */}
+            <rect x={paddingLeft} y={paddingTop} width={chartW} height={chartH}
+              fill="transparent" style={{ cursor: 'crosshair' }} />
           </svg>
+        </div>
+
+        {/* ─── Legend ─── */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)', padding: '0 0.25rem' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <span style={{ width: '16px', height: '3px', background: '#8b5cf6', borderRadius: '2px', display: 'inline-block' }} /> Forgetting Curve
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <span style={{ width: '16px', height: '2px', background: '#34d399', borderRadius: '2px', display: 'inline-block', borderTop: '1px dashed #34d399' }} /> Target Retention ({targetRetPct}%)
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <span style={{ width: '16px', height: '2px', background: '#f59e0b', borderRadius: '2px', display: 'inline-block', borderTop: '1px dashed #f59e0b' }} /> Scheduled Review
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <span style={{ width: '8px', height: '8px', background: statusColor, borderRadius: '50%', display: 'inline-block' }} /> Current ({formatDayLabel(elapsedDays)})
+          </span>
+        </div>
+
+        {/* ─── FSRS Details Panel ─── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.5rem', fontSize: '0.78rem' }}>
+          <div style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)', borderRadius: '8px', padding: '0.5rem 0.65rem' }}>
+            <div style={{ color: '#a78bfa', fontWeight: 600, marginBottom: '0.15rem' }}>🧠 Stability</div>
+            <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.95rem' }}>{S.toFixed(2)} days</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Half-life of memory</div>
+          </div>
+          <div style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.12)', borderRadius: '8px', padding: '0.5rem 0.65rem' }}>
+            <div style={{ color: '#fbbf24', fontWeight: 600, marginBottom: '0.15rem' }}>⚡ Difficulty</div>
+            <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.95rem' }}>{D.toFixed(1)} / 10</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>{D <= 3 ? 'Easy' : D <= 6 ? 'Medium' : D <= 8 ? 'Hard' : 'Very Hard'}</div>
+          </div>
+          <div style={{ background: `rgba(${isOverdue ? '248,113,113' : '52,211,153'},0.06)`, border: `1px solid rgba(${isOverdue ? '248,113,113' : '52,211,153'},0.12)`, borderRadius: '8px', padding: '0.5rem 0.65rem' }}>
+            <div style={{ color: isOverdue ? '#f87171' : '#34d399', fontWeight: 600, marginBottom: '0.15rem' }}>📅 Next Review</div>
+            <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.95rem' }}>{dueIntervalDays}d interval</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>
+              {card.state.dueDate ? new Date(card.state.dueDate).toLocaleDateString() : 'N/A'}
+            </div>
+          </div>
+          <div style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.12)', borderRadius: '8px', padding: '0.5rem 0.65rem' }}>
+            <div style={{ color: '#60a5fa', fontWeight: 600, marginBottom: '0.15rem' }}>📊 Reviews</div>
+            <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.95rem' }}>{card.state.repetitions || 0} reps</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>{card.state.consecutiveFails || 0} lapses</div>
+          </div>
         </div>
       </div>
     );
