@@ -550,7 +550,7 @@ function NumericalGuessSlider({ actualValue, userGuess, valueUnit, history }) {
   );
 }
 
-export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {}, onRefactorCard, onUpdateCard }) {
+export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {}, onRefactorCard, onUpdateCard, onUpdateHearts }) {
   // ─── Priority Queue Engine ───
   const [mainQueue, setMainQueue] = useState(() => [...(DueCards || [])]);
   const [lapseQueue, setLapseQueue] = useState([]);  // { card, dueAt }
@@ -571,10 +571,52 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
   // ─── Hearts / Lives System ───
   const maxHearts = settings.maxHearts || 5;
-  const [hearts, setHearts] = useState(maxHearts);
+  const [hearts, setHearts] = useState(() => {
+    return settings.hearts !== undefined ? settings.hearts : maxHearts;
+  });
   const [heartsEnabled] = useState(settings.heartsEnabled !== false);
-  const [sessionPaused, setSessionPaused] = useState(false);
+  const [sessionPaused, setSessionPaused] = useState(() => {
+    const initHearts = settings.hearts !== undefined ? settings.hearts : (settings.maxHearts || 5);
+    return settings.heartsEnabled !== false && initHearts <= 0;
+  });
   const [heartLostAnim, setHeartLostAnim] = useState(false);
+  const [nextHeartTimer, setNextHeartTimer] = useState('');
+
+  // Keep local hearts state synced with global settings.hearts (replenishment recovery)
+  useEffect(() => {
+    if (settings.hearts !== undefined) {
+      setHearts(settings.hearts);
+      // Auto-resume paused session if hearts replenish to > 0
+      if (settings.hearts > 0 && sessionPaused) {
+        setSessionPaused(false);
+      }
+    }
+  }, [settings.hearts, sessionPaused]);
+
+  // Hearts countdown timer ticker
+  useEffect(() => {
+    if (!heartsEnabled || hearts >= maxHearts) {
+      setNextHeartTimer('');
+      return;
+    }
+
+    const updateTimer = () => {
+      const lastTime = settings.lastHeartReplenishedTime || Date.now();
+      const elapsed = Date.now() - lastTime;
+      const remainingMs = Math.max(0, 2 * 60 * 1000 - elapsed);
+      
+      const mins = Math.floor(remainingMs / 60000);
+      const secs = Math.floor((remainingMs % 60000) / 1000);
+      
+      // format to MM:SS
+      const formattedSecs = secs < 10 ? `0${secs}` : secs;
+      setNextHeartTimer(`${mins}:${formattedSecs}`);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [hearts, maxHearts, settings.lastHeartReplenishedTime, heartsEnabled]);
 
   // ─── Next-Review Visualizer ───
   const [reviewVisualizer, setReviewVisualizer] = useState(null); // { emoji, label, color }
@@ -1516,8 +1558,11 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       // ─── Hearts system: lose a heart on 'again' ───
       const isFailed = rating === 'again';
       if (isFailed && heartsEnabled) {
-        const newHearts = hearts - 1;
+        const newHearts = Math.max(0, hearts - 1);
         setHearts(newHearts);
+        if (onUpdateHearts) {
+          onUpdateHearts(newHearts);
+        }
         setHeartLostAnim(true);
         setTimeout(() => setHeartLostAnim(false), 600);
         if (newHearts <= 0) {
@@ -1696,12 +1741,35 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           <div className="glass-panel" style={{ padding: '2.5rem', borderRadius: '24px', textAlign: 'center', maxWidth: '420px', border: '1px solid rgba(239,68,68,0.3)', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div style={{ fontSize: '4rem' }}>💔</div>
             <h2 style={{ color: '#f87171', fontWeight: 800, fontSize: '1.5rem', margin: 0 }}>Out of Hearts!</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-              You've used all your lives. Take a breather and come back stronger.
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.5' }}>
+              You've used all your lives. Hearts replenish automatically over time (1 heart every 2 minutes).
             </p>
+            {hearts < maxHearts && (
+              <div style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                ⏳ Next heart in: <strong style={{ color: '#fbbf24', fontVariantNumeric: 'tabular-nums' }}>{nextHeartTimer || 'Calculated...'}</strong>
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <button onClick={() => { setHearts(maxHearts); setSessionPaused(false); }} style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', border: 'none', borderRadius: '10px', color: '#fff', padding: '0.75rem', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
-                ❤️ Restore Hearts & Continue
+              <button 
+                onClick={() => {
+                  if (hearts > 0) {
+                    setSessionPaused(false);
+                  }
+                }} 
+                disabled={hearts <= 0}
+                style={{ 
+                  background: hearts > 0 ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : 'rgba(255,255,255,0.05)', 
+                  border: 'none', 
+                  borderRadius: '10px', 
+                  color: hearts > 0 ? '#fff' : '#666', 
+                  padding: '0.75rem', 
+                  fontSize: '0.9rem', 
+                  fontWeight: 600, 
+                  cursor: hearts > 0 ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.2s'
+                }}
+              >
+                {hearts > 0 ? `❤️ Continue Session (${hearts} Hearts)` : 'Waiting for Hearts...'}
               </button>
               <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', color: '#ccc', padding: '0.6rem', fontSize: '0.85rem', cursor: 'pointer' }}>
                 End Session
@@ -1757,18 +1825,25 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           {/* Hearts Display */}
           {heartsEnabled && (
-            <div style={{ display: 'flex', gap: '0.2rem', alignItems: 'center' }}>
-              {Array.from({ length: maxHearts }).map((_, i) => (
-                <span key={i} style={{
-                  fontSize: '1.1rem',
-                  opacity: i < hearts ? 1 : 0.2,
-                  transition: 'opacity 0.3s, transform 0.3s',
-                  animation: (heartLostAnim && i === hearts) ? 'heartPulse 0.6s ease-out' : 'none',
-                  display: 'inline-block'
-                }}>
-                  {i < hearts ? '❤️' : '🖤'}
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '0.2rem', alignItems: 'center' }}>
+                {Array.from({ length: maxHearts }).map((_, i) => (
+                  <span key={i} style={{
+                    fontSize: '1.1rem',
+                    opacity: i < hearts ? 1 : 0.2,
+                    transition: 'opacity 0.3s, transform 0.3s',
+                    animation: (heartLostAnim && i === hearts) ? 'heartPulse 0.6s ease-out' : 'none',
+                    display: 'inline-block'
+                  }}>
+                    {i < hearts ? '❤️' : '🖤'}
+                  </span>
+                ))}
+              </div>
+              {hearts < maxHearts && nextHeartTimer && (
+                <span style={{ fontSize: '0.72rem', color: '#fbbf24', fontVariantNumeric: 'tabular-nums', background: 'rgba(245,158,11,0.1)', padding: '0.1rem 0.35rem', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.2)' }}>
+                  +{nextHeartTimer}
                 </span>
-              ))}
+              )}
             </div>
           )}
           <span style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', fontWeight: 600 }}>

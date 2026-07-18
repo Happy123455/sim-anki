@@ -8,6 +8,7 @@ import { ShieldAlert, BookOpen, Layers, CloudOff, Cloud, RefreshCw } from 'lucid
 import { cleanApiKey, cleanModelName } from './utils/gemini';
 import { pushToGist, pullFromGist, sanitizeToken, sanitizeGistId } from './utils/githubSync';
 import { getVal, setVal } from './utils/db';
+import { getReplenishedHearts } from './utils/hearts';
 
 // Pre-seeded structural engineering deck and cards
 const initialDecks = [
@@ -676,6 +677,28 @@ export default function App() {
     return () => clearInterval(interval);
   }, [settings.syncCode, settings.githubPAT]);
 
+  // Background recovery loop for the Hearts System (1 heart every 2 minutes)
+  useEffect(() => {
+    if (settings.heartsEnabled === false) return;
+
+    const interval = setInterval(() => {
+      const result = getReplenishedHearts(settings);
+      if (result.wasUpdated) {
+        setSettings(prev => {
+          const updated = {
+            ...prev,
+            hearts: result.hearts,
+            lastHeartReplenishedTime: result.lastHeartReplenishedTime
+          };
+          safeLocalStorageSetItem('simanki_settings', JSON.stringify(updated));
+          return updated;
+        });
+      }
+    }, 2000); // Check every 2 seconds for a smooth UX countdown
+
+    return () => clearInterval(interval);
+  }, [settings]);
+
   // Anki-like auto-sync: push on tab hide / page close, pull on tab return
   useEffect(() => {
     if (!settings.syncCode || !settings.githubPAT) return;
@@ -844,7 +867,6 @@ export default function App() {
     }
   };
 
-  // --- SETTINGS CONTROL HANDLERS ---
   const handleSaveSettings = (newSettings) => {
     const cleaned = {
       ...newSettings,
@@ -861,6 +883,25 @@ export default function App() {
     if (cleaned.syncCode) {
       triggerAutoPush(decks, cards, cleaned, now);
     }
+  };
+
+  const handleUpdateHearts = (newHearts) => {
+    setSettings(prev => {
+      const maxH = prev.maxHearts || 5;
+      const isDamaged = newHearts < maxH;
+      const wasFull = prev.hearts === undefined || prev.hearts === maxH;
+      
+      const updated = {
+        ...prev,
+        hearts: newHearts,
+        lastHeartReplenishedTime: (isDamaged && wasFull) ? Date.now() : prev.lastHeartReplenishedTime || Date.now()
+      };
+      safeLocalStorageSetItem('simanki_settings', JSON.stringify(updated));
+      if (updated.syncCode) {
+        triggerAutoPush(decks, cards, updated, Date.now());
+      }
+      return updated;
+    });
   };
 
   const handleExportData = () => {
@@ -1721,6 +1762,7 @@ export default function App() {
               settings={settings}
               onRefactorCard={handleRefactorCard}
               onUpdateCard={(updated) => handleUpdateCards([updated])}
+              onUpdateHearts={handleUpdateHearts}
             />
           );
         })()
