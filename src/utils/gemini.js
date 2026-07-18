@@ -1476,29 +1476,33 @@ export async function generateMCQOptions(apiKey, model, question, correctAnswer)
   const trimmedKey = cleanApiKey(apiKey);
   const modelToUse = cleanModelName(model || 'gemini-3.5-flash');
 
-  const systemPrompt = `You are an expert question designer. Given a flashcard question and its correct answer, generate 3 plausible but INCORRECT distractor options.
+  const systemPrompt = `You are an expert question designer. Given a flashcard question and its correct answer, generate:
+1. A CONCISE version of the correct answer (1-2 sentences max, same style as the distractors)
+2. 3 plausible but INCORRECT distractor options
 
-The distractors must:
-- Be similar in length and style to the correct answer
-- Sound plausible to someone who hasn't fully learned the material
-- Cover common misconceptions related to the topic
-- NOT be obviously wrong
+CRITICAL: All 4 options (1 correct + 3 distractors) MUST be similar in length, style, and tone. 
+The correct option should be a shortened/rephrased version of the correct answer — NOT the full text verbatim.
+Distractors should sound plausible but be factually wrong.
 
 Question: ${question}
 Correct Answer: ${correctAnswer}
 
-Return exactly 3 distractor options.`;
+Return the concise correct answer and exactly 3 distractor options.`;
 
   const responseSchema = {
     type: "OBJECT",
     properties: {
+      correctOption: {
+        type: "STRING",
+        description: "A concise 1-2 sentence rephrasing of the correct answer, matching the style of distractors"
+      },
       distractors: {
         type: "ARRAY",
         items: { type: "STRING" },
-        description: "Exactly 3 plausible but incorrect alternatives"
+        description: "Exactly 3 plausible but incorrect alternatives, similar in length to correctOption"
       }
     },
-    required: ["distractors"]
+    required: ["correctOption", "distractors"]
   };
 
   const url = `${API_URL}/${modelToUse}:generateContent?key=${trimmedKey}`;
@@ -1524,11 +1528,11 @@ Return exactly 3 distractor options.`;
   const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
   const parsed = cleanAndParseJson(rawText);
 
-  if (!parsed || !parsed.distractors || parsed.distractors.length < 3) {
-    throw new Error("AI returned insufficient distractor options");
+  if (!parsed || !parsed.distractors || parsed.distractors.length < 3 || !parsed.correctOption) {
+    throw new Error("AI returned insufficient MCQ data");
   }
 
-  return parsed.distractors.slice(0, 3);
+  return { correctOption: parsed.correctOption, distractors: parsed.distractors.slice(0, 3) };
 }
 
 /**

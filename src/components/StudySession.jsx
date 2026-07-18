@@ -685,10 +685,10 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     const loadMCQ = async () => {
       setMcqLoading(true);
       try {
-        const distractors = await generateMCQOptions(apiKey, model, currentCard.question, currentCard.concept);
+        const result = await generateMCQOptions(apiKey, model, currentCard.question, currentCard.concept);
         const correctIdx = Math.floor(Math.random() * 4);
-        const options = [...distractors];
-        options.splice(correctIdx, 0, currentCard.concept);
+        const options = [...result.distractors];
+        options.splice(correctIdx, 0, result.correctOption);
         setMcqOptions(options);
         setMcqCorrectIdx(correctIdx);
 
@@ -731,10 +731,12 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       playFailure();
     }
 
-    // Auto-advance to grading after 1 second
+    // Show color-coded feedback for 1.5s, then trigger AI evaluation
     setTimeout(() => {
-      setStep('grading');
-    }, 1000);
+      // handleAnswerSubmit reads userAnswer from state,
+      // but we need to ensure it uses the MCQ selection
+      handleAnswerSubmit();
+    }, 1500);
   };
 
   // Question Simplifier States
