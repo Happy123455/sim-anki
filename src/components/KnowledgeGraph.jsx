@@ -1,5 +1,5 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Search, X, ZoomIn, ZoomOut, Maximize2, ChevronDown, ChevronRight, Settings } from 'lucide-react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { Search, X, ZoomIn, ZoomOut, Maximize2, ChevronDown, ChevronRight, Settings, Play, Pause, SkipBack, SkipForward, Clock } from 'lucide-react';
 
 // ─── Default simulation parameters ───
 const DEFAULT_FORCES = {
@@ -108,6 +108,9 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
   const cameraRef = useRef({ x: 0, y: 0, zoom: 1 });
   const dragRef = useRef({ active: false, startX: 0, startY: 0, nodeId: null, lastCamX: 0, lastCamY: 0 });
   const touchRef = useRef({ lastDist: 0 });
+  const initializedRef = useRef(false); // Guard: only init nodes ONCE
+  const cardsRef = useRef(cards); // Stable ref to cards
+  cardsRef.current = cards;
 
   // ─── UI state ───
   const [searchQuery, setSearchQuery] = useState('');
@@ -138,6 +141,12 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
   const [showIncoming, setShowIncoming] = useState(true);
   const [showOutgoing, setShowOutgoing] = useState(true);
   const [showNeighborLinks, setShowNeighborLinks] = useState(true);
+
+  // ─── Time-lapse state ───
+  const [timeLapseEnabled, setTimeLapseEnabled] = useState(false);
+  const [timeLapseIndex, setTimeLapseIndex] = useState(-1); // -1 = show all
+  const [timeLapsePlaying, setTimeLapsePlaying] = useState(false);
+  const timeLapseIntervalRef = useRef(null);
 
   // ─── Color groups state ───
   const [colorGroups, setColorGroups] = useState([
@@ -179,10 +188,13 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
     return () => clearTimeout(timer);
   }, [showPanel]);
 
-  // ═══ Initialize nodes ═══
+  // ═══ Initialize nodes — ONCE only ═══
   useEffect(() => {
     if (!canvasReady || !graphData || !graphData.nodes) return;
-    const cardMap = new Map(cards.map(c => [c.id, c]));
+    if (initializedRef.current) return; // Already initialized, do NOT re-init
+    initializedRef.current = true;
+
+    const cardMap = new Map(cardsRef.current.map(c => [c.id, c]));
     const nodeCount = graphData.nodes.length;
     const spread = Math.max(200, nodeCount * 12);
 
@@ -204,9 +216,46 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
     });
     edgesRef.current = (graphData.edges || []).map(e => ({ ...e }));
     setIsSimulating(true);
-  }, [canvasReady, graphData, cards]);
+  }, [canvasReady, graphData]); // Removed `cards` dependency — prevents re-init
 
-  // ═══ Compute visible set (filters + local graph) ═══
+  // ═══ Time-lapse: sorted date milestones ═══
+  const timeLapseDates = useMemo(() => {
+    const allCards = cardsRef.current || [];
+    const dateSet = new Set();
+    allCards.forEach(c => {
+      if (c.createdAt) dateSet.add(new Date(c.createdAt).toLocaleDateString('en-CA'));
+      if (c.history) c.history.forEach(h => {
+        if (h.date) dateSet.add(new Date(h.date).toLocaleDateString('en-CA'));
+      });
+    });
+    // Also check graph nodes for any date info
+    if (graphData?.nodes) {
+      graphData.nodes.forEach(n => {
+        if (n.createdAt) dateSet.add(new Date(n.createdAt).toLocaleDateString('en-CA'));
+      });
+    }
+    const sorted = [...dateSet].sort();
+    return sorted.length > 0 ? sorted : [new Date().toLocaleDateString('en-CA')];
+  }, [graphData]);
+
+  // Time-lapse playback
+  useEffect(() => {
+    if (timeLapsePlaying && timeLapseEnabled) {
+      timeLapseIntervalRef.current = setInterval(() => {
+        setTimeLapseIndex(prev => {
+          const next = prev + 1;
+          if (next >= timeLapseDates.length) {
+            setTimeLapsePlaying(false);
+            return timeLapseDates.length - 1;
+          }
+          return next;
+        });
+      }, 600);
+    }
+    return () => { if (timeLapseIntervalRef.current) clearInterval(timeLapseIntervalRef.current); };
+  }, [timeLapsePlaying, timeLapseEnabled, timeLapseDates.length]);
+
+  // ═══ Compute visible set (filters + local graph + time-lapse) ═══
   const getVisibleSet = useCallback(() => {
     const allNodes = nodesRef.current;
     const allEdges = edgesRef.current;
@@ -225,6 +274,42 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
     });
 
     let visibleNodeIds = new Set(allNodes.map(n => n.id));
+
+    // ── Time-lapse filter ──
+    if (timeLapseEnabled && timeLapseIndex >= 0 && timeLapseIndex < timeLapseDates.length) {
+      const cutoffDate = timeLapseDates[timeLapseIndex];
+      const cutoffTime = new Date(cutoffDate + 'T23:59:59').getTime();
+      const allCardsMap = new Map((cardsRef.current || []).map(c => [c.id, c]));
+      
+      allNodes.forEach(n => {
+        // For card nodes, check if the card existed by the cutoff date
+        if (n.type === 'card') {
+          const card = allCardsMap.get(n.id);
+          if (card) {
+            const createdAt = card.createdAt ? new Date(card.createdAt).getTime() : 0;
+            if (createdAt > cutoffTime) visibleNodeIds.delete(n.id);
+          }
+        }
+        // Concept/tag nodes: show if any connected card existed by cutoff
+        if (n.type === 'concept') {
+          const connectedCards = (inEdges.get(n.id) || []).map(e => e.source)
+            .concat((outEdges.get(n.id) || []).map(e => e.target));
+          const hasVisibleConnection = connectedCards.some(cid => visibleNodeIds.has(cid));
+          // Will be re-checked after card filtering
+        }
+      });
+
+      // Second pass: remove concept nodes that have no visible card connections
+      allNodes.forEach(n => {
+        if (n.type === 'concept') {
+          const neighbors = adj.get(n.id);
+          if (neighbors) {
+            const hasVisible = [...neighbors].some(nid => visibleNodeIds.has(nid));
+            if (!hasVisible) visibleNodeIds.delete(n.id);
+          }
+        }
+      });
+    }
 
     // Type filters
     if (!showTags) allNodes.forEach(n => { if (n.type === 'concept') visibleNodeIds.delete(n.id); });
@@ -282,7 +367,7 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
     }
 
     return { nodes, edges };
-  }, [searchQuery, showTags, showOrphans, showCards, showDecks, localMode, selectedNode, localDepth, showIncoming, showOutgoing, showNeighborLinks]);
+  }, [searchQuery, showTags, showOrphans, showCards, showDecks, localMode, selectedNode, localDepth, showIncoming, showOutgoing, showNeighborLinks, timeLapseEnabled, timeLapseIndex, timeLapseDates]);
 
   // ═══ Color group matching ═══
   const getGroupColor = useCallback((node) => {
@@ -496,8 +581,12 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
     if (!isSimulating && canvasReady) draw();
   }, [draw, isSimulating, canvasReady]);
 
-  // Re-simulate when forces change
-  const restartSim = () => setIsSimulating(true);
+  // Re-simulate only when user explicitly triggers it
+  const restartSim = () => {
+    // Reset velocities so the sim starts fresh from current positions
+    nodesRef.current.forEach(n => { n.vx = 0; n.vy = 0; });
+    setIsSimulating(true);
+  };
 
   // ═══ Interactions ═══
   const getNodeAtPos = useCallback((cx, cy) => {
@@ -726,6 +815,41 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
                 </>
               )}
             </Section>
+
+            {/* Time-lapse */}
+            <Section title="Time-lapse" icon={'⏳'} defaultOpen={false}>
+              <Toggle label="Enable Time-lapse" value={timeLapseEnabled} onChange={(v) => {
+                setTimeLapseEnabled(v);
+                if (v) setTimeLapseIndex(0);
+                else { setTimeLapseIndex(-1); setTimeLapsePlaying(false); }
+              }} />
+              {timeLapseEnabled && (
+                <>
+                  <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center', justifyContent: 'center', margin: '0.2rem 0' }}>
+                    <button onClick={() => setTimeLapseIndex(Math.max(0, timeLapseIndex - 1))} style={{ ...tlBtnStyle }} title="Previous"><SkipBack size={12} /></button>
+                    <button onClick={() => setTimeLapsePlaying(!timeLapsePlaying)} style={{ ...tlBtnStyle, background: timeLapsePlaying ? 'rgba(248,113,113,0.15)' : 'rgba(74,222,128,0.15)', color: timeLapsePlaying ? '#f87171' : '#4ade80' }} title={timeLapsePlaying ? 'Pause' : 'Play'}>
+                      {timeLapsePlaying ? <Pause size={12} /> : <Play size={12} />}
+                    </button>
+                    <button onClick={() => setTimeLapseIndex(Math.min(timeLapseDates.length - 1, timeLapseIndex + 1))} style={{ ...tlBtnStyle }} title="Next"><SkipForward size={12} /></button>
+                    <button onClick={() => { setTimeLapseIndex(timeLapseDates.length - 1); setTimeLapsePlaying(false); }} style={{ ...tlBtnStyle, fontSize: '0.65rem' }} title="Show All">ALL</button>
+                  </div>
+                  <input
+                    type="range" min={0} max={timeLapseDates.length - 1} value={timeLapseIndex}
+                    onChange={(e) => { setTimeLapseIndex(Number(e.target.value)); setTimeLapsePlaying(false); }}
+                    style={{ width: '100%', accentColor: '#c084fc', height: '4px' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: '#888' }}>
+                    <span>{timeLapseDates[0]}</span>
+                    <span style={{ color: '#c084fc', fontWeight: 700 }}>{timeLapseDates[timeLapseIndex] || 'All'}</span>
+                    <span>{timeLapseDates[timeLapseDates.length - 1]}</span>
+                  </div>
+                  <div style={{ fontSize: '0.65rem', color: '#666', textAlign: 'center' }}>
+                    {timeLapseIndex + 1} / {timeLapseDates.length} snapshots
+                  </div>
+                  <Slider label="Playback Speed" value={600} onChange={() => {}} min={200} max={2000} step={100} displayValue="600ms" />
+                </>
+              )}
+            </Section>
           </div>
         )}
 
@@ -762,6 +886,19 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
               {'\u26A1'} Simulating...
             </div>
           )}
+
+          {/* Time-lapse date overlay */}
+          {timeLapseEnabled && (
+            <div style={{
+              position: 'absolute', bottom: '50px', left: '50%', transform: 'translateX(-50%)',
+              background: 'rgba(10,10,22,0.9)', border: '1px solid rgba(192,132,252,0.3)',
+              borderRadius: '12px', padding: '0.4rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem'
+            }}>
+              <Clock size={14} style={{ color: '#c084fc' }} />
+              <span style={{ color: '#c084fc', fontWeight: 700, fontSize: '0.9rem' }}>{timeLapseDates[timeLapseIndex] || 'All Dates'}</span>
+              <span style={{ color: '#666', fontSize: '0.7rem' }}>({visNodes.length} nodes)</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -771,6 +908,11 @@ export default function KnowledgeGraph({ graphData, cards = [], decks = [], onCl
 const btnStyle = {
   background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
   borderRadius: '5px', color: '#ccc', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center'
+};
+
+const tlBtnStyle = {
+  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: '5px', color: '#c084fc', cursor: 'pointer', padding: '0.3rem 0.4rem', display: 'flex', alignItems: 'center'
 };
 
 function LI({ color, label, s }) {
