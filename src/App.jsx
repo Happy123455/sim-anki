@@ -1236,7 +1236,8 @@ export default function App() {
         const updatedCard = {
           ...parentCard,
           question: refactoredData.simplifiedCard.question,
-          concept: refactoredData.simplifiedCard.concept
+          concept: refactoredData.simplifiedCard.concept,
+          mcqOptions: null
         };
         copy[parentIdx] = updatedCard;
         saveCards(copy);

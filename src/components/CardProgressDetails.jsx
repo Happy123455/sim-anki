@@ -938,7 +938,8 @@ export default function CardProgressDetails({ card, voiceURI = "", onClose, onUp
                           question: editQuestion.trim(),
                           concept: editConcept.trim(),
                           imageUrl: editImageUrl.trim(),
-                          youtubeUrl: editYoutubeUrl.trim()
+                          youtubeUrl: editYoutubeUrl.trim(),
+                          mcqOptions: null
                         });
                         setIsEditing(false);
                       }

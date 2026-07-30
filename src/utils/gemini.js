@@ -699,7 +699,7 @@ ${formattedHistory || "None (First message)"}
 "${userMessage}"
 
 [Task]:
-1. Respond to the student's explanation in a friendly, constructive, extremely short one-line response (under 25 words).
+1. Respond to the student's explanation in a friendly, constructive, and comprehensive tutoring style. Provide guided learning: ask helpful guiding questions, explain details if they are struggling, and help them arrive at the correct understanding. Do not restrict your response length; write a high-quality educational interaction.
 2. Assess if the student's comment correctly explains, recalls, or shows understanding of the current missing word/number/concept ("${currentItem}").
    - If they successfully explained/recalled it or answered why correctly, set "resolved" to true.
    - If they are still missing it, confused, or got it wrong, keep "resolved" as false.
@@ -712,7 +712,7 @@ ${formattedHistory || "None (First message)"}
 
 You must respond with a JSON object conforming exactly to this schema:
 {
-  "response": string (short one-line guidance/feedback, under 25 words),
+  "response": string (comprehensive and helpful guidance/feedback that tutors the student on the concepts),
   "resolved": boolean (true if the student successfully recalled/explained this specific item, false otherwise),
   "highlights": Array<{ text: string, color: "green" | "yellow" | "red", reason: string }>
 }

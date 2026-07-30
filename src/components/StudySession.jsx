@@ -727,7 +727,22 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     const loadMCQ = async () => {
       setMcqLoading(true);
       try {
-        const result = await generateMCQOptions(apiKey, model, currentCard.question, currentCard.concept);
+        let result;
+        if (currentCard.mcqOptions && currentCard.mcqOptions.correctOption && currentCard.mcqOptions.distractors && currentCard.mcqOptions.distractors.length === 3) {
+          result = currentCard.mcqOptions;
+        } else {
+          result = await generateMCQOptions(apiKey, model, currentCard.question, currentCard.concept);
+          // Persist back to the card database
+          if (onUpdateCard) {
+            onUpdateCard({
+              ...currentCard,
+              mcqOptions: result
+            });
+          }
+          // Also update our local sessionQueue
+          setSessionQueue(prev => prev.map(sc => sc.id === currentCard.id ? { ...sc, mcqOptions: result } : sc));
+        }
+
         const correctIdx = Math.floor(Math.random() * 4);
         const options = [...result.distractors];
         options.splice(correctIdx, 0, result.correctOption);
@@ -758,7 +773,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     return () => {
       if (mcqTimerRef.current) clearInterval(mcqTimerRef.current);
     };
-  }, [cardFormat, currentCard, mcqOptions.length, mcqLoading, apiKey, model]);
+  }, [cardFormat, currentCard, mcqOptions.length, mcqLoading, apiKey, model, onUpdateCard, setSessionQueue]);
 
   // Handle MCQ selection
   const handleMCQSelect = (idx) => {
@@ -1229,7 +1244,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [interactiveOmittedItems, setInteractiveOmittedItems] = useState([]);
   const [currentOmittedIndex, setCurrentOmittedIndex] = useState(0);
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const isTutoringComplete = interactiveOmittedItems.length === 0 || interactiveOmittedItems.every(item => item.status === 'resolved');
+  const isTutoringComplete = (evaluation && evaluation.score >= 80) || interactiveOmittedItems.length === 0 || interactiveOmittedItems.every(item => item.status === 'resolved');
 
 
 
@@ -1733,6 +1748,11 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const goodInterval = getFriendlyInterval(currentCard, 'good', targetRetention, settings.againStepMin || 10);
   const easyInterval = getFriendlyInterval(currentCard, 'easy', targetRetention, settings.againStepMin || 10);
 
+  const score = evaluation?.score ?? 0;
+  const showAllOptions = score < 80;
+  const showGoodOptions = score >= 80 && score < 100;
+  const showPerfectOptions = score === 100;
+
   return (
     <>
       {/* ─── Session Paused Overlay (Hearts depleted) ─── */}
@@ -1908,68 +1928,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={currentCard.question} voiceURI={voiceURI} />}
           </h2>
 
-          {/* 💡 Question Simplifier trigger button */}
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-start', marginBottom: '0.75rem' }}>
-            <button
-              onClick={handleSimplifyQuestion}
-              disabled={isSimplifyingQuestion}
-              style={{
-                background: showSimplification ? 'rgba(139, 92, 246, 0.15)' : 'rgba(255, 255, 255, 0.03)',
-                border: showSimplification ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
-                borderRadius: '6px',
-                padding: '0.3rem 0.65rem',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                color: showSimplification ? 'var(--text-primary)' : 'var(--text-secondary)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              {isSimplifyingQuestion ? (
-                <RefreshCw size={12} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
-              ) : (
-                <BrainCircuit size={12} style={{ color: '#a78bfa' }} />
-              )}
-              {showSimplification ? "Hide Question Breakdown" : "💡 Explain What Question is Asking"}
-            </button>
-          </div>
 
-          {/* 💡 Question Simplifier explanation block */}
-          {showSimplification && (
-            <div 
-              className="glass-panel"
-              style={{
-                padding: '0.75rem 1rem',
-                background: 'rgba(139, 92, 246, 0.05)',
-                border: '1px solid rgba(139, 92, 246, 0.18)',
-                borderRadius: '8px',
-                marginBottom: '0.75rem',
-                textAlign: 'left',
-                animation: 'fadeIn 0.2s ease-out'
-              }}
-            >
-              {simplificationError ? (
-                <div style={{ color: '#fca5a5', fontSize: '0.82rem' }}>⚠️ {simplificationError}</div>
-              ) : isSimplifyingQuestion ? (
-                <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <RefreshCw size={12} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
-                  Analyzing and simplifying the question context...
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--accent-secondary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>
-                    Question Breakdown
-                  </div>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-primary)', margin: 0, lineHeight: '1.45' }}>
-                    {currentCard.simplifiedQuestion}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
 
           {renderCardMedia(currentCard)}
 
@@ -2470,7 +2429,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               </div>
             </div>
 
-            {evaluation.numericalAnalysis?.containsNumbers && (
+            {showAllOptions && evaluation.numericalAnalysis?.containsNumbers && (
               <NumericalGuessSlider 
                 actualValue={evaluation.numericalAnalysis.actualValue} 
                 userGuess={evaluation.numericalAnalysis.userGuess} 
@@ -2479,7 +2438,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               />
             )}
 
-            {evaluation.memoryAnchor && (
+            {!showPerfectOptions && evaluation.memoryAnchor && (
               <div 
                 style={{ 
                   marginTop: '0.75rem', 
@@ -2591,7 +2550,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             )}
 
             {/* Answer & Reference Comparison Box */}
-            {isTutoringComplete && (
+            {showAllOptions && isTutoringComplete && (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', textAlign: 'left' }}>
               <div style={{ background: 'rgba(255, 255, 255, 0.01)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
@@ -2617,7 +2576,8 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             {/* Compare with Past Answers Section */}
 
             {/* Interactive Concept Tutor */}
-            <div className="glass-panel" style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left' }}>
+            {showAllOptions && interactiveOmittedItems.length > 0 && (
+              <div className="glass-panel" style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left' }}>
               
               {/* Header */}
               <div>
@@ -2782,8 +2742,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               </form>
 
             </div>
+          )}
 
-            {isTutoringComplete && (
+          {isTutoringComplete && (
               <>
                 {evaluation.score === 100 ? (
                   <div style={{ textAlign: 'center', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.3)', padding: '1.5rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
@@ -2793,7 +2754,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                       {evaluation.correctExplanation || "Your answer matched the reference concept perfectly."}
                     </p>
                   </div>
-                ) : (
+                ) : showAllOptions && (
                   <>
                     <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', padding: '1rem 1.25rem', borderRadius: '12px' }}>
                       <h4 style={{ fontSize: '0.95rem', color: 'var(--text-primary)', marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -2911,7 +2872,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 )}
 
                 {/* Compare with Past Answers Section */}
-                {currentCard.history && currentCard.history.length > 0 && (
+                {showAllOptions && currentCard.history && currentCard.history.length > 0 && (
                   <div style={{ textAlign: 'left', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '1rem 1.25rem' }}>
                     <div 
                       onClick={() => setShowPastAnswers(!showPastAnswers)} 
@@ -2974,134 +2935,26 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                   </div>
                 )}
 
-                {/* Lazy-Loaded Deep Analysis section */}
-                {!detailedAnalysis ? (
-                  <div style={{ textAlign: 'left', marginTop: '0.5rem' }}>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={handleFetchDetailedAnalysis}
-                      disabled={isDetailedLoading}
-                      style={{ width: '100%', padding: '0.65rem', background: 'rgba(139, 92, 246, 0.08)', border: '1px solid rgba(139, 92, 246, 0.25)', color: '#c084fc', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 600 }}
-                    >
-                      {isDetailedLoading ? (
-                        <>
-                          <RefreshCw size={16} className="animate-spin" />
-                          Lazy-Loading Deep AI Analysis...
-                        </>
-                      ) : (
-                        <>
-                          <BookOpen size={16} />
-                          🔍 Read Detailed AI Analysis (Pros, Cons & Concepts)
-                        </>
-                      )}
-                    </button>
-                    {detailedError && (
-                      <p style={{ color: 'var(--danger)', fontSize: '0.82rem', marginTop: '0.5rem' }}>{detailedError}</p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="glass-panel animate-fade-in" style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', padding: '1.25rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0.5rem' }}>
-                      <h4 style={{ fontSize: '0.95rem', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.35rem', margin: 0 }}>
-                        📚 Comprehensive AI Feedback
-                      </h4>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Lazy-Loaded</span>
-                    </div>
 
-                    {/* Pros */}
-                    {detailedAnalysis.pros && detailedAnalysis.pros.length > 0 && (
-                      <div>
-                        <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.85rem', color: '#34d399' }}>✓ What you did well</h5>
-                        <ul style={{ margin: 0, paddingLeft: '1.15rem', fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                          {detailedAnalysis.pros.map((pro, i) => <li key={i}>{pro}</li>)}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Cons */}
-                    {detailedAnalysis.cons && detailedAnalysis.cons.length > 0 && (
-                      <div>
-                        <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.85rem', color: '#fca5a5' }}>✗ Misconceptions / Gaps</h5>
-                        <ul style={{ margin: 0, paddingLeft: '1.15rem', fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                          {detailedAnalysis.cons.map((con, i) => <li key={i}>{con}</li>)}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Detailed Explanation */}
-                    <div>
-                      <h5 style={{ margin: '0 0 0.35rem 0', fontSize: '0.85rem', color: 'var(--text-primary)' }}>Concept Explanation</h5>
-                      <div 
-                        className="markdown-content"
-                        dangerouslySetInnerHTML={{ __html: parseMarkdown(detailedAnalysis.detailedExplanation) }}
-                        style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}
-                      />
-                    </div>
-
-
-
-                    {/* Memory Mnemonic assistance inside lazy block */}
-                    {hasFeatureUnlocked(settings, 'mnemonics') && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1rem' }}>
-                        <button
-                          className="btn btn-secondary"
-                          onClick={handleGenerateMnemonic}
-                          disabled={isMnemonicLoading}
-                          style={{
-                            alignSelf: 'flex-start',
-                            background: 'rgba(236, 72, 153, 0.1)',
-                            border: '1px solid rgba(236, 72, 153, 0.3)',
-                            color: '#f472b6',
-                            gap: '0.5rem',
-                            fontSize: '0.85rem',
-                            padding: '0.5rem 1.25rem',
-                            borderRadius: '8px',
-                            cursor: isMnemonicLoading ? 'not-allowed' : 'pointer'
-                          }}
-                        >
-                          <BrainCircuit size={16} /> 
-                          {isMnemonicLoading ? 'Generating Memory Hook...' : '🧠 Generate Memory Hook'}
-                        </button>
-
-                        {mnemonicError && (
-                          <div style={{ color: 'var(--danger)', fontSize: '0.82rem', textAlign: 'left', marginTop: '0.25rem' }}>
-                            {mnemonicError}
-                          </div>
-                        )}
-
-                        {mnemonicText && (
-                          <div className="glass-panel animate-fade-in" style={{ padding: '1.25rem', background: 'rgba(236, 72, 153, 0.04)', border: '1px solid rgba(236, 72, 153, 0.15)', borderRadius: '10px', textAlign: 'left', marginTop: '0.25rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                              <span style={{ fontSize: '0.8rem', color: '#f472b6', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                                <Sparkles size={14} /> AI Memory Hook
-                              </span>
-                              {hasFeatureUnlocked(settings, 'tts') && <InlineTTSButton text={mnemonicText} voiceURI={voiceURI} />}
-                            </div>
-                            <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: '1.5', whiteSpace: 'pre-line' }}>
-                              {mnemonicText}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
 
             {/* Suggested Rating Badging */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(139, 92, 246, 0.05)', padding: '1rem 1.25rem', borderRadius: '12px', border: '1px solid rgba(139, 92, 246, 0.15)' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', textAlign: 'left' }}>
-                <BrainCircuit size={20} style={{ color: 'var(--accent-primary)' }} />
-                <div>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>AI Suggested Card Status</span>
-                  <p style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                    Grade suggested rating is <span style={{ color: 'var(--accent-secondary)', textTransform: 'uppercase' }}>{String(evaluation.suggestedRating || 'good').toUpperCase()}</span>
-                  </p>
+            {showAllOptions && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(139, 92, 246, 0.05)', padding: '1rem 1.25rem', borderRadius: '12px', border: '1px solid rgba(139, 92, 246, 0.15)' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', textAlign: 'left' }}>
+                  <BrainCircuit size={20} style={{ color: 'var(--accent-primary)' }} />
+                  <div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>AI Suggested Card Status</span>
+                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      Grade suggested rating is <span style={{ color: 'var(--accent-secondary)', textTransform: 'uppercase' }}>{String(evaluation.suggestedRating || 'good').toUpperCase()}</span>
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Interactive Canvas Simulator (Google Gemini Canvas Style) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--border-light)', textAlign: 'left' }}>
+            {!showPerfectOptions && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'rgba(255,255,255,0.02)', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--border-light)', textAlign: 'left' }}>
               
               {/* Header block */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem', borderBottom: '1px dashed rgba(255,255,255,0.06)', paddingBottom: '0.75rem' }}>
@@ -3565,9 +3418,10 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
                 </div>
               )}
             </div>
-              </>
-            )}
-          </div>
+          )}
+          </>
+        )}
+      </div>
 
           {/* FSRS Auto-Scheduling Summary & Save Button */}
           {isTutoringComplete && (() => {
