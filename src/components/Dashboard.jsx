@@ -2673,6 +2673,11 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           onCreateDeck={onCreateDeck}
           onImportCards={onImportCards}
           onClose={() => setShowImportModal(false)}
+          Files={Files}
+          onCreateFile={onCreateFile}
+          onAddDeckToFile={onAddDeckToFile}
+          apiKey={settings.apiKey}
+          defaultModel={settings.model}
         />
       )}
 

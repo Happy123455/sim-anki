@@ -959,6 +959,9 @@ export default function App() {
       concept: c.concept,
       imageUrl: c.imageUrl || "",
       youtubeUrl: c.youtubeUrl || "",
+      cardType: c.cardType || "default",
+      mcqOptions: c.mcqOptions || null,
+      simulationHtml: c.simulationHtml || null,
       state: null
     }));
     

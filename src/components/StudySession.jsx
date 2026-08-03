@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, X, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
-import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation, generateDetailedMemoryAnchor, generateAnswerNudge, generateMCQOptions } from '../utils/gemini';
+import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation, generateDetailedMemoryAnchor, generateAnswerNudge, generateMCQOptions, generateMCQCanvasSimulation } from '../utils/gemini';
 import { getFriendlyInterval, getIntradayIntervalMs, getIntervalCategory } from '../utils/srs';
 import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
@@ -685,6 +685,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
   // ─── MCQ Mode State ───
   const [cardFormat, setCardFormat] = useState('standard'); // 'standard' | 'mcq'
+  const [useSimMCQ, setUseSimMCQ] = useState(true);
   const [mcqOptions, setMcqOptions] = useState([]); // [string, string, string, string]
   const [mcqRevealed, setMcqRevealed] = useState(false);
   const [mcqSelected, setMcqSelected] = useState(null); // index
@@ -692,6 +693,132 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [mcqLoading, setMcqLoading] = useState(false);
   const [mcqCountdown, setMcqCountdown] = useState(0);
   const mcqTimerRef = useRef(null);
+
+  const [isGeneratingMcqSim, setIsGeneratingMcqSim] = useState(false);
+  const [mcqSimError, setMcqSimError] = useState(null);
+
+  const handleGenerateMcqSimulation = async (card) => {
+    if (!apiKey || isGeneratingMcqSim) return;
+    setIsGeneratingMcqSim(true);
+    setMcqSimError(null);
+    try {
+      let options = card.mcqOptions;
+      if (!options) {
+        const res = await generateMCQOptions(apiKey, model, card.question, card.concept);
+        options = res;
+        card = { ...card, mcqOptions: options };
+        if (onUpdateCard) onUpdateCard(card);
+      }
+      
+      const simRes = await generateMCQCanvasSimulation(
+        apiKey,
+        model,
+        card.question,
+        card.concept,
+        options.correctOption,
+        options.distractors
+      );
+      
+      if (simRes && simRes.html) {
+        const updatedCard = { ...card, simulationHtml: simRes.html };
+        if (onUpdateCard) onUpdateCard(updatedCard);
+        setSessionQueue(prev => prev.map(sc => sc.id === card.id ? updatedCard : sc));
+      } else {
+        throw new Error("Failed to compile simulation code.");
+      }
+    } catch (err) {
+      console.error("MCQ Sim Generation Error:", err);
+      setMcqSimError(err.message || "Failed to generate simulation.");
+    } finally {
+      setIsGeneratingMcqSim(false);
+    }
+  };
+
+  const handleMCQSimulationResult = useCallback((isCorrect, optionText, dontGuess) => {
+    if (step !== 'question') return;
+    
+    clearInterval(timerRef.current);
+    const timeSpent = elapsedTime;
+    
+    let scoreVal = 0;
+    let ratingVal = 'again';
+    let ansText = optionText || 'Did not guess';
+    
+    if (dontGuess) {
+      scoreVal = 0;
+      ratingVal = 'again';
+      ansText = 'Did not guess';
+      playFailure();
+    } else if (isCorrect) {
+      scoreVal = 100;
+      ratingVal = 'good';
+      playSuccess();
+    } else {
+      scoreVal = 0;
+      ratingVal = 'again';
+      playFailure();
+    }
+    
+    setUserAnswer(ansText);
+    
+    const correctAns = currentCard.mcqOptions?.correctOption || currentCard.concept || '';
+    
+    const mockEvaluation = {
+      score: scoreVal,
+      suggestedRating: ratingVal,
+      correctExplanation: isCorrect 
+        ? "Your answer was correct!" 
+        : (dontGuess ? `You chose not to guess. The correct option is: "${correctAns}"` : `Incorrect choice. The correct option is: "${correctAns}"`),
+      logicAnalysis: isCorrect 
+        ? "You correctly selected the answer in the interactive MCQ simulation."
+        : (dontGuess ? "Self-identified knowledge gap: You opted not to guess." : `Wrong answer. You selected: "${ansText}".`),
+      strengths: isCorrect ? [currentCard.concept] : [],
+      weaknesses: !isCorrect ? [currentCard.concept] : [],
+      highlights: [],
+      conceptHighlights: []
+    };
+    
+    setEvaluation(mockEvaluation);
+    setStep('grading');
+  }, [step, elapsedTime, currentCard, playSuccess, playFailure, setUserAnswer, setEvaluation, setStep]);
+
+  // Listen for iframe communication messages
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data && event.data.type === 'mcq-selection') {
+        const { isCorrect, selectedOptionText, dontGuess } = event.data;
+        handleMCQSimulationResult(isCorrect, selectedOptionText, dontGuess);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [handleMCQSimulationResult]);
+
+  // TTS Voice of question
+  useEffect(() => {
+    if (step === 'question' && currentCard && (cardFormat === 'mcq' || currentCard.cardType === 'mcq')) {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        const textToSpeak = currentCard.question;
+        const utterance = new SpeechSynthesisUtterance(textToSpeak);
+        if (voiceURI) {
+          const voices = window.speechSynthesis.getVoices();
+          const voice = voices.find(v => v.voiceURI === voiceURI);
+          if (voice) utterance.voice = voice;
+        }
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+  }, [step, currentCard?.id, cardFormat, voiceURI]);
+
+  // Auto-generate simulation html on review if missing
+  useEffect(() => {
+    if (step === 'question' && currentCard && (cardFormat === 'mcq' || currentCard.cardType === 'mcq')) {
+      if (!currentCard.simulationHtml && !isGeneratingMcqSim && !mcqSimError) {
+        handleGenerateMcqSimulation(currentCard);
+      }
+    }
+  }, [step, currentCard?.id, cardFormat]);
 
   // Determine if MCQ should be auto-triggered for this card
   const shouldAutoMCQ = useCallback((card) => {
@@ -706,11 +833,12 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   // Auto-detect card format when currentCard changes
   useEffect(() => {
     if (!currentCard) return;
-    if (shouldAutoMCQ(currentCard)) {
+    if (currentCard.cardType === 'mcq' || shouldAutoMCQ(currentCard)) {
       setCardFormat('mcq');
     } else {
       setCardFormat('standard');
     }
+    setUseSimMCQ(true);
     setMcqOptions([]);
     setMcqRevealed(false);
     setMcqSelected(null);
@@ -2106,72 +2234,169 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
           {/* ─── MCQ Mode ─── */}
           {cardFormat === 'mcq' && step === 'question' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left' }}>
-              {mcqLoading ? (
-                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-                  <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem', animation: 'pulse 1.5s ease-in-out infinite' }}>🧠</div>
-                  Generating options...
-                </div>
-              ) : !mcqRevealed ? (
-                <div style={{ textAlign: 'center', padding: '2rem' }}>
-                  <div style={{ fontSize: '1.2rem', color: '#f59e0b', fontWeight: 700, marginBottom: '0.75rem' }}>
-                    🤔 Think of your answer first!
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'left', width: '100%' }}>
+              {isGeneratingMcqSim ? (
+                <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem', background: 'rgba(139, 92, 246, 0.03)', border: '1px solid rgba(139, 92, 246, 0.15)', width: '100%' }}>
+                  <div style={{ fontSize: '3rem', animation: 'spin 3s linear infinite' }}>⚙️</div>
+                  <div>
+                    <h3 style={{ fontSize: '1.2rem', color: '#c4b5fd', margin: 0, fontWeight: 700 }}>Custom-Crafting Interactive Simulation...</h3>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+                      Gemini is designing a custom visual playground specifically for this MCQ.
+                    </p>
                   </div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-                    Try to recall the answer before seeing the options.
-                  </p>
-                  {mcqCountdown > 0 ? (
-                    <div style={{ fontSize: '2rem', fontWeight: 800, color: '#8b5cf6', fontVariantNumeric: 'tabular-nums' }}>{mcqCountdown}</div>
-                  ) : (
-                    <button onClick={() => setMcqRevealed(true)}
-                      style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', border: 'none', borderRadius: '10px', color: '#fff', padding: '0.6rem 1.5rem', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
-                      Reveal Options →
+                  <div className="animate-pulse" style={{ width: '200px', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ width: '60%', height: '100%', background: 'var(--accent-primary)', borderRadius: '3px' }} />
+                  </div>
+                </div>
+              ) : mcqSimError ? (
+                <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+                  <span style={{ fontSize: '0.9rem', color: '#fca5a5' }}>⚠️ Failed to load simulation: {mcqSimError}</span>
+                  <button className="btn btn-secondary" onClick={() => handleGenerateMcqSimulation(currentCard)}>
+                    🔄 Retry Simulation Crafting
+                  </button>
+                  <button className="btn-text" onClick={() => setUseSimMCQ(false)}>
+                    Use Standard MCQ Layout instead
+                  </button>
+                </div>
+              ) : (useSimMCQ && currentCard.simulationHtml) ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      🎮 Gemini Interactive Simulation Canvas Active
+                    </span>
+                    <button className="btn-text" style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setUseSimMCQ(false)}>
+                      Plain MCQ View
                     </button>
-                  )}
+                  </div>
+                  <iframe
+                    srcDoc={currentCard.simulationHtml}
+                    style={{
+                      width: '100%',
+                      height: '520px',
+                      border: 'none',
+                      borderRadius: '12px',
+                      background: '#0d0e15',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.5)'
+                    }}
+                    title="Interactive MCQ Simulator"
+                  />
+                  <button 
+                    onClick={() => handleMCQSimulationResult(false, 'Did not guess', true)}
+                    style={{
+                      padding: '0.75rem 1rem',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      background: 'rgba(239, 68, 68, 0.05)',
+                      border: '1px solid rgba(239, 68, 68, 0.2)',
+                      color: '#f87171',
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                      textAlign: 'center',
+                      transition: 'all 0.2s',
+                      width: '100%'
+                    }}
+                  >
+                    🤷 Don't want to guess (Mark as Fail)
+                  </button>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                    Select the correct answer:
-                  </label>
-                  {mcqOptions.map((option, idx) => {
-                    const isSelected = mcqSelected === idx;
-                    const isCorrect = idx === mcqCorrectIdx;
-                    const showResult = mcqSelected !== null;
-
-                    let bg = 'rgba(255,255,255,0.03)';
-                    let border = '1px solid rgba(255,255,255,0.1)';
-                    let textColor = 'var(--text-primary)';
-
-                    if (showResult) {
-                      if (isCorrect) {
-                        bg = 'rgba(16,185,129,0.15)';
-                        border = '1px solid rgba(16,185,129,0.5)';
-                        textColor = '#34d399';
-                      } else if (isSelected && !isCorrect) {
-                        bg = 'rgba(239,68,68,0.15)';
-                        border = '1px solid rgba(239,68,68,0.5)';
-                        textColor = '#f87171';
-                      }
-                    }
-
-                    return (
-                      <button key={idx} onClick={() => handleMCQSelect(idx)}
-                        disabled={mcqSelected !== null}
-                        style={{
-                          padding: '0.85rem 1rem', borderRadius: '10px', cursor: mcqSelected !== null ? 'default' : 'pointer',
-                          background: bg, border, color: textColor, fontSize: '0.9rem', textAlign: 'left',
-                          display: 'flex', alignItems: 'center', gap: '0.75rem', transition: 'all 0.2s',
-                          opacity: showResult && !isCorrect && !isSelected ? 0.4 : 1
-                        }}>
-                        <span style={{ width: '24px', height: '24px', borderRadius: '50%', border: showResult && isCorrect ? '2px solid #34d399' : showResult && isSelected ? '2px solid #ef4444' : '2px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', flexShrink: 0 }}>
-                          {showResult && isCorrect ? '✓' : showResult && isSelected ? '✗' : String.fromCharCode(65 + idx)}
-                        </span>
-                        <span style={{ lineHeight: '1.4' }}>{option}</span>
+                /* Standard MCQ layout */
+                <>
+                  {currentCard.simulationHtml && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.25rem' }}>
+                      <button className="btn-text" style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setUseSimMCQ(true)}>
+                        🎮 Switch back to Interactive Simulation
                       </button>
-                    );
-                  })}
-                </div>
+                    </div>
+                  )}
+                  {mcqLoading ? (
+                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem', animation: 'pulse 1.5s ease-in-out infinite' }}>🧠</div>
+                      Generating options...
+                    </div>
+                  ) : !mcqRevealed ? (
+                    <div style={{ textAlign: 'center', padding: '2rem', width: '100%' }}>
+                      <div style={{ fontSize: '1.2rem', color: '#f59e0b', fontWeight: 700, marginBottom: '0.75rem' }}>
+                        🤔 Think of your answer first!
+                      </div>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                        Try to recall the answer before seeing the options.
+                      </p>
+                      {mcqCountdown > 0 ? (
+                        <div style={{ fontSize: '2rem', fontWeight: 800, color: '#8b5cf6', fontVariantNumeric: 'tabular-nums' }}>{mcqCountdown}</div>
+                      ) : (
+                        <button onClick={() => setMcqRevealed(true)}
+                          style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', border: 'none', borderRadius: '10px', color: '#fff', padding: '0.6rem 1.5rem', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+                          Reveal Options →
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', width: '100%' }}>
+                      <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        Select the correct answer:
+                      </label>
+                      {mcqOptions.map((option, idx) => {
+                        const isSelected = mcqSelected === idx;
+                        const isCorrect = idx === mcqCorrectIdx;
+                        const showResult = mcqSelected !== null;
+
+                        let bg = 'rgba(255,255,255,0.03)';
+                        let border = '1px solid rgba(255,255,255,0.1)';
+                        let textColor = 'var(--text-primary)';
+
+                        if (showResult) {
+                          if (isCorrect) {
+                            bg = 'rgba(16,185,129,0.15)';
+                            border = '1px solid rgba(16,185,129,0.5)';
+                            textColor = '#34d399';
+                          } else if (isSelected && !isCorrect) {
+                            bg = 'rgba(239,68,68,0.15)';
+                            border = '1px solid rgba(239,68,68,0.5)';
+                            textColor = '#f87171';
+                          }
+                        }
+
+                        return (
+                          <button key={idx} onClick={() => handleMCQSelect(idx)}
+                            disabled={mcqSelected !== null}
+                            style={{
+                              padding: '0.85rem 1rem', borderRadius: '10px', cursor: mcqSelected !== null ? 'default' : 'pointer',
+                              background: bg, border, color: textColor, fontSize: '0.9rem', textAlign: 'left',
+                              display: 'flex', alignItems: 'center', gap: '0.75rem', transition: 'all 0.2s',
+                              opacity: showResult && !isCorrect && !isSelected ? 0.4 : 1, width: '100%'
+                            }}>
+                            <span style={{ width: '24px', height: '24px', borderRadius: '50%', border: showResult && isCorrect ? '2px solid #34d399' : showResult && isSelected ? '2px solid #ef4444' : '2px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', flexShrink: 0 }}>
+                              {showResult && isCorrect ? '✓' : showResult && isSelected ? '✗' : String.fromCharCode(65 + idx)}
+                            </span>
+                            <span style={{ lineHeight: '1.4' }}>{option}</span>
+                          </button>
+                        );
+                      })}
+                      {mcqSelected === null && (
+                        <button 
+                          onClick={() => handleMCQSelect(-1)}
+                          style={{
+                            padding: '0.75rem 1rem',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            background: 'rgba(239, 68, 68, 0.05)',
+                            border: '1px solid rgba(239, 68, 68, 0.2)',
+                            color: '#f87171',
+                            fontSize: '0.85rem',
+                            fontWeight: 600,
+                            textAlign: 'center',
+                            marginTop: '0.5rem',
+                            transition: 'all 0.2s',
+                            width: '100%'
+                          }}
+                        >
+                          🤷 Don't want to guess (Mark as Fail)
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Upload, FileText, CheckCircle, AlertCircle, Plus, Check } from 'lucide-react';
+import { X, Upload, FileText, CheckCircle, AlertCircle, Plus, Check, RefreshCw } from 'lucide-react';
+import { generate30MCQsFromMaterial } from '../utils/gemini';
 
-export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClose }) {
+export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClose, Files = [], onCreateFile, onAddDeckToFile, apiKey, defaultModel }) {
   const [importType, setImportType] = useState('file'); // 'file' | 'paste'
   const [rawText, setRawText] = useState('');
   const [fileName, setFileName] = useState('');
@@ -11,6 +12,18 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [parsedCards, setParsedCards] = useState([]);
   const [previewError, setPreviewError] = useState('');
+
+  // AI MCQ Generator States
+  const [subjectText, setSubjectText] = useState('');
+  const [unitText, setUnitText] = useState('');
+  const [assignmentText, setAssignmentText] = useState('');
+  const [aiModel, setAiModel] = useState(defaultModel || 'gemini-3.5-flash');
+  const [aiMaterialSource, setAiMaterialSource] = useState('paste'); // 'file' | 'paste'
+  const [sourceMaterialText, setSourceMaterialText] = useState('');
+  const [sourceMaterialFileName, setSourceMaterialFileName] = useState('');
+  const [isGeneratingAIMCQs, setIsGeneratingAIMCQs] = useState(false);
+  const [aiGenerationError, setAiGenerationError] = useState('');
+  const [aiGenerationStep, setAiGenerationStep] = useState('');
 
   // Set default deck
   useEffect(() => {
@@ -182,6 +195,81 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
     }, 100);
   };
 
+  const handleMaterialFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setSourceMaterialFileName(file.name);
+    const fileReader = new FileReader();
+    fileReader.readAsText(file, "UTF-8");
+    fileReader.onload = (event) => {
+      setSourceMaterialText(event.target.result);
+    };
+  };
+
+  const handleGenerateAIMCQs = async () => {
+    if (!apiKey) {
+      setAiGenerationError("API Key is required. Please configure it in Settings.");
+      return;
+    }
+    if (!subjectText.trim() || !unitText.trim() || !assignmentText.trim()) {
+      setAiGenerationError("Please fill out Subject, Unit, and Assignment fields.");
+      return;
+    }
+    if (!sourceMaterialText.trim()) {
+      setAiGenerationError("Please enter or upload reference material.");
+      return;
+    }
+
+    setIsGeneratingAIMCQs(true);
+    setAiGenerationError('');
+    setAiGenerationStep('Contacting Gemini AI to extract concepts and generate 30 MCQ flashcards...');
+
+    try {
+      const res = await generate30MCQsFromMaterial(apiKey, aiModel, sourceMaterialText);
+      if (!res || !res.cards || res.cards.length === 0) {
+        throw new Error("No cards could be generated. Please check your material format.");
+      }
+
+      setAiGenerationStep(`Successfully generated 30 cards! Creating Folder & Deck structure...`);
+
+      // 1. Create or Find Subject Folder
+      let folderId;
+      const matchedFolder = Files.find(f => f.name.toLowerCase() === subjectText.trim().toLowerCase());
+      if (matchedFolder) {
+        folderId = matchedFolder.id;
+      } else {
+        folderId = onCreateFile(subjectText.trim(), '#10b981');
+      }
+
+      // 2. Create Deck
+      const deckTitle = `${unitText.trim()} > ${assignmentText.trim()} > MCQ`;
+      const deckDesc = `AI-Generated MCQ deck for ${unitText.trim()} - ${assignmentText.trim()}`;
+      const deckId = onCreateDeck(deckTitle, deckDesc);
+
+      // 3. Add Deck to Folder
+      if (onAddDeckToFile && folderId) {
+        onAddDeckToFile(deckId, folderId);
+      }
+
+      // 4. Import the cards
+      const cardsToImport = res.cards.map(c => ({
+        question: c.question,
+        concept: c.concept,
+        cardType: 'mcq',
+        mcqOptions: c.mcqOptions
+      }));
+
+      onImportCards(cardsToImport, deckId);
+      setIsGeneratingAIMCQs(false);
+      alert(`Successfully generated 30 interactive MCQs under folder "${subjectText.trim()}" and deck "${deckTitle}"!`);
+      onClose();
+    } catch (err) {
+      console.error(err);
+      setAiGenerationError(err.message || "An error occurred during generation.");
+      setIsGeneratingAIMCQs(false);
+    }
+  };
+
   const handleExecuteImport = () => {
     if (parsedCards.length === 0) return;
     let deckId = selectedDeckId;
@@ -272,6 +360,21 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
           >
             <FileText size={14} /> Paste Text
           </button>
+          <button 
+            className="btn" 
+            type="button"
+            onClick={() => { setImportType('ai-mcq'); setRawText(''); setFileName(''); setParsedCards([]); }}
+            style={{ 
+              flex: 1, 
+              padding: '0.5rem', 
+              fontSize: '0.85rem',
+              background: importType === 'ai-mcq' ? 'var(--bg-glass-hover)' : 'transparent',
+              border: importType === 'ai-mcq' ? '1px solid var(--border-light)' : '1px solid transparent',
+              color: importType === 'ai-mcq' ? 'var(--text-primary)' : 'var(--text-secondary)'
+            }}
+          >
+            <BrainCircuit size={14} /> AI MCQ Generator
+          </button>
         </div>
 
         {/* File upload panel */}
@@ -331,118 +434,276 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
           </div>
         )}
 
-        {/* Delimiter Selection & Target Deck */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', textAlign: 'left' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Separator Delimiter</label>
-            <select value={separator} onChange={(e) => { setSeparator(e.target.value); parseData(rawText, e.target.value); }}>
-              <option value="auto">Auto-Detect Separator</option>
-              <option value=",">Comma (,)</option>
-              <option value=";">Semicolon (;)</option>
-              <option value="&#9;">Tab (\t)</option>
-            </select>
-          </div>
+        {/* Standard File/Paste Import Options */}
+        {importType !== 'ai-mcq' && (
+          <>
+            {/* Delimiter Selection & Target Deck */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', textAlign: 'left' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Separator Delimiter</label>
+                <select value={separator} onChange={(e) => { setSeparator(e.target.value); parseData(rawText, e.target.value); }}>
+                  <option value="auto">Auto-Detect Separator</option>
+                  <option value=",">Comma (,)</option>
+                  <option value=";">Semicolon (;)</option>
+                  <option value="&#9;">Tab (\t)</option>
+                </select>
+              </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Select Target Deck</label>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <select 
-                value={selectedDeckId} 
-                onChange={(e) => setSelectedDeckId(e.target.value)}
-                style={{ flex: 1 }}
-              >
-                {Decks.map(d => (
-                  <option key={d.id} value={d.id}>{d.title}</option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Select Target Deck</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <select 
+                    value={selectedDeckId} 
+                    onChange={(e) => setSelectedDeckId(e.target.value)}
+                    style={{ flex: 1 }}
+                  >
+                    {Decks.map(d => (
+                      <option key={d.id} value={d.id}>{d.title}</option>
+                    ))}
+                  </select>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => setShowCreateDeckInput(true)}
+                    title="Create New Deck"
+                    style={{ padding: '0.5rem' }}
+                    type="button"
+                  >
+                    <Plus size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Create Deck Inline Form */}
+            {showCreateDeckInput && (
+              <form onSubmit={handleCreateDeckSubmit} style={{ display: 'flex', gap: '0.5rem', background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                <input 
+                  type="text" 
+                  placeholder="New Deck Title..."
+                  value={newDeckTitle}
+                  onChange={(e) => setNewDeckTitle(e.target.value)}
+                  style={{ flex: 1, padding: '0.4rem' }}
+                  required 
+                />
+                <button className="btn btn-primary" type="submit" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
+                  Create
+                </button>
+                <button className="btn btn-secondary" type="button" onClick={() => setShowCreateDeckInput(false)} style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
+                  Cancel
+                </button>
+              </form>
+            )}
+
+            {/* Parsing Results / Preview */}
+            {previewError && (
+              <div style={{ display: 'flex', gap: '0.5rem', background: 'rgba(239, 68, 68, 0.07)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '0.75rem 1rem', borderRadius: '8px', color: '#fca5a5', fontSize: '0.85rem', alignItems: 'center', textAlign: 'left' }}>
+                <AlertCircle size={18} style={{ flexShrink: 0 }} />
+                <span>{previewError}</span>
+              </div>
+            )}
+
+            {parsedCards.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <CheckCircle size={16} /> Successfully Parsed {parsedCards.length} Cards! Previewing first 3:
+                </span>
+                <div style={{
+                  background: 'rgba(0,0,0,0.2)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '8px',
+                  overflow: 'hidden'
+                }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-light)' }}>
+                        <th style={{ padding: '0.5rem 0.75rem' }}>#</th>
+                        <th style={{ padding: '0.5rem 0.75rem', width: '45%' }}>Question</th>
+                        <th style={{ padding: '0.5rem 0.75rem', width: '50%' }}>Target Concept</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsedCards.slice(0, 3).map((card, idx) => (
+                        <tr key={idx} style={{ borderBottom: idx < 2 ? '1px solid var(--border-light)' : 'none' }}>
+                          <td style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>{card.question}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px', color: 'var(--text-secondary)' }}>{card.concept}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button className="btn btn-secondary" type="button" onClick={onClose}>
+                Cancel
+              </button>
               <button 
-                className="btn btn-secondary" 
-                onClick={() => setShowCreateDeckInput(true)}
-                title="Create New Deck"
-                style={{ padding: '0.5rem' }}
-                type="button"
+                className="btn btn-primary" 
+                type="button" 
+                onClick={handleExecuteImport}
+                disabled={parsedCards.length === 0}
+                style={{ gap: '0.35rem', opacity: parsedCards.length === 0 ? 0.5 : 1, cursor: parsedCards.length === 0 ? 'not-allowed' : 'pointer' }}
               >
-                <Plus size={16} />
+                <Check size={16} /> Import {parsedCards.length} Cards
               </button>
             </div>
-          </div>
-        </div>
-
-        {/* Quick Create Deck Inline Form */}
-        {showCreateDeckInput && (
-          <form onSubmit={handleCreateDeckSubmit} style={{ display: 'flex', gap: '0.5rem', background: 'rgba(255, 255, 255, 0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
-            <input 
-              type="text" 
-              placeholder="New Deck Title..."
-              value={newDeckTitle}
-              onChange={(e) => setNewDeckTitle(e.target.value)}
-              style={{ flex: 1, padding: '0.4rem' }}
-              required 
-            />
-            <button className="btn btn-primary" type="submit" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Create
-            </button>
-            <button className="btn btn-secondary" type="button" onClick={() => setShowCreateDeckInput(false)} style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
-              Cancel
-            </button>
-          </form>
+          </>
         )}
 
-        {/* Parsing Results / Preview */}
-        {previewError && (
-          <div style={{ display: 'flex', gap: '0.5rem', background: 'rgba(239, 68, 68, 0.07)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '0.75rem 1rem', borderRadius: '8px', color: '#fca5a5', fontSize: '0.85rem', alignItems: 'center', textAlign: 'left' }}>
-            <AlertCircle size={18} style={{ flexShrink: 0 }} />
-            <span>{previewError}</span>
-          </div>
-        )}
-
-        {parsedCards.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <CheckCircle size={16} /> Successfully Parsed {parsedCards.length} Cards! Previewing first 3:
-            </span>
-            <div style={{
-              background: 'rgba(0,0,0,0.2)',
-              border: '1px solid var(--border-light)',
-              borderRadius: '8px',
-              overflow: 'hidden'
-            }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-light)' }}>
-                    <th style={{ padding: '0.5rem 0.75rem' }}>#</th>
-                    <th style={{ padding: '0.5rem 0.75rem', width: '45%' }}>Question</th>
-                    <th style={{ padding: '0.5rem 0.75rem', width: '50%' }}>Target Concept</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parsedCards.slice(0, 3).map((card, idx) => (
-                    <tr key={idx} style={{ borderBottom: idx < 2 ? '1px solid var(--border-light)' : 'none' }}>
-                      <td style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)' }}>{idx + 1}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>{card.question}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px', color: 'var(--text-secondary)' }}>{card.concept}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* AI MCQ Generator View */}
+        {importType === 'ai-mcq' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', textAlign: 'left', width: '100%' }}>
+            
+            {/* Subject, Unit, Assignment Fields */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Subject (Folder)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Civil Engineering"
+                  value={subjectText}
+                  onChange={(e) => setSubjectText(e.target.value)}
+                  style={{ width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', padding: '0.5rem 0.75rem' }}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Unit</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Unit 1 - Concrete"
+                  value={unitText}
+                  onChange={(e) => setUnitText(e.target.value)}
+                  style={{ width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', padding: '0.5rem 0.75rem' }}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Assignment</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Shear Test"
+                  value={assignmentText}
+                  onChange={(e) => setAssignmentText(e.target.value)}
+                  style={{ width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', padding: '0.5rem 0.75rem' }}
+                />
+              </div>
             </div>
+
+            {/* Model Select */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Select AI Generation Model</label>
+              <select value={aiModel} onChange={(e) => setAiModel(e.target.value)} style={{ width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', padding: '0.5rem' }}>
+                <option value="gemini-3.5-flash">Gemini 3.5 Flash (Recommended)</option>
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+              </select>
+            </div>
+
+            {/* Source Material Source Toggles */}
+            <div style={{ display: 'flex', gap: '0.5rem', background: 'rgba(255,255,255,0.01)', padding: '0.2rem', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+              <button 
+                className="btn-text" 
+                type="button"
+                onClick={() => { setAiMaterialSource('paste'); setSourceMaterialText(''); setSourceMaterialFileName(''); }}
+                style={{ flex: 1, padding: '0.4rem', fontSize: '0.78rem', background: aiMaterialSource === 'paste' ? 'rgba(255,255,255,0.05)' : 'transparent', color: aiMaterialSource === 'paste' ? 'white' : 'var(--text-muted)', border: 'none', cursor: 'pointer', borderRadius: '4px' }}
+              >
+                ✏️ Paste Reference Text
+              </button>
+              <button 
+                className="btn-text" 
+                type="button"
+                onClick={() => { setAiMaterialSource('file'); setSourceMaterialText(''); setSourceMaterialFileName(''); }}
+                style={{ flex: 1, padding: '0.4rem', fontSize: '0.78rem', background: aiMaterialSource === 'file' ? 'rgba(255,255,255,0.05)' : 'transparent', color: aiMaterialSource === 'file' ? 'white' : 'var(--text-muted)', border: 'none', cursor: 'pointer', borderRadius: '4px' }}
+              >
+                📁 Upload Reference File
+              </button>
+            </div>
+
+            {/* Source Material Input Panel */}
+            {aiMaterialSource === 'file' ? (
+              <div style={{
+                border: '2px dashed var(--border-light)',
+                borderRadius: '12px',
+                padding: '2rem 1rem',
+                textAlign: 'center',
+                background: 'rgba(255, 255, 255, 0.01)',
+                cursor: 'pointer',
+                position: 'relative'
+              }}>
+                <input 
+                  type="file" 
+                  accept=".txt,.md" 
+                  onChange={handleMaterialFileUpload} 
+                  style={{
+                    position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                    opacity: 0, cursor: 'pointer'
+                  }}
+                />
+                <Upload size={28} style={{ color: 'var(--text-muted)', marginBottom: '0.5rem' }} />
+                {sourceMaterialFileName ? (
+                  <div>
+                    <p style={{ fontWeight: 600, color: 'var(--success)', fontSize: '0.85rem' }}>Selected File:</p>
+                    <code style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{sourceMaterialFileName}</code>
+                  </div>
+                ) : (
+                  <div>
+                    <p style={{ fontWeight: 500, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                      Drag & drop your reference file here, or click to browse
+                    </p>
+                    <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                      Supports plain text, Markdown (.txt, .md) files.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', width: '100%' }}>
+                <textarea
+                  placeholder="Paste your source materials, book chapters, lecture notes, or reference text here. Gemini will generate 30 distinct questions covering this content."
+                  value={sourceMaterialText}
+                  onChange={(e) => setSourceMaterialText(e.target.value)}
+                  style={{ fontSize: '0.85rem', minHeight: '150px', lineHeight: '1.5', width: '100%', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: 'white', padding: '0.5rem 0.75rem' }}
+                />
+              </div>
+            )}
+
+            {/* Error or Progress Display */}
+            {aiGenerationError && (
+              <div style={{ display: 'flex', gap: '0.5rem', background: 'rgba(239, 68, 68, 0.07)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '0.75rem 1rem', borderRadius: '8px', color: '#fca5a5', fontSize: '0.85rem', alignItems: 'center', width: '100%' }}>
+                <AlertCircle size={18} style={{ flexShrink: 0 }} />
+                <span>{aiGenerationError}</span>
+              </div>
+            )}
+
+            {isGeneratingAIMCQs && (
+              <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem', background: 'rgba(139, 92, 246, 0.03)', border: '1px solid rgba(139, 92, 246, 0.15)', width: '100%' }}>
+                <RefreshCw className="animate-spin" size={24} style={{ color: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
+                <div style={{ textAlign: 'center' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.95rem', color: '#c4b5fd', fontWeight: 700 }}>AI Generator Working...</h4>
+                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{aiGenerationStep}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Footer Buttons */}
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '0.5rem', width: '100%' }}>
+              <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isGeneratingAIMCQs}>
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary" 
+                type="button" 
+                onClick={handleGenerateAIMCQs}
+                disabled={isGeneratingAIMCQs || !sourceMaterialText.trim() || !subjectText.trim() || !unitText.trim() || !assignmentText.trim()}
+                style={{ gap: '0.35rem', opacity: (isGeneratingAIMCQs || !sourceMaterialText.trim() || !subjectText.trim() || !unitText.trim() || !assignmentText.trim()) ? 0.5 : 1 }}
+              >
+                <Sparkles size={16} /> Generate 30 MCQs
+              </button>
+            </div>
+
           </div>
         )}
-
-        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>
-            Cancel
-          </button>
-          <button 
-            className="btn btn-primary" 
-            type="button" 
-            onClick={handleExecuteImport}
-            disabled={parsedCards.length === 0}
-            style={{ gap: '0.35rem', opacity: parsedCards.length === 0 ? 0.5 : 1, cursor: parsedCards.length === 0 ? 'not-allowed' : 'pointer' }}
-          >
-            <Check size={16} /> Import {parsedCards.length} Cards
-          </button>
-        </div>
       </div>
     </div>
   );

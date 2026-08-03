@@ -1630,3 +1630,188 @@ Be specific with numbers. Use the data provided.`;
   const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
   return cleanAndParseJson(rawText);
 }
+
+/**
+ * Generates exactly 30 high-quality MCQ cards from reference material.
+ */
+export async function generate30MCQsFromMaterial(apiKey, model, materialText) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const modelToUse = cleanModelName(model || 'gemini-3.5-flash');
+
+  const systemPrompt = `You are an expert curriculum designer. Extract key technical concepts from the reference material and generate exactly 30 high-quality multiple choice question (MCQ) cards.
+
+Guidelines:
+1. Generate exactly 30 distinct questions covering different concepts in the material.
+2. The question must test deep conceptual understanding, logic, or calculations.
+3. The correct answer must be comprehensive.
+4. Each card must contain:
+   - "question": The clear question text.
+   - "concept": The reference answer, which MUST start with "Correct Answer: [concise answer]. " followed by detailed explanation and mnemonic.
+   - "mcqOptions": An object containing:
+     - "correctOption": A concise 1-2 sentence rephrasing of the correct answer (matching the distractors' style).
+     - "distractors": An array of exactly 3 plausible but incorrect alternatives.
+
+Reference Material:
+${materialText}
+
+Ensure your output is a JSON object matching the schema.`;
+
+  const responseSchema = {
+    type: "OBJECT",
+    properties: {
+      cards: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            question: { type: "STRING" },
+            concept: { type: "STRING" },
+            mcqOptions: {
+              type: "OBJECT",
+              properties: {
+                correctOption: { type: "STRING" },
+                distractors: {
+                  type: "ARRAY",
+                  items: { type: "STRING" }
+                }
+              },
+              required: ["correctOption", "distractors"]
+            }
+          },
+          required: ["question", "concept", "mcqOptions"]
+        }
+      }
+    },
+    required: ["cards"]
+  };
+
+  const url = `${API_URL}/${modelToUse}:generateContent?key=${trimmedKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: systemPrompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema,
+        temperature: 0.7
+      }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Generating 30 MCQs failed: ${response.statusText}`);
+  }
+
+  const resData = await response.json();
+  const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawText);
+}
+
+/**
+ * Generates an interactive MCQ simulation using a 2-layer AI pipeline:
+ * Layer 1 generates a detailed prompt/spec, Layer 2 translates that spec into full HTML/JS.
+ */
+export async function generateMCQCanvasSimulation(apiKey, model, question, concept, correctOption, distractors) {
+  const trimmedKey = cleanApiKey(apiKey);
+  const modelToUse = cleanModelName(model || 'gemini-3.5-flash');
+
+  // --- LAYER 1: Prompt Creator AI ---
+  const promptCreatorSystemPrompt = `You are a creative designer of interactive educational simulations.
+Given this MCQ card, create a detailed step-by-step design plan for a self-contained interactive simulation widget.
+The goal is to help the user understand the problem visually and click an option.
+
+Question: ${question}
+Correct Option: ${correctOption}
+Distractors: ${distractors.join(" | ")}
+Concept Focus: ${concept}
+
+Plan out:
+1. Visual layout and drawing details (e.g. animated SVG diagrams, charts, HTML5 Canvas). The diagram must illustrate the situation/forces/logic described in the question, but must NOT reveal the correct option directly.
+2. Interactive controls and option choices: How the 4 options (${[correctOption, ...distractors].join(", ")}) will be laid out (e.g. styled clickable cards, clickable diagram zones) and how they will trigger the select callback.
+3. CSS styles: Dark mode matching SimAnki (#0d0e15 background, glassmorphism, glowing highlights).
+4. Audio read-aloud: Text-to-speech script/flow.`;
+
+  const layer1Response = await fetch(`${API_URL}/${modelToUse}:generateContent?key=${trimmedKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: promptCreatorSystemPrompt }] }]
+    })
+  });
+
+  if (!layer1Response.ok) {
+    throw new Error(`MCQ Design Prompt generation failed: ${layer1Response.statusText}`);
+  }
+
+  const layer1Data = await layer1Response.json();
+  const designPlan = layer1Data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+  // --- LAYER 2: Code Generator AI ---
+  const codeGeneratorSystemPrompt = `You are an expert frontend developer specializing in interactive learning modules.
+Your task is to implement a complete, self-contained HTML/CSS/JS page based on this design specification:
+${designPlan}
+
+MCQ Details:
+- Question: ${question}
+- Options to display:
+  1. "${correctOption}" (Correct answer)
+  2. "${distractors[0]}" (Distractor)
+  3. "${distractors[1]}" (Distractor)
+  4. "${distractors[2]}" (Distractor)
+
+Code Requirements:
+1. Self-contained: Output a single HTML page containing all styles (CSS) and javascript inline. Do NOT load external scripts or libraries (e.g. font-awesome or d3) unless they can be written manually or SVG can be used. SVG is highly preferred for rendering vector diagrams.
+2. Beautiful Dark Theme: Background: #0d0e15, glassmorphic panels, glowing neon highlights.
+3. Interactive Canvas/Diagram: Render a dynamic SVG or HTML5 Canvas showing the setup described. Make it clean, responsive, and visually appealing.
+4. MCQ Option Selection: Display the 4 options. Shuffle their order dynamically when the page loads so the user does not memorize the position!
+5. **CRITICAL CALLBACK**: When the user clicks an option, the script must post a message back to SimAnki:
+   \`\`\`javascript
+   window.parent.postMessage({
+     type: 'mcq-selection',
+     selectedOptionText: optionText,
+     isCorrect: optionText === "${correctOption.replace(/"/g, '\\"')}"
+   }, '*');
+   \`\`\`
+   Do NOT alert or reveal correctness inside the simulation itself; let the parent website handle the feedback!
+6. Text-to-Speech (TTS): Include a Speech Synthesis play button that reads the question and option choices.
+7. Don't Want to Guess Button: Include a button labeled "Don't want to guess" inside the simulation which sends:
+   \`\`\`javascript
+   window.parent.postMessage({
+     type: 'mcq-selection',
+     dontGuess: true
+   }, '*');
+   \`\`\`
+
+Return ONLY a JSON object matching this schema:
+{
+  "html": "string containing the full standalone HTML page code"
+}`;
+
+  const layer2Response = await fetch(`${API_URL}/${modelToUse}:generateContent?key=${trimmedKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: codeGeneratorSystemPrompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            html: { type: "STRING" }
+          },
+          required: ["html"]
+        }
+      }
+    })
+  });
+
+  if (!layer2Response.ok) {
+    throw new Error(`MCQ Simulation Code generation failed: ${layer2Response.statusText}`);
+  }
+
+  const layer2Data = await layer2Response.json();
+  const rawHtmlText = layer2Data.candidates?.[0]?.content?.parts?.[0]?.text;
+  return cleanAndParseJson(rawHtmlText);
+}
