@@ -808,7 +808,7 @@ function cleanText(str) {
   return text;
 }
 
-// Parse tab-separated Anki text format
+// Parse tab, CSV, or line-separated text formats
 function parseAnkiTxt(text) {
   let cleanRawText = text.trim();
   if (cleanRawText.startsWith('"') && cleanRawText.endsWith('"') && cleanRawText.includes('\n')) {
@@ -818,23 +818,55 @@ function parseAnkiTxt(text) {
   const lines = cleanRawText.split(/\r?\n/);
   const cards = [];
   
+  // Auto-detect separator
+  let sep = '\t';
+  const firstLine = lines.find(line => line.trim() && !line.trim().startsWith('#'));
+  if (firstLine) {
+    const tabs = (firstLine.match(/\t/g) || []).length;
+    const semicolons = (firstLine.match(/;/g) || []).length;
+    const commas = (firstLine.match(/,/g) || []).length;
+    if (tabs > 0) {
+      sep = '\t';
+    } else if (semicolons > 0 && semicolons >= commas) {
+      sep = ';';
+    } else if (commas > 0) {
+      sep = ',';
+    }
+  }
+
   for (let line of lines) {
     const trimmedLine = line.trim();
-    if (!trimmedLine) continue;
-    // Skip comments / settings metadata lines
-    if (trimmedLine.startsWith('#')) continue;
+    if (!trimmedLine || trimmedLine.startsWith('#')) continue;
     
-    const columns = line.split('\t');
+    let columns = [];
+    if (sep === '\t') {
+      columns = line.split('\t');
+    } else {
+      let inQuotes = false;
+      let token = '';
+      for (let j = 0; j < line.length; j++) {
+        const char = line[j];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === sep && !inQuotes) {
+          columns.push(token);
+          token = '';
+        } else {
+          token += char;
+        }
+      }
+      columns.push(token);
+    }
+
     if (columns.length < 2) continue;
     
     let question = cleanText(columns[0]);
     let answer = cleanText(columns[1]);
-    let conceptFocus = columns[4] ? cleanText(columns[4]) : '';
-    let mnemonic = columns[5] ? cleanText(columns[5]) : '';
+    let conceptFocus = columns[2] ? cleanText(columns[2]) : '';
+    let mnemonic = columns[3] ? cleanText(columns[3]) : '';
     
     if (!question || !answer) continue;
     
-    // Construct the concept string.
     let concept = `Correct Answer: ${answer}`;
     if (conceptFocus) {
       concept += `. Explanation: ${conceptFocus}`;
@@ -849,5 +881,33 @@ function parseAnkiTxt(text) {
     });
   }
   
+  // Line pairing fallback
+  if (cards.length === 0 && lines.length > 0) {
+    let pendingQuestion = '';
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith('#')) continue;
+
+      if (line.toLowerCase().startsWith('q:') || line.toLowerCase().startsWith('question:')) {
+        pendingQuestion = cleanText(line.replace(/^(q|question):\s*/i, ''));
+      } else if ((line.toLowerCase().startsWith('a:') || line.toLowerCase().startsWith('answer:')) && pendingQuestion) {
+        const ans = cleanText(line.replace(/^(a|answer):\s*/i, ''));
+        cards.push({ question: pendingQuestion, concept: `Correct Answer: ${ans}` });
+        pendingQuestion = '';
+      } else {
+        if (!pendingQuestion) {
+          pendingQuestion = cleanText(line);
+        } else {
+          const ans = cleanText(line);
+          cards.push({ question: pendingQuestion, concept: `Correct Answer: ${ans}` });
+          pendingQuestion = '';
+        }
+      }
+    }
+    if (pendingQuestion && cards.length === 0) {
+      cards.push({ question: pendingQuestion, concept: `Correct Answer: ${pendingQuestion}` });
+    }
+  }
+
   return cards;
 }

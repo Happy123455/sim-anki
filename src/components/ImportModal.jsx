@@ -141,8 +141,35 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
       results.push({ question, concept });
     }
 
+    if (results.length === 0 && lines.length > 0) {
+      let pendingQuestion = '';
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith('#')) continue;
+
+        if (line.toLowerCase().startsWith('q:') || line.toLowerCase().startsWith('question:')) {
+          pendingQuestion = cleanText(line.replace(/^(q|question):\s*/i, ''));
+        } else if ((line.toLowerCase().startsWith('a:') || line.toLowerCase().startsWith('answer:')) && pendingQuestion) {
+          const ans = cleanText(line.replace(/^(a|answer):\s*/i, ''));
+          results.push({ question: pendingQuestion, concept: `Correct Answer: ${ans}` });
+          pendingQuestion = '';
+        } else {
+          if (!pendingQuestion) {
+            pendingQuestion = cleanText(line);
+          } else {
+            const ans = cleanText(line);
+            results.push({ question: pendingQuestion, concept: `Correct Answer: ${ans}` });
+            pendingQuestion = '';
+          }
+        }
+      }
+      if (pendingQuestion && results.length === 0) {
+        results.push({ question: pendingQuestion, concept: `Correct Answer: ${pendingQuestion}` });
+      }
+    }
+
     if (results.length === 0) {
-      setPreviewError('No valid flashcards found. Check that you selected the correct delimiter and your format has at least 2 columns (Question and Answer/Concept).');
+      setPreviewError('No valid flashcards found. Check that your file or text contains valid questions and answers.');
       setParsedCards([]);
     } else {
       setPreviewError('');
@@ -183,16 +210,12 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
   const handleCreateDeckSubmit = (e) => {
     e.preventDefault();
     if (!newDeckTitle.trim()) return;
-    const newId = `deck-${Date.now()}`;
-    onCreateDeck(newDeckTitle.trim(), 'Imported deck');
-    setSelectedDeckId(newId);
+    const createdId = onCreateDeck(newDeckTitle.trim(), 'Imported deck');
+    if (createdId) {
+      setSelectedDeckId(createdId);
+    }
     setNewDeckTitle('');
     setShowCreateDeckInput(false);
-    
-    // Quick timeout to let parent state sync the decks list
-    setTimeout(() => {
-      setSelectedDeckId(newId);
-    }, 100);
   };
 
   const handleMaterialFileUpload = (e) => {
@@ -275,6 +298,14 @@ export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClos
     let deckId = selectedDeckId;
     
     // Fallback deck creation if somehow empty
+    if (!deckId) {
+      if (Decks && Decks.length > 0) {
+        deckId = Decks[0].id;
+      } else if (onCreateDeck) {
+        deckId = onCreateDeck('Imported Deck', 'Auto-created deck for imported cards');
+      }
+    }
+
     if (!deckId) {
       alert('Please select or create a target deck first.');
       return;
