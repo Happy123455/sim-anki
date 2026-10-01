@@ -35,6 +35,19 @@ It is designed to help students master complex physical, quantitative, and conce
 * **No Cloud / Local First:** All your decks, cards, configurations, and detailed card history graphs are saved securely in your browser's local storage.
 * **Backup Export/Import:** Export a single JSON file of all decks, cards, and histories to back up your progress or transfer it between devices.
 
+### 5. Sync Between Your Devices
+Tap **Sync** in the top bar. There are three ways to sync, and none of them overwrite anything: both devices **merge**, keeping every review, new card and deck, and any deletions are carried across.
+
+| Method | Best for | What you need |
+| --- | --- | --- |
+| **Nearby (code or QR)** | Phone ↔ laptop in seconds | Nothing. On one device tap *Show code*; on the other, tap *Enter code* and type the 6-digit code or scan the QR with the camera, then tap *Allow*. |
+| **Sync file** | Offline, AirDrop / Nearby Share / USB | *Send file* on one device, *Merge file* on the other. |
+| **Cloud auto-sync** | Hands-off background sync | A GitHub token with `gist` scope (Settings → Sync). |
+
+* **How Nearby works:** data travels directly between the two browsers over WebRTC, on the local network when both are on the same Wi-Fi. A free [PeerJS](https://peerjs.com/) broker is used only to introduce the devices. You can point it at your own PeerJS server under *Settings → Sync → Advanced*.
+* **New device setup:** when showing a code you can also share your Gemini API key. It is only used if the other device has none yet.
+* **Safety:** the showing device must approve every connection, a scanned link never connects on its own, and a restore point is saved before each merge (*Settings → Data → Backups*).
+
 ---
 
 ## 🛠 Tech Stack

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Download, Trophy, Flame, Sparkles, BrainCircuit } from 'lucide-react';
+import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Download, Trophy, Flame, Sparkles, BrainCircuit, Cloud, CloudOff, RefreshCw } from 'lucide-react';
 import { isDue } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 
@@ -9,7 +9,7 @@ import KnowledgeGraph from './KnowledgeGraph';
 import { generateMindMap, autoCategorizeCards, generateCognitiveProfile, predictCardDifficulties, refactorHardCard, generateKnowledgeGraph } from '../utils/gemini';
 import { hasFeatureUnlocked } from '../utils/gamification';
 
-export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onUpdateDeck, onReorderDecks, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onOpenAnalytics, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards, onRefactorCard, Files = [], onCreateFile, onDeleteFile, onUpdateFile, onAddDeckToFile, onRemoveDeckFromFile, onUpdateFileGraph }) {
+export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, onDeleteDeck, onUpdateDeck, onReorderDecks, onAddCard, onDeleteCard, onStartStudy, onOpenSettings, onOpenAnalytics, onOpenSync, syncStatus = { state: 'off', label: 'Sync' }, onImportCards, onBulkDeleteCards, onMoveCards, onUpdateDeckMindMap, onUpdateCards, onRefactorCard, Files = [], onCreateFile, onDeleteFile, onUpdateFile, onAddDeckToFile, onRemoveDeckFromFile, onUpdateFileGraph }) {
   const [showCreateDeckModal, setShowCreateDeckModal] = useState(false);
   const [newDeckTitle, setNewDeckTitle] = useState('');
   const [newDeckDesc, setNewDeckDesc] = useState('');
@@ -694,68 +694,63 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
     <>
       <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* Top Header Section */}
-      <div className="dashboard-header">
-        <div>
-          <h1 style={{ background: 'linear-gradient(135deg, #a78bfa, #ec4899)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '3rem', margin: 0, fontWeight: 800 }}>
-            SimAnki
-          </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', marginTop: '0.25rem' }}>
-            Spaced Repetition with AI Grading & Interactive Simulations
-          </p>
+      <div className="dashboard-top">
+      <header className="app-header">
+        <div className="app-brand">
+          <h1 className="brand-title">SimAnki</h1>
+          <p className="brand-tagline">Spaced repetition with AI grading &amp; interactive simulations</p>
         </div>
-        <div className="dashboard-header-actions">
-          <button className="btn btn-secondary" onClick={onOpenSettings} style={{ gap: '0.5rem' }}>
-            <Settings size={18} /> Settings
+        <div className="app-header-tools">
+          <button
+            className={`sync-chip sync-${syncStatus.state}`}
+            onClick={onOpenSync}
+            title="Sync with your other devices"
+          >
+            {syncStatus.state === 'syncing' ? (
+              <RefreshCw size={15} className="spin" aria-hidden="true" />
+            ) : syncStatus.state === 'error' ? (
+              <CloudOff size={15} aria-hidden="true" />
+            ) : (
+              <Cloud size={15} aria-hidden="true" />
+            )}
+            <span>{syncStatus.label}</span>
           </button>
-          <button className="btn btn-secondary" onClick={onOpenAnalytics} style={{ gap: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', color: '#c084fc' }}>
-            <Activity size={18} /> Analytics
+          <button className="icon-btn" onClick={onOpenAnalytics} aria-label="Analytics" title="Analytics">
+            <Activity size={18} />
           </button>
-          {settings.deviceMode === 'mac' ? (
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.35rem',
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid var(--border-light)',
-              borderRadius: '8px',
-              padding: '0.5rem 1rem',
-              fontSize: '0.85rem',
-              color: 'var(--text-muted)',
-              fontWeight: 600
-            }}>
-              🔒 Read-Only Preview
-            </span>
-          ) : (
-            <>
-              <button 
-                className="btn btn-secondary" 
-                onClick={() => setShowImportModal(true)}
-                style={{ gap: '0.5rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', color: '#c084fc' }}
-              >
-                <Upload size={18} /> Import Cards
-              </button>
-              <button 
-                className="btn btn-secondary" 
-                onClick={() => setShowExportModal(true)}
-                disabled={Cards.length === 0}
-                style={{ gap: '0.5rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#60a5fa', opacity: Cards.length === 0 ? 0.5 : 1 }}
-              >
-                <Download size={18} /> Export
-              </button>
-              <button 
-                className="btn btn-secondary" 
-                onClick={() => setShowAddCardModal(true)}
-                disabled={Decks.length === 0}
-                style={{ gap: '0.5rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', opacity: Decks.length === 0 ? 0.5 : 1, cursor: Decks.length === 0 ? 'not-allowed' : 'pointer' }}
-              >
-                <Plus size={18} /> Add Card
-              </button>
-              <button className="btn btn-primary" onClick={() => setShowCreateDeckModal(true)} style={{ gap: '0.5rem' }}>
-                <Plus size={18} /> Create Deck
-              </button>
-            </>
-          )}
+          <button className="icon-btn" onClick={onOpenSettings} aria-label="Settings" title="Settings">
+            <Settings size={18} />
+          </button>
         </div>
+      </header>
+
+      {settings.deviceMode === 'mac' ? (
+        <div className="readonly-note">🔒 Read-only preview mode. Switch to Mobile in Settings → Sync to edit on this device.</div>
+      ) : (
+        <div className="quick-actions">
+          <button className="btn btn-primary" onClick={() => setShowCreateDeckModal(true)}>
+            <Plus size={18} /> New Deck
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => setShowAddCardModal(true)}
+            disabled={Decks.length === 0}
+            title={Decks.length === 0 ? 'Create a deck first' : 'Add a card'}
+          >
+            <Plus size={18} /> Add Card
+          </button>
+          <button className="btn btn-secondary" onClick={() => setShowImportModal(true)}>
+            <Upload size={18} /> Import
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => setShowExportModal(true)}
+            disabled={Cards.length === 0}
+          >
+            <Download size={18} /> Export
+          </button>
+        </div>
+      )}
       </div>
 
       {/* ──── Player Stats & Leveling Card ──── */}
@@ -1057,14 +1052,14 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                       </div>
                     )}
                   </div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1rem', height: '40px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <p className="deck-description" title={deck.description || ''}>
                     {deck.description || "No description provided."}
                   </p>
 
                   {/* Badges / Stats */}
                   <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                    <span className="badge badge-due">{stats.due} Due</span>
-                    <span className="badge badge-new">{stats.new} New</span>
+                    <span className={`badge badge-due${stats.due === 0 ? ' badge-zero' : ''}`}>{stats.due} Due</span>
+                    <span className={`badge badge-new${stats.new === 0 ? ' badge-zero' : ''}`}>{stats.new} New</span>
                     <span className="badge badge-learn" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', border: '1px solid rgba(139, 92, 246, 0.3)' }}>{stats.total} Total</span>
                   </div>
 
@@ -1145,7 +1140,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                     }}
                     style={{ gap: '0.35rem', fontSize: '0.85rem', padding: '0.5rem', background: 'rgba(16, 185, 129, 0.05)', border: '1px solid rgba(16, 185, 129, 0.2)', color: '#34d399' }}
                   >
-                    <Plus size={14} /> + Card
+                    <Plus size={14} /> Card
                   </button>
                 )}
                 <button 

@@ -1,137 +1,217 @@
-import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, Save, ShieldAlert, ArrowLeft, RefreshCw, Download, Upload, Layers } from 'lucide-react';
-import { checkApiKey, cleanApiKey } from '../utils/gemini';
+import { useState, useEffect } from 'react';
+import {
+  Eye, EyeOff, ShieldAlert, ArrowLeft, RefreshCw, Download, Upload, Layers,
+  Bot, Brain, Cloud, Database, Wifi, ChevronRight, Check
+} from 'lucide-react';
+import { checkApiKey } from '../utils/gemini';
 import { sanitizeToken } from '../utils/githubSync';
 
-const getBestDefaultVoice = (voices) => {
-  const preferredSubstrings = ["siri", "google us english", "google uk english", "natural", "neural", "samantha", "aria", "guy"];
-  const englishVoices = voices.filter(v => v.lang.toLowerCase().startsWith('en'));
-  if (englishVoices.length === 0) return null;
+const TABS = [
+  { id: 'ai', label: 'AI & Voice', icon: Bot },
+  { id: 'study', label: 'Study', icon: Brain },
+  { id: 'sync', label: 'Sync', icon: Cloud },
+  { id: 'data', label: 'Data', icon: Database }
+];
+const TAB_KEY = 'simanki_settings_tab';
 
-  for (const sub of preferredSubstrings) {
-    const match = englishVoices.find(v => v.name.toLowerCase().includes(sub));
-    if (match) return match;
+function readInitialTab() {
+  try {
+    const saved = localStorage.getItem(TAB_KEY);
+    return TABS.some(t => t.id === saved) ? saved : 'ai';
+  } catch {
+    return 'ai';
   }
-  return englishVoices[0];
-};
+}
 
-export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData, onImportAnkiCards, onPushSync, onPullSync, isSyncing, onRestoreBackup, cloudBackups }) {
-  const [apiKey, setApiKey] = useState(settings.apiKey || '');
-  const [showKey, setShowKey] = useState(false);
-  const [model, setModel] = useState(settings.model || 'gemini-3.5-flash');
-  const [targetRetention, setTargetRetention] = useState(settings.targetRetention || 90);
-  const [customInstructions, setCustomInstructions] = useState(settings.customInstructions || '');
-  const [voiceURI, setVoiceURI] = useState(settings.voiceURI || '');
-  const [voices, setVoices] = useState([]);
+function loadLocalBackups() {
+  const loaded = [];
+  for (let i = 1; i <= 3; i++) {
+    try {
+      const data = localStorage.getItem(`simanki_local_backup_${i}`);
+      if (data) loaded.push({ index: i, ...JSON.parse(data) });
+    } catch {
+      // Skip unreadable slot
+    }
+  }
+  return loaded.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+}
+
+// Every field the form edits, with its default
+const toForm = (s) => ({
+  apiKey: s.apiKey || '',
+  model: s.model || 'gemini-3.5-flash',
+  targetRetention: s.targetRetention || 90,
+  customInstructions: s.customInstructions || '',
+  voiceURI: s.voiceURI || '',
+  syncCode: s.syncCode || '',
+  githubPAT: s.githubPAT || '',
+  deviceName: s.deviceName || '',
+  relaxedMode: !!s.relaxedMode,
+  stressMode: !!s.stressMode,
+  unlockAllFeatures: s.unlockAllFeatures ?? true,
+  maxHardCardsPer5Min: s.maxHardCardsPer5Min ?? 2,
+  againStepMin: s.againStepMin || 10,
+  deviceMode: s.deviceMode || 'mobile',
+  heartsEnabled: s.heartsEnabled !== false,
+  maxHearts: s.maxHearts || 5,
+  intradayStepMin: s.intradayStepMin || 1,
+  syncSignalServer: s.syncSignalServer || ''
+});
+
+function Section({ title, description, icon: Icon, tone, children }) {
+  return (
+    <section className={`settings-section${tone ? ` tone-${tone}` : ''}`}>
+      {title && (
+        <header className="section-head">
+          <h3>{Icon && <Icon size={18} aria-hidden="true" />}{title}</h3>
+          {description && <p>{description}</p>}
+        </header>
+      )}
+      {children}
+    </section>
+  );
+}
+
+function Field({ label, htmlFor, hint, aside, children }) {
+  return (
+    <div className="field">
+      {(label || aside) && (
+        <div className="field-label-row">
+          {label && <label className="field-label" htmlFor={htmlFor}>{label}</label>}
+          {aside && <span className="field-aside">{aside}</span>}
+        </div>
+      )}
+      {children}
+      {hint && <p className="field-hint">{hint}</p>}
+    </div>
+  );
+}
+
+function Toggle({ id, checked, onChange, label, description }) {
+  return (
+    <label className="toggle-row" htmlFor={id}>
+      <input id={id} type="checkbox" className="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        <strong>{label}</strong>
+        {description && <small>{description}</small>}
+      </span>
+    </label>
+  );
+}
+
+function SecretInput({ id, value, onChange, placeholder }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="input-with-action">
+      <input
+        id={id}
+        type={visible ? 'text' : 'password'}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <button type="button" className="input-action" onClick={() => setVisible(v => !v)} aria-label={visible ? 'Hide' : 'Show'}>
+        {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+      </button>
+    </div>
+  );
+}
+
+function BackupRow({ title, backup, onRestore }) {
+  return (
+    <div className="backup-row">
+      <div>
+        <strong>{title}{backup.deviceName ? ` · ${backup.deviceName}` : ''}</strong>
+        <span>
+          {new Date(backup.timestamp).toLocaleString()} · {backup.decks?.length || 0} decks · {backup.cards?.length || 0} cards
+        </span>
+      </div>
+      <button className="btn btn-secondary btn-sm" onClick={onRestore}>Restore</button>
+    </div>
+  );
+}
+
+export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData, onImportAnkiCards, onPushSync, onPullSync, isSyncing, onRestoreBackup, cloudBackups, onOpenSync, appVersion, defaultDeviceName }) {
+  const [tab, setTab] = useState(readInitialTab);
+  // Only the fields the user touched; everything else tracks live settings
+  const [edits, setEdits] = useState({});
+  const [voices, setVoices] = useState(() => window.speechSynthesis?.getVoices() || []);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState(null); // 'success' | 'error' | null
-  const [saveStatus, setSaveStatus] = useState(false);
-  const [syncCode, setSyncCode] = useState(settings.syncCode || '');
-  const [githubPAT, setGithubPAT] = useState(settings.githubPAT || '');
-  const [showPat, setShowPat] = useState(false);
-  const [backups, setBackups] = useState([]);
-  const [deviceName, setDeviceName] = useState(settings.deviceName || '');
-  const [relaxedMode, setRelaxedMode] = useState(settings.relaxedMode || false);
-  const [stressMode, setStressMode] = useState(settings.stressMode || false);
-  const [unlockAllFeatures, setUnlockAllFeatures] = useState(settings.unlockAllFeatures ?? true);
-  const [maxHardCardsPer5Min, setMaxHardCardsPer5Min] = useState(settings.maxHardCardsPer5Min ?? 2);
-  const [againStepMin, setAgainStepMin] = useState(settings.againStepMin || 10);
-  const [deviceMode, setDeviceMode] = useState(settings.deviceMode || 'mobile');
-  const [heartsEnabled, setHeartsEnabled] = useState(settings.heartsEnabled !== false);
-  const [maxHearts, setMaxHearts] = useState(settings.maxHearts || 5);
-  const [intradayStepMin, setIntradayStepMin] = useState(settings.intradayStepMin || 1);
+  const [justSaved, setJustSaved] = useState(false);
+  const [backups] = useState(loadLocalBackups);
 
-  useEffect(() => {
-    const loaded = [];
-    for (let i = 1; i <= 3; i++) {
-      const data = localStorage.getItem(`simanki_local_backup_${i}`);
-      if (data) {
-        try {
-          loaded.push({ index: i, ...JSON.parse(data) });
-        } catch (e) {}
-      }
-    }
-    setBackups(loaded);
-  }, []);
+  const base = toForm(settings);
+  const form = { ...base, ...edits };
+  const isDirty = Object.keys(edits).some(k => edits[k] !== base[k]);
+  const set = (key) => (value) => setEdits(e => ({ ...e, [key]: value }));
 
   useEffect(() => {
     if (!window.speechSynthesis) return;
-    const updateVoices = () => {
-      const allVoices = window.speechSynthesis.getVoices();
-      setVoices(allVoices);
-      
-      // Auto-suggest best natural English voice if none is configured
-      if (!voiceURI && allVoices.length > 0) {
-        const best = getBestDefaultVoice(allVoices);
-        if (best) {
-          setVoiceURI(best.voiceURI);
-        }
-      }
-    };
-    updateVoices();
-    window.speechSynthesis.onvoiceschanged = updateVoices;
-  }, [voiceURI]);
+    const updateVoices = () => setVoices(window.speechSynthesis.getVoices());
+    window.speechSynthesis.addEventListener?.('voiceschanged', updateVoices);
+    return () => window.speechSynthesis.removeEventListener?.('voiceschanged', updateVoices);
+  }, []);
+
+  useEffect(() => {
+    if (!justSaved) return;
+    const t = setTimeout(() => setJustSaved(false), 1800);
+    return () => clearTimeout(t);
+  }, [justSaved]);
+
+  const changeTab = (id) => {
+    setTab(id);
+    try { localStorage.setItem(TAB_KEY, id); } catch { /* storage unavailable */ }
+  };
+
+  const save = () => {
+    onSaveSettings(form);
+    setEdits({});
+    setJustSaved(true);
+  };
+
+  const discard = () => setEdits({});
+
+  // Leaving the page keeps your changes rather than silently dropping them
+  const handleBack = () => {
+    if (isDirty) onSaveSettings(form);
+    onBack();
+  };
 
   const handleTestKey = async () => {
-    if (!apiKey) return;
+    if (!form.apiKey) return;
     setIsTesting(true);
     setTestResult(null);
-    const isValid = await checkApiKey(apiKey, model);
+    const isValid = await checkApiKey(form.apiKey, form.model);
     setIsTesting(false);
     setTestResult(isValid ? 'success' : 'error');
   };
 
-  useEffect(() => {
-    if (settings) {
-      setApiKey(settings.apiKey || '');
-      setModel(settings.model || 'gemini-3.5-flash');
-      setTargetRetention(settings.targetRetention || 90);
-      setCustomInstructions(settings.customInstructions || '');
-      setVoiceURI(settings.voiceURI || '');
-      setSyncCode(settings.syncCode || '');
-      setGithubPAT(settings.githubPAT || '');
-      setDeviceName(settings.deviceName || '');
-      setRelaxedMode(settings.relaxedMode || false);
-      setStressMode(settings.stressMode || false);
-      setUnlockAllFeatures(settings.unlockAllFeatures ?? true);
-      setMaxHardCardsPer5Min(settings.maxHardCardsPer5Min ?? 2);
-      setAgainStepMin(settings.againStepMin || 10);
-      setDeviceMode(settings.deviceMode || 'mobile');
-    }
-  }, [settings]);
-
-  const handleSave = () => {
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode, heartsEnabled, maxHearts, intradayStepMin });
-    setSaveStatus(true);
-    setTimeout(() => setSaveStatus(false), 2000);
-  };
-
   const handlePush = async () => {
-    if (!githubPAT) {
+    if (!form.githubPAT) {
       alert("GitHub Personal Access Token (PAT) is required to push/create a Gist sync.");
       return;
     }
-    // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode, heartsEnabled, maxHearts, intradayStepMin });
-    const code = await onPushSync(githubPAT, syncCode);
+    // Save first so App has the latest PAT + Gist ID
+    onSaveSettings(form);
+    const code = await onPushSync(form.githubPAT, form.syncCode);
     if (code) {
-      setSyncCode(code);
-      // Save again with the returned gist ID
-      onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode: code, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode, heartsEnabled, maxHearts, intradayStepMin });
+      onSaveSettings({ ...form, syncCode: code });
+      setEdits({});
     }
   };
 
   const handlePull = async () => {
-    if (!syncCode) {
+    if (!form.syncCode) {
       alert("Enter a Gist ID (Sync Code) first.");
       return;
     }
-    if (!confirm("This will overwrite all local decks, cards, settings, and progress with cloud data. Are you sure you want to pull?")) {
-      return;
-    }
-    // Auto-save settings FIRST so App.jsx has the latest PAT + syncCode
-    onSaveSettings({ apiKey, model, targetRetention, customInstructions, voiceURI, syncCode, githubPAT, deviceName, relaxedMode, stressMode, unlockAllFeatures, maxHardCardsPer5Min, againStepMin, deviceMode, heartsEnabled, maxHearts, intradayStepMin });
-    await onPullSync(syncCode, githubPAT);
+    onSaveSettings(form);
+    // Pulling merges cloud data with this device's — nothing is overwritten
+    await onPullSync(form.syncCode, form.githubPAT);
+    setEdits({});
   };
 
   const handleFileUpload = (e) => {
@@ -142,12 +222,13 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
       try {
         const data = JSON.parse(event.target.result);
         if (data.decks && data.cards) {
+          if (!confirm(`Replace everything on this device with this backup (${data.decks.length} decks, ${data.cards.length} cards)?\n\nTo combine it with what you have instead, use Sync → Merge a sync file.`)) return;
           onImportData(data);
-          alert("Data imported successfully!");
+          alert("Backup restored.");
         } else {
           alert("Invalid import format. JSON must contain decks and cards.");
         }
-      } catch (err) {
+      } catch {
         alert("Failed to parse JSON file.");
       }
     };
@@ -176,610 +257,401 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
     e.target.value = '';
   };
 
+  const englishVoices = voices.filter(v => v.lang.startsWith('en'));
+  const otherVoices = voices.filter(v => !v.lang.startsWith('en'));
+
   return (
-    <div className="glass-panel animate-fade-in" style={{ padding: '2rem', maxWidth: '600px', margin: '2rem auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
-        <button className="btn btn-secondary" onClick={onBack} style={{ padding: '0.5rem' }}>
+    <>
+    <div className="settings-page animate-fade-in">
+      <header className="settings-header">
+        <button className="icon-btn" onClick={handleBack} aria-label="Back to dashboard">
           <ArrowLeft size={18} />
         </button>
-        <h2 style={{ fontSize: '1.75rem', fontWeight: 700 }}>Application Settings</h2>
-      </div>
+        <h2>Settings</h2>
+      </header>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        {/* Gemini API Key */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-          <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Gemini API Key</label>
-          <div style={{ display: 'flex', gap: '0.5rem', position: 'relative' }}>
-            <input
-              type={showKey ? 'text' : 'password'}
-              placeholder="AIzaSy..."
-              value={apiKey}
-              onChange={(e) => {
-                setApiKey(e.target.value);
-                setTestResult(null);
-              }}
-              style={{ paddingRight: '2.5rem' }}
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey(!showKey)}
-              style={{
-                position: 'absolute',
-                right: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-muted)',
-                cursor: 'pointer'
-              }}
-            >
-              {showKey ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-            Get your API key for free from the{' '}
-            <a
-              href="https://aistudio.google.com/"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}
-            >
-              Google AI Studio
-            </a>.
-          </p>
-
-          <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
-            <button
-              className="btn btn-secondary"
-              onClick={handleTestKey}
-              disabled={!apiKey || isTesting}
-              style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
-            >
-              {isTesting ? (
-                <>
-                  <RefreshCw className="animate-float" size={14} style={{ animation: 'spin 1s linear infinite' }} /> Testing...
-                </>
-              ) : (
-                'Test Connection'
-              )}
-            </button>
-            {testResult === 'success' && (
-              <span style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.85rem' }}>
-                ✓ API Connection Successful!
-              </span>
-            )}
-            {testResult === 'error' && (
-              <span style={{ color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.85rem' }}>
-                ✗ Invalid API Key or Model selection.
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Model Selection */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-          <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Gemini Model</label>
-          <select value={model} onChange={(e) => setModel(e.target.value)}>
-            <option value="gemini-3.5-flash">Gemini 3.5 Flash (Default - Latest & Fastest)</option>
-            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-            <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Cost Efficient)</option>
-          </select>
-        </div>
-
-        {/* Voice Selection */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-          <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Tutor Speech Voice (Neural / Natural)</label>
-          <select value={voiceURI} onChange={(e) => setVoiceURI(e.target.value)}>
-            <option value="">System Default Voice</option>
-            {voices
-              .filter(v => v.lang.startsWith('en'))
-              .map(v => (
-                <option key={v.voiceURI} value={v.voiceURI}>
-                  {v.name} ({v.lang}) {v.localService ? '[Local]' : '[Network]'}
-                </option>
-              ))
-            }
-            {voices
-              .filter(v => !v.lang.startsWith('en'))
-              .map(v => (
-                <option key={v.voiceURI} value={v.voiceURI}>
-                  {v.name} ({v.lang})
-                </option>
-              ))
-            }
-          </select>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            Choose a high-quality or neural voice supported by your browser/OS for more natural narration.
-          </p>
-        </div>
-
-        {/* FSRS Toughness/Target Retention Selection */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Toughness (FSRS Desired Retention)</label>
-            <span style={{ color: 'var(--accent-primary)', fontWeight: 700 }}>{targetRetention}%</span>
-          </div>
-          <input 
-            type="range" 
-            min="75" 
-            max="95" 
-            step="1"
-            value={targetRetention} 
-            onChange={(e) => setTargetRetention(Number(e.target.value))} 
-            style={{ cursor: 'pointer', accentColor: 'var(--accent-primary)' }}
-          />
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-            Sets the percentage of cards you expect to remember. 
-            **85% to 90% is the optimal range.** 
-            Higher retention targets (e.g. 95%) will schedule reviews much sooner (tougher pacing) to guarantee memory retention.
-          </p>
-        </div>
-
-        {/* Recommended Learning Steps / Again Step Config */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1.25rem' }}>
-          <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Recommended Learning Step (Again Interval)</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <input 
-              type="number" 
-              min="1" 
-              max="60"
-              value={againStepMin}
-              onChange={(e) => setAgainStepMin(Math.max(1, Number(e.target.value)))}
-              style={{
-                width: '80px',
-                background: 'rgba(0,0,0,0.2)',
-                border: '1px solid var(--border-light)',
-                borderRadius: '6px',
-                color: 'var(--text-primary)',
-                padding: '0.4rem 0.6rem',
-                fontSize: '0.9rem',
-                textAlign: 'center'
-              }}
-            />
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>minutes</span>
-          </div>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-            Controls how quickly a failed card reappears. Anki's default is 10 minutes, but setting this to a shorter interval (e.g. **1 to 5 minutes**) makes learning lapses much faster to review.
-          </p>
-        </div>
-
-        {/* Hearts System & Intraday Re-insertion */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1.25rem' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <input 
-                type="checkbox"
-                id="heartsToggle"
-                checked={heartsEnabled}
-                onChange={(e) => setHeartsEnabled(e.target.checked)}
-                style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#ef4444' }}
-              />
-              <label htmlFor="heartsToggle" style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
-                ❤️ Hearts System
-              </label>
-            </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, paddingLeft: '1.6rem', lineHeight: '1.4' }}>
-              Lose a heart for each wrong answer. Session pauses when hearts run out.
-            </p>
-            {heartsEnabled && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingLeft: '1.6rem', marginTop: '0.3rem' }}>
-                <span style={{ fontSize: '0.8rem', color: '#888' }}>Max:</span>
-                <input type="range" min="3" max="10" value={maxHearts} onChange={(e) => setMaxHearts(Number(e.target.value))}
-                  style={{ flex: 1, accentColor: '#ef4444' }} />
-                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f87171', width: '30px', textAlign: 'center' }}>{maxHearts}</span>
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-            <label style={{ fontWeight: 700, color: 'var(--text-primary)' }}>⚡ Intraday Re-insertion</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <input type="range" min="1" max="10" value={intradayStepMin} onChange={(e) => setIntradayStepMin(Number(e.target.value))}
-                style={{ flex: 1, accentColor: '#f59e0b' }} />
-              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fbbf24', width: '50px', textAlign: 'center' }}>{intradayStepMin}m</span>
-            </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.4' }}>
-              Failed cards reappear after this many minutes during the session (priority queue).
-            </p>
-          </div>
-        </div>
-
-        {/* Cognitive & Pacing Support Modes */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '1.5rem 0', flexWrap: 'wrap' }}>
-          {/* Relaxed Mode Toggle */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', textAlign: 'left' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <input 
-                type="checkbox"
-                id="relaxedModeToggle"
-                checked={relaxedMode}
-                onChange={(e) => setRelaxedMode(e.target.checked)}
-                style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#10b981' }}
-              />
-              <label htmlFor="relaxedModeToggle" style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
-                🧘 Relaxed Mode
-              </label>
-            </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, paddingLeft: '1.6rem', lineHeight: '1.4' }}>
-              Failed cards are rescheduled as **HARD** instead of **AGAIN** to prevent lapses and severe card progress resets.
-            </p>
-          </div>
-
-          {/* Gentle AI / Stress Mode Toggle */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', textAlign: 'left' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <input 
-                type="checkbox"
-                id="stressModeToggle"
-                checked={stressMode}
-                onChange={(e) => setStressMode(e.target.checked)}
-                style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#ec4899' }}
-              />
-              <label htmlFor="stressModeToggle" style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
-                🌸 Gentle AI Mode
-              </label>
-            </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, paddingLeft: '1.6rem', lineHeight: '1.4' }}>
-              Instructs the AI to give ultra-short (under 30 words), comforting explanations and visual number analogies.
-            </p>
-          </div>
-
-          {/* Hard Card Pacing Limit Select */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', textAlign: 'left', gridColumn: 'span 2', marginTop: '0.5rem' }}>
-            <label htmlFor="maxHardCardsSelect" style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
-              🧠 Hard Card Pacing Engine
-            </label>
-            <select
-              id="maxHardCardsSelect"
-              value={maxHardCardsPer5Min}
-              onChange={(e) => setMaxHardCardsPer5Min(Number(e.target.value))}
-              className="input-field"
-              style={{ width: '100%', maxWidth: '280px', cursor: 'pointer', appearance: 'none', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '0.4rem 0.8rem', borderRadius: '6px', color: 'var(--text-primary)' }}
-            >
-              <option value={1} style={{ background: '#111' }}>Max 1 hard card per 5 minutes</option>
-              <option value={2} style={{ background: '#111' }}>Max 2 hard cards per 5 minutes (Default)</option>
-              <option value={3} style={{ background: '#111' }}>Max 3 hard cards per 5 minutes</option>
-              <option value={4} style={{ background: '#111' }}>Max 4 hard cards per 5 minutes</option>
-              <option value={5} style={{ background: '#111' }}>Max 5 hard cards per 5 minutes</option>
-              <option value={999} style={{ background: '#111' }}>Off (Unlimited pacing)</option>
-            </select>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, paddingLeft: '0.2rem', lineHeight: '1.4' }}>
-              Limits the number of hard cards displayed within a rolling 5-minute study window. If exceeded, the system postpones hard cards and pulls forward easier ones.
-            </p>
-          </div>
-        </div>
-
-        {/* Custom AI Tutor Instructions */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-          <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Custom AI Tutor Instructions</label>
-          <textarea
-            placeholder="e.g. Speak in a friendly, encouraging tone. Explain structural engineering concepts using concrete beam analogies. Focus on limit states."
-            value={customInstructions}
-            onChange={(e) => setCustomInstructions(e.target.value)}
-            style={{ minHeight: '80px', fontSize: '0.9rem' }}
-          />
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            Provide custom rules on how you want the AI to grade your answers, what vocabulary to use, or how to explain concepts.
-          </p>
-        </div>
-
-        {/* Device Name Configuration */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-          <label style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Device Name (For Cloud & Local Backups)</label>
-          <input
-            type="text"
-            placeholder="e.g. Macbook Pro, My iPhone, iPad Air"
-            value={deviceName}
-            onChange={(e) => setDeviceName(e.target.value)}
-            style={{ fontSize: '0.9rem' }}
-          />
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            Give this device a recognizable name so you know where each backup snapshot originated from.
-          </p>
-        </div>
-
-        {/* Device Mode & Sync Priority Selection */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '1.5rem', marginTop: '0.5rem' }}>
-          <label style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            📱 Device Mode & Sync Priority
-          </label>
-          <select
-            value={deviceMode}
-            onChange={(e) => setDeviceMode(e.target.value)}
-            style={{
-              width: '100%',
-              maxWidth: '350px',
-              background: 'rgba(0,0,0,0.25)',
-              border: '1px solid var(--border-light)',
-              borderRadius: '6px',
-              color: 'var(--text-primary)',
-              padding: '0.4rem 0.6rem',
-              fontSize: '0.9rem',
-              cursor: 'pointer'
-            }}
+      <nav className="settings-tabs" role="tablist" aria-label="Settings sections">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            className={`settings-tab${tab === id ? ' active' : ''}`}
+            onClick={() => changeTab(id)}
           >
-            <option value="mobile">Mobile (Review Mode - High Priority)</option>
-            <option value="mac">Mac/Desktop (Preview Mode - Yield on Clash)</option>
-          </select>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-            Choose **Mobile** for your primary review device. Mobile changes will automatically override and win during any sync conflicts. Desktop mode yields to Mobile changes to prevent clashes when previewing or editing.
-          </p>
-        </div>
+            <Icon size={16} aria-hidden="true" /> {label}
+          </button>
+        ))}
+      </nav>
 
-        {/* Action Button */}
-        <button className="btn btn-primary" onClick={handleSave} style={{ alignSelf: 'flex-start', gap: '0.5rem' }}>
-          <Save size={18} /> {saveStatus ? 'Settings Saved!' : 'Save Configurations'}
-        </button>
+      <div className="settings-body" role="tabpanel">
+        {tab === 'ai' && (
+          <>
+            <Section title="Gemini AI" description="Powers grading, explanations and simulations.">
+              <Field
+                label="API key"
+                htmlFor="apiKey"
+                hint={<>Free from <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer">Google AI Studio</a>. Already set up on another device? Use <strong>Sync → Show code</strong> there to copy it over.</>}
+              >
+                <SecretInput
+                  id="apiKey"
+                  placeholder="AIzaSy..."
+                  value={form.apiKey}
+                  onChange={(v) => { set('apiKey')(v); setTestResult(null); }}
+                />
+                <div className="field-row">
+                  <button className="btn btn-secondary btn-sm" onClick={handleTestKey} disabled={!form.apiKey || isTesting}>
+                    {isTesting ? <><RefreshCw size={14} className="spin" /> Testing…</> : 'Test connection'}
+                  </button>
+                  {testResult === 'success' && <span className="text-success">✓ Connected</span>}
+                  {testResult === 'error' && <span className="text-danger">✗ Invalid key or model</span>}
+                </div>
+              </Field>
 
-        <hr style={{ borderColor: 'var(--border-light)', margin: '1rem 0' }} />
+              <Field label="Model" htmlFor="model">
+                <select id="model" value={form.model} onChange={(e) => set('model')(e.target.value)}>
+                  <option value="gemini-3.5-flash">Gemini 3.5 Flash (default, fastest)</option>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                  <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (cheapest)</option>
+                </select>
+              </Field>
 
-        {/* Data Import/Export */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left' }}>
-          <h3 style={{ fontSize: '1.2rem', fontWeight: 600 }}>Data Portability</h3>
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-            <button className="btn btn-secondary" onClick={onExportData} style={{ fontSize: '0.9rem', gap: '0.5rem' }}>
-              <Download size={16} /> Export Backup (JSON)
-            </button>
-            <label className="btn btn-secondary" style={{ fontSize: '0.9rem', gap: '0.5rem', cursor: 'pointer', margin: 0 }}>
-              <Upload size={16} /> Import Backup (JSON)
-              <input type="file" accept=".json" onChange={handleFileUpload} style={{ display: 'none' }} />
-            </label>
-            <label className="btn btn-secondary" style={{ fontSize: '0.9rem', gap: '0.5rem', cursor: 'pointer', margin: 0 }}>
-              <Upload size={16} /> Import Anki Text (TXT/TSV)
-              <input type="file" accept=".txt,.tsv" onChange={handleAnkiTxtUpload} style={{ display: 'none' }} />
-            </label>
-          </div>
-        </div>
+              <Field
+                label="Tutor instructions"
+                htmlFor="customInstructions"
+                hint="How the AI should grade and explain: tone, vocabulary, analogies."
+              >
+                <textarea
+                  id="customInstructions"
+                  placeholder="e.g. Friendly tone. Explain structural concepts with concrete beam analogies."
+                  value={form.customInstructions}
+                  onChange={(e) => set('customInstructions')(e.target.value)}
+                  rows={3}
+                />
+              </Field>
+            </Section>
 
-        <hr style={{ borderColor: 'var(--border-light)', margin: '1rem 0' }} />
+            <Section title="Voice" description="Used when explanations are read aloud.">
+              <Field label="Tutor voice" htmlFor="voiceURI" hint="Neural or natural voices sound best. Availability depends on your device.">
+                <select id="voiceURI" value={form.voiceURI} onChange={(e) => set('voiceURI')(e.target.value)}>
+                  <option value="">Automatic (best available)</option>
+                  {englishVoices.map(v => (
+                    <option key={v.voiceURI} value={v.voiceURI}>
+                      {v.name} ({v.lang}){v.localService ? '' : ' · online'}
+                    </option>
+                  ))}
+                  {otherVoices.map(v => (
+                    <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
+                  ))}
+                </select>
+              </Field>
+            </Section>
+          </>
+        )}
 
-        {/* Cloud Gist Synchronization */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left' }}>
-          <h3 style={{ fontSize: '1.2rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            🔄 GitHub Gist Cloud Sync
-          </h3>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-            Sync your decks, cards, settings, and FSRS progress securely across devices (Mac, mobile, tablets) using a secret GitHub Gist.
-          </p>
+        {tab === 'study' && (
+          <>
+            <Section title="Scheduling" description="How often cards come back.">
+              <Field
+                label="Target retention"
+                htmlFor="targetRetention"
+                aside={<span className="value-badge">{form.targetRetention}%</span>}
+                hint={<>The share of cards you aim to remember. <strong>85–90%</strong> is the sweet spot; higher means more frequent reviews.</>}
+              >
+                <input
+                  id="targetRetention"
+                  type="range"
+                  min="75"
+                  max="95"
+                  step="1"
+                  value={form.targetRetention}
+                  onChange={(e) => set('targetRetention')(Number(e.target.value))}
+                />
+              </Field>
 
-          {/* GitHub PAT Input */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-              GitHub Personal Access Token (PAT)
-            </label>
-            <div style={{ display: 'flex', gap: '0.5rem', position: 'relative' }}>
-              <input
-                type={showPat ? 'text' : 'password'}
-                placeholder="ghp_..."
-                value={githubPAT}
-                onChange={(e) => setGithubPAT(sanitizeToken(e.target.value))}
-                style={{ paddingRight: '2.5rem' }}
+              <div className="field-grid">
+                <Field
+                  label="Relearn step"
+                  htmlFor="againStepMin"
+                  hint="When a failed card is due again. Anki uses 10 min; 1–5 min is snappier."
+                >
+                  <div className="input-suffix">
+                    <input
+                      id="againStepMin"
+                      type="number"
+                      min="1"
+                      max="60"
+                      value={form.againStepMin}
+                      onChange={(e) => set('againStepMin')(Math.max(1, Number(e.target.value)))}
+                    />
+                    <span>min</span>
+                  </div>
+                </Field>
+
+                <Field
+                  label="In-session repeat"
+                  htmlFor="intradayStepMin"
+                  aside={<span className="value-badge">{form.intradayStepMin}m</span>}
+                  hint="Failed cards reappear this many minutes later in the same session."
+                >
+                  <input
+                    id="intradayStepMin"
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={form.intradayStepMin}
+                    onChange={(e) => set('intradayStepMin')(Number(e.target.value))}
+                  />
+                </Field>
+              </div>
+
+              <Field
+                label="Hard card pacing"
+                htmlFor="maxHardCardsSelect"
+                hint="Spreads out hard cards. Extra ones are postponed and easier cards pulled forward."
+              >
+                <select
+                  id="maxHardCardsSelect"
+                  value={form.maxHardCardsPer5Min}
+                  onChange={(e) => set('maxHardCardsPer5Min')(Number(e.target.value))}
+                >
+                  <option value={1}>1 hard card per 5 min</option>
+                  <option value={2}>2 per 5 min (default)</option>
+                  <option value={3}>3 per 5 min</option>
+                  <option value={4}>4 per 5 min</option>
+                  <option value={5}>5 per 5 min</option>
+                  <option value={999}>Off (no limit)</option>
+                </select>
+              </Field>
+            </Section>
+
+            <Section title="Comfort" description="Make sessions gentler when you need it.">
+              <Toggle
+                id="heartsToggle"
+                checked={form.heartsEnabled}
+                onChange={set('heartsEnabled')}
+                label="❤️ Hearts"
+                description="Lose a heart per wrong answer; the session pauses at zero and hearts refill over time."
               />
+              {form.heartsEnabled && (
+                <Field label="Max hearts" htmlFor="maxHearts" aside={<span className="value-badge">{form.maxHearts}</span>}>
+                  <input id="maxHearts" type="range" min="3" max="10" value={form.maxHearts} onChange={(e) => set('maxHearts')(Number(e.target.value))} />
+                </Field>
+              )}
+              <Toggle
+                id="relaxedModeToggle"
+                checked={form.relaxedMode}
+                onChange={set('relaxedMode')}
+                label="🧘 Relaxed mode"
+                description={<>Failed cards count as <strong>Hard</strong> instead of <strong>Again</strong>, so progress never fully resets.</>}
+              />
+              <Toggle
+                id="stressModeToggle"
+                checked={form.stressMode}
+                onChange={set('stressMode')}
+                label="🌸 Gentle AI"
+                description="Very short, reassuring explanations with simple number analogies."
+              />
+              <Toggle
+                id="unlockAllFeaturesToggle"
+                checked={form.unlockAllFeatures}
+                onChange={set('unlockAllFeatures')}
+                label="🏅 Unlock all features"
+                description="Skip the streak-based unlocks and get every feature now."
+              />
+            </Section>
+          </>
+        )}
+
+        {tab === 'sync' && (
+          <>
+            <Section title="Sync your devices" icon={Wifi} tone="accent">
+              <p className="section-lead">
+                Copy decks and progress between your phone and computer with a 6-digit code or QR scan, or with a file.
+                No account or token needed.
+              </p>
+              <button className="btn btn-primary" onClick={onOpenSync}>
+                <Wifi size={18} /> Open Sync <ChevronRight size={16} />
+              </button>
+              <Field
+                label="This device's name"
+                htmlFor="deviceName"
+                hint="Shown on your other device when pairing and on backups."
+              >
+                <input
+                  id="deviceName"
+                  type="text"
+                  placeholder={defaultDeviceName || 'e.g. My iPhone'}
+                  value={form.deviceName}
+                  onChange={(e) => set('deviceName')(e.target.value)}
+                />
+              </Field>
+            </Section>
+
+            <Section
+              title="Cloud auto-sync (GitHub Gist)"
+              icon={Cloud}
+              description="Optional. Syncs in the background through a secret Gist on your GitHub account."
+            >
+              <Field
+                label="GitHub token (PAT)"
+                htmlFor="githubPAT"
+                hint={<>Needs the <code>gist</code> scope. Create one under <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">GitHub → Settings → Tokens (classic)</a>.</>}
+              >
+                <SecretInput id="githubPAT" placeholder="ghp_..." value={form.githubPAT} onChange={(v) => set('githubPAT')(sanitizeToken(v))} />
+              </Field>
+
+              <Field
+                label="Gist ID (sync code)"
+                htmlFor="syncCode"
+                hint={form.syncCode ? 'Enter this same Gist ID and token on your other device.' : 'Leave blank and press “Create Gist” to make one.'}
+              >
+                <input
+                  id="syncCode"
+                  type="text"
+                  placeholder="Leave blank to create one"
+                  value={form.syncCode}
+                  onChange={(e) => set('syncCode')(e.target.value.trim())}
+                  spellCheck={false}
+                />
+              </Field>
+
+              <div className="field-row">
+                <button className="btn btn-secondary btn-sm" onClick={handlePull} disabled={!form.syncCode || isSyncing}>
+                  <Download size={14} /> {isSyncing ? 'Syncing…' : 'Pull & merge'}
+                </button>
+                {form.deviceMode !== 'mac' && (
+                  <button className="btn btn-secondary btn-sm" onClick={handlePush} disabled={!form.githubPAT || isSyncing}>
+                    <RefreshCw size={14} className={isSyncing ? 'spin' : ''} />
+                    {isSyncing ? 'Syncing…' : form.syncCode ? 'Push now' : 'Create Gist & push'}
+                  </button>
+                )}
+              </div>
+
+              <Field
+                label="Conflict priority"
+                htmlFor="deviceMode"
+                hint={<>Pick <strong>Mobile</strong> for the device you review on: its changes win conflicts. <strong>Desktop preview</strong> is read-only and yields to Mobile.</>}
+              >
+                <select id="deviceMode" value={form.deviceMode} onChange={(e) => set('deviceMode')(e.target.value)}>
+                  <option value="mobile">Mobile (review device, wins conflicts)</option>
+                  <option value="mac">Desktop preview (read-only, yields)</option>
+                </select>
+              </Field>
+            </Section>
+
+            <details className="settings-section advanced">
+              <summary>Advanced: custom pairing server</summary>
+              <Field
+                label="PeerJS server URL"
+                htmlFor="syncSignalServer"
+                hint="Nearby Sync uses the free PeerJS cloud only to introduce your devices. Your data then travels directly between them. Self-hosting? Enter your server, e.g. https://peer.example.com:443/"
+              >
+                <input
+                  id="syncSignalServer"
+                  type="url"
+                  placeholder="Default: PeerJS cloud"
+                  value={form.syncSignalServer}
+                  onChange={(e) => set('syncSignalServer')(e.target.value.trim())}
+                  spellCheck={false}
+                />
+              </Field>
+            </details>
+          </>
+        )}
+
+        {tab === 'data' && (
+          <>
+            <Section title="Import & export" icon={Upload}>
+              <div className="button-stack">
+                <button className="btn btn-secondary" onClick={onExportData}>
+                  <Download size={16} /> Download full backup (JSON)
+                </button>
+                <label className="btn btn-secondary">
+                  <Upload size={16} /> Restore from backup file…
+                  <input type="file" accept=".json" onChange={handleFileUpload} hidden />
+                </label>
+                <label className="btn btn-secondary">
+                  <Upload size={16} /> Import Anki text (TXT/TSV)…
+                  <input type="file" accept=".txt,.tsv" onChange={handleAnkiTxtUpload} hidden />
+                </label>
+              </div>
+              <p className="field-hint">Restoring replaces what's on this device. To combine data from another device, use <strong>Sync</strong> instead.</p>
+            </Section>
+
+            <Section
+              title="Backups & recovery"
+              icon={Layers}
+              description="Snapshots are saved automatically whenever you review or edit, and before every sync."
+            >
+              <h4 className="subhead">On this device</h4>
+              {backups.length === 0 ? (
+                <p className="empty-note">No local backups yet.</p>
+              ) : (
+                backups.map((b) => (
+                  <BackupRow
+                    key={`local-${b.index}`}
+                    title="Local snapshot"
+                    backup={b}
+                    onRestore={() => {
+                      if (confirm(`Restore the snapshot from ${new Date(b.timestamp).toLocaleString()}? This replaces your current decks and cards.`)) {
+                        onRestoreBackup(b);
+                      }
+                    }}
+                  />
+                ))
+              )}
+
+              <h4 className="subhead">In the cloud</h4>
+              {!cloudBackups || cloudBackups.length === 0 ? (
+                <p className="empty-note">No cloud backups. They appear once cloud auto-sync is on.</p>
+              ) : (
+                cloudBackups.map((b, idx) => (
+                  <BackupRow
+                    key={`cloud-${b.timestamp || idx}`}
+                    title={`Cloud #${idx + 1}`}
+                    backup={b}
+                    onRestore={() => {
+                      if (confirm(`Restore cloud backup #${idx + 1}? This replaces your current decks and cards.`)) {
+                        onRestoreBackup(b);
+                      }
+                    }}
+                  />
+                ))
+              )}
+            </Section>
+
+            <Section title="Danger zone" icon={ShieldAlert} tone="danger">
+              <p className="section-lead">Permanently deletes all decks, review history and keys stored on this device. This can't be undone.</p>
               <button
-                type="button"
-                onClick={() => setShowPat(!showPat)}
-                style={{
-                  position: 'absolute',
-                  right: '10px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  cursor: 'pointer'
+                className="btn btn-danger"
+                onClick={() => {
+                  if (confirm("Delete all decks, cards and keys on this device?")) onClearData();
                 }}
               >
-                {showPat ? <EyeOff size={18} /> : <Eye size={18} />}
+                Reset app data
               </button>
-            </div>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
-              Needs a token with <code style={{ color: 'var(--accent-secondary)' }}>gist</code> scope. Create one under{' '}
-              <a 
-                href="https://github.com/settings/tokens" 
-                target="_blank" 
-                rel="noreferrer"
-                style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}
-              >
-                GitHub Settings (Tokens Classic)
-              </a>.
-            </p>
-          </div>
+            </Section>
 
-          {/* Gist ID (Sync Code) Input */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-              Gist ID (Sync Code)
-            </label>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <input
-                type="text"
-                placeholder="Leave blank to generate on Push..."
-                value={syncCode}
-                onChange={(e) => setSyncCode(e.target.value.trim())}
-                style={{ flex: 1, minWidth: '200px' }}
-              />
-              <button 
-                className="btn btn-secondary" 
-                onClick={handlePull} 
-                disabled={!syncCode || isSyncing}
-                style={{ fontSize: '0.85rem', padding: '0.5rem 1rem' }}
-              >
-                {isSyncing ? 'Pulling...' : 'Pull Data'}
-              </button>
-              {deviceMode !== 'mac' && (
-                <button 
-                  className="btn btn-secondary" 
-                  onClick={handlePush} 
-                  disabled={!githubPAT || isSyncing}
-                  style={{ fontSize: '0.85rem', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
-                >
-                  <RefreshCw size={14} className={isSyncing ? "animate-float" : ""} style={{ animation: isSyncing ? "spin 1s linear infinite" : "none" }} />
-                  {isSyncing ? 'Syncing...' : syncCode ? 'Push Data' : 'Create Gist & Push'}
-                </button>
-              )}
-            </div>
-            
-            {syncCode && (
-               <div style={{ padding: '0.75rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '8px', border: '1px solid rgba(139, 92, 246, 0.15)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                 <strong>Active Gist ID (Sync Code):</strong> <code style={{ color: 'var(--accent-secondary)', fontSize: '0.9rem', background: 'rgba(0,0,0,0.2)', padding: '0.15rem 0.35rem', borderRadius: '4px' }}>{syncCode}</code>
-                 <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                   Copy this Gist ID and your PAT to your other device to seamlessly sync your cards.
-                 </p>
-                 
-                 {/* Veteran Mode Toggle */}
-                 <div style={{ display: 'flex', flexDirection: 'column', marginTop: '0.75rem' }}>
-                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                     <input 
-                       type="checkbox"
-                       id="unlockAllFeaturesToggle"
-                       checked={unlockAllFeatures}
-                       onChange={(e) => setUnlockAllFeatures(e.target.checked)}
-                       style={{ width: '1.2rem', height: '1.2rem', cursor: 'pointer' }}
-                     />
-                     <label htmlFor="unlockAllFeaturesToggle" style={{ fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer' }}>
-                       🏅 Unlock All Features (Veteran Mode)
-                     </label>
-                   </div>
-                   <p style={{ margin: '0.25rem 0 0 1.95rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                     Bypass the progressive gamification unlock system and gain access to all features immediately.
-                   </p>
-                 </div>
-               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Local & Cloud Backups & Recovery */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', textAlign: 'left', background: 'rgba(139, 92, 246, 0.03)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(139, 92, 246, 0.15)', marginTop: '1rem' }}>
-          <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Layers size={20} style={{ color: 'var(--accent-primary)' }} /> Backups & Recovery
-          </h3>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            SimAnki automatically saves rolling cloud and local backups when reviews are submitted or decks are modified.
-          </p>
-
-          {/* Cloud Backups */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--accent-primary)' }}>☁ Cloud Backups (Synced via Gist)</h4>
-            {!cloudBackups || cloudBackups.length === 0 ? (
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '0.5rem' }}>
-                No cloud backups found in Gist.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {cloudBackups.map((b, idx) => (
-                  <div 
-                    key={`cloud-${idx}`} 
-                    style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center', 
-                      padding: '0.65rem 0.85rem', 
-                      background: 'rgba(139, 92, 246, 0.05)', 
-                      border: '1px solid rgba(139, 92, 246, 0.15)', 
-                      borderRadius: '8px' 
-                    }}
-                  >
-                    <div>
-                      <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>
-                        Cloud Backup #{idx + 1} {b.deviceName ? `[${b.deviceName}]` : ''}
-                      </strong>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
-                        ({new Date(b.timestamp).toLocaleString()})
-                      </span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '1rem' }}>
-                        Decks: {b.decks?.length || 0} | Cards: {b.cards?.length || 0}
-                      </span>
-                    </div>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        if (confirm(`Restore Cloud Backup #${idx + 1}? This will overwrite your current active cards and decks.`)) {
-                          onRestoreBackup(b);
-                        }
-                      }}
-                      style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
-                    >
-                      Restore
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Local Backups */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
-            <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-secondary)' }}>💻 Local Backups (This Browser)</h4>
-            {backups.length === 0 ? (
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontStyle: 'italic', paddingLeft: '0.5rem' }}>
-                No local backups found in this browser.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {backups.map((b) => (
-                  <div 
-                    key={`local-${b.index}`} 
-                    style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center', 
-                      padding: '0.65rem 0.85rem', 
-                      background: 'rgba(255, 255, 255, 0.01)', 
-                      border: '1px solid var(--border-light)', 
-                      borderRadius: '8px' 
-                    }}
-                  >
-                    <div>
-                      <strong style={{ fontSize: '0.88rem', color: 'var(--text-primary)' }}>
-                        Local Backup #{b.index} {b.deviceName ? `[${b.deviceName}]` : ''}
-                      </strong>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
-                        ({new Date(b.timestamp).toLocaleString()})
-                      </span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '1rem' }}>
-                        Decks: {b.decks?.length || 0} | Cards: {b.cards?.length || 0}
-                      </span>
-                    </div>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        if (confirm(`Restore Local Backup #${b.index}? This will overwrite your current active cards and decks.`)) {
-                          onRestoreBackup(b);
-                        }
-                      }}
-                      style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem' }}
-                    >
-                      Restore
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <hr style={{ borderColor: 'var(--border-light)', margin: '1rem 0' }} />
-
-        {/* Reset / Danger Zone */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', textAlign: 'left', background: 'rgba(239, 68, 68, 0.05)', padding: '1.25rem', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-          <h3 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <ShieldAlert size={20} /> Danger Zone
-          </h3>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            This action will permanently delete all your decks, flashcard review progress, and API key stored locally. This action is irreversible.
-          </p>
-          <button className="btn btn-danger" onClick={() => {
-            if (confirm("Are you absolutely sure you want to delete all decks, cards, and keys?")) {
-              onClearData();
-            }
-          }} style={{ alignSelf: 'flex-start', fontSize: '0.85rem' }}>
-            Reset App Data
-          </button>
-        </div>
+            {appVersion && <p className="version-footnote">SimAnki {appVersion}</p>}
+          </>
+        )}
       </div>
     </div>
+
+      {/* Outside the animated page: its transform would trap position: fixed */}
+      <div className={`save-bar${isDirty || justSaved ? ' visible' : ''}`} aria-live="polite">
+        {justSaved && !isDirty ? (
+          <span className="save-bar-text saved"><Check size={16} /> Saved</span>
+        ) : (
+          <>
+            <span className="save-bar-text">Unsaved changes</span>
+            <button className="btn btn-secondary btn-sm" onClick={discard}>Discard</button>
+            <button className="btn btn-primary btn-sm" onClick={save}>Save</button>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
