@@ -3,7 +3,8 @@ import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import StudySession from './components/StudySession';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
-import { calculateNextState, mergeDecksAndCards } from './utils/srs';
+import ErrorBoundary from './components/ErrorBoundary';
+import { calculateNextState, mergeDecksAndCards, ALL_DECKS } from './utils/srs';
 import { ShieldAlert, BookOpen, Layers, CloudOff, Cloud, RefreshCw } from 'lucide-react';
 import { cleanApiKey, cleanModelName } from './utils/gemini';
 import { pushToGist, pullFromGist, sanitizeToken, sanitizeGistId } from './utils/githubSync';
@@ -15,7 +16,7 @@ import {
 } from './utils/syncMerge';
 import { readPairLink, clearPairLink } from './utils/pairLink';
 
-const APP_VERSION = 'v2.8.0';
+const APP_VERSION = 'v2.9.0';
 // Loaded on demand: keeps PeerJS out of the initial bundle
 const SyncCenter = lazy(() => import('./components/SyncCenter'));
 
@@ -1447,7 +1448,7 @@ export default function App() {
   const handleStartStudy = (deckId, options = { filter: 'due', type: 'all' }) => {
     setActiveDeckId(deckId);
     
-    const deckCards = cards.filter(c => c.deckId === deckId && !c.paused && !c.suspended);
+    const deckCards = cards.filter(c => (deckId === ALL_DECKS || c.deckId === deckId) && !c.paused && !c.suspended);
     let filtered = deckCards;
 
     // 1. Status Filter
@@ -1471,6 +1472,11 @@ export default function App() {
     // 2. Type Filter
     if (options.type !== 'all') {
       filtered = filtered.filter(c => (c.cardType || 'default') === options.type);
+    }
+
+    // Across all decks, review overdue cards before introducing new ones
+    if (deckId === ALL_DECKS) {
+      filtered = [...filtered.filter(c => c.state?.dueDate), ...filtered.filter(c => !c.state?.dueDate)];
     }
     
     setSessionCards(filtered);
@@ -1808,7 +1814,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Views Routing */}
+      {/* Main Views Routing — a crash in one screen offers a way back instead of a blank page */}
+      <ErrorBoundary key={view} onReset={() => setView('dashboard')}>
       {view === 'dashboard' && (
         <Dashboard
           Decks={decks}
@@ -1903,22 +1910,33 @@ export default function App() {
 
       {view === 'study' && activeDeckId && (
         (() => {
-          const activeDeck = decks.find(d => d.id === activeDeckId);
+          const activeDeck = activeDeckId === ALL_DECKS
+            ? { id: ALL_DECKS, title: 'All due cards' }
+            : (decks.find(d => d.id === activeDeckId) || { id: activeDeckId, title: 'Study' });
 
           if (!settings.apiKey) {
             return (
               <div className="glass-panel animate-fade-in" style={{ padding: '3rem', maxWidth: '500px', margin: '3rem auto', textAlign: 'center' }}>
                 <ShieldAlert size={48} style={{ color: 'var(--warning)', marginBottom: '1rem' }} />
-                <h3>API Key Required</h3>
+                <h3>Add your Gemini API key to study</h3>
                 <p style={{ color: 'var(--text-secondary)', margin: '0.5rem 0 1.5rem' }}>
-                  You must configure a Gemini API key in settings before you can start an AI-enabled study session.
+                  SimAnki grades your answers with Google Gemini. A free key takes a minute to create, or copy it from a device that already has one.
                 </p>
-                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                  <button className="btn btn-secondary" onClick={() => setView('dashboard')}>
-                    Back to Dashboard
+                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      safeLocalStorageSetItem('simanki_settings_tab', 'ai');
+                      setView('settings');
+                    }}
+                  >
+                    Add key
                   </button>
-                  <button className="btn btn-primary" onClick={() => setView('settings')}>
-                    Configure Settings
+                  <button className="btn btn-secondary" onClick={openSyncCenter}>
+                    Copy from my other device
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => setView('dashboard')}>
+                    Back
                   </button>
                 </div>
               </div>
@@ -1944,6 +1962,7 @@ export default function App() {
           );
         })()
       )}
+      </ErrorBoundary>
       </div>
     </div>
   );

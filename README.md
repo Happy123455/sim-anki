@@ -81,3 +81,11 @@ To run SimAnki on your local machine:
    ```bash
    npm run build
    ```
+
+## 🌐 Deployment (GitHub Pages)
+
+Every push to `main` is built and published automatically by `.github/workflows/deploy.yml`.
+
+One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+
+> Don't point Pages at a source branch like `main`. That serves the uncompiled React files, and the site loads as a blank page.

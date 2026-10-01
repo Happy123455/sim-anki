@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Upload, FileText, CheckCircle, AlertCircle, Plus, Check, RefreshCw } from 'lucide-react';
+import { X, Upload, FileText, CheckCircle, AlertCircle, Plus, Check, RefreshCw, BrainCircuit, Sparkles } from 'lucide-react';
 import { generate30MCQsFromMaterial } from '../utils/gemini';
 
 export default function ImportModal({ Decks, onCreateDeck, onImportCards, onClose, Files = [], onCreateFile, onAddDeckToFile, apiKey, defaultModel }) {

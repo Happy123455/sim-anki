@@ -77,11 +77,9 @@ npm run dev
 By default, the server runs on port 5173.
 
 ### Deploying Changes
-Always deploy changes to the live site at `https://happy123455.github.io/sim-anki/` after confirming a successful build:
-```bash
-./deploy.sh "Brief message describing the changes made"
-```
-This script handles building, source-pushing, and forced `gh-pages` branch deployment.
+The live site at `https://happy123455.github.io/sim-anki/` is built and deployed by GitHub Actions (`.github/workflows/deploy.yml`) on every push to `main`. Pages must be set to **Source: GitHub Actions**; serving a source branch directly shows a blank page because the JSX isn't compiled.
+
+`./deploy.sh` (manual push of `dist/` to `gh-pages`) only applies if Pages is switched back to the `gh-pages` branch.
 
 ---
 

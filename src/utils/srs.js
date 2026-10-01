@@ -415,3 +415,60 @@ export function mergeDecksAndCards(localDecks, localCards, cloudDecks, cloudCard
   return { decks: mergedDecks, cards: mergedCards };
 }
 
+
+/** Pseudo deck id for a study session spanning every deck. */
+export const ALL_DECKS = '__all__';
+
+/** End of the current local day; study sessions include anything due by then. */
+export function endOfToday(now = new Date()) {
+  const d = new Date(now);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+/** True when a reviewed card is due by the end of today (matches what Study picks up). */
+export function isDueToday(card, now = new Date()) {
+  return !!card.state?.dueDate && new Date(card.state.dueDate) <= endOfToday(now);
+}
+
+/**
+ * Summary for the dashboard "Today" panel: what a "Study all due" session
+ * would contain, a time estimate, and when the next review falls otherwise.
+ */
+export function getTodaySummary(cards, now = new Date()) {
+  const active = cards.filter(c => !c.paused && !c.suspended);
+  const due = active.filter(c => isDueToday(c, now));
+  const fresh = active.filter(c => !c.state?.dueDate);
+  const session = [...due, ...fresh];
+
+  // Past answer time per card (ignoring >2 min outliers), else 20s; +8s for grading
+  const estSeconds = session.reduce((sum, c) => {
+    const times = (c.history || []).map(h => h.timeSpent).filter(t => t > 0 && t <= 120);
+    const avg = times.length ? times.reduce((a, b) => a + b, 0) / times.length : 20;
+    return sum + avg + 8;
+  }, 0);
+
+  const upcoming = active
+    .filter(c => c.state?.dueDate && !isDueToday(c, now))
+    .map(c => new Date(c.state.dueDate).getTime());
+  const nextDueAt = upcoming.length ? Math.min(...upcoming) : null;
+
+  return {
+    dueCount: due.length,
+    newCount: fresh.length,
+    sessionCount: session.length,
+    deckCount: new Set(session.map(c => c.deckId)).size,
+    estMinutes: Math.max(1, Math.round(estSeconds / 60)),
+    nextDueAt
+  };
+}
+
+/** "tomorrow", "in 3 days", "on 12 Oct" for a future timestamp. */
+export function describeNextDue(ts, now = new Date()) {
+  if (!ts) return '';
+  const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
+  const days = Math.round((startOfDay(ts) - startOfDay(now)) / 86400000);
+  if (days <= 1) return 'tomorrow';
+  if (days < 14) return `in ${days} days`;
+  return `on ${new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`;
+}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Download, Trophy, Flame, Sparkles, BrainCircuit, Cloud, CloudOff, RefreshCw } from 'lucide-react';
-import { isDue } from '../utils/srs';
+import { isDue, isDueToday, getTodaySummary, describeNextDue, ALL_DECKS } from '../utils/srs';
 import CardProgressDetails from './CardProgressDetails';
 
 import ImportModal from './ImportModal';
@@ -64,6 +64,19 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
   const [searchAllDecks, setSearchAllDecks] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const activeFilterCount = [difficultyFilter, stabilityFilter, repsFilter, failsFilter, typeFilter, aiPredictFilter, sortBy]
+    .filter(Boolean).length + (searchAllDecks ? 1 : 0);
+  const clearCardFilters = () => {
+    setDifficultyFilter('');
+    setStabilityFilter('');
+    setRepsFilter('');
+    setFailsFilter('');
+    setTypeFilter('');
+    setAiPredictFilter('');
+    setSortBy('');
+    setSearchAllDecks(false);
+  };
   const [showStats, setShowStats] = useState(true);
   const [futureDueRange, setFutureDueRange] = useState('1 month');
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
@@ -117,6 +130,23 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
       }, 100);
     }
   }, [activeDeckId]);
+
+  // Escape closes whichever dialog is on top
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (refactorCard) setRefactorCard(null);
+      else if (activeCardDetails) setActiveCardDetails(null);
+      else if (studyOptionsDeckId) setStudyOptionsDeckId(null);
+      else if (showImportModal) setShowImportModal(false);
+      else if (showExportModal) setShowExportModal(false);
+      else if (showAddCardModal) setShowAddCardModal(false);
+      else if (showCreateDeckModal) setShowCreateDeckModal(false);
+      else if (showCreateFileModal) setShowCreateFileModal(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [refactorCard, activeCardDetails, studyOptionsDeckId, showImportModal, showExportModal, showAddCardModal, showCreateDeckModal, showCreateFileModal]);
 
   // Lock body scroll when modals are open
   useEffect(() => {
@@ -208,7 +238,8 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
   // Helper to compute card counts for a deck
   const getDeckStats = (deckId) => {
     const deckCards = Cards.filter(c => c.deckId === deckId);
-    const dueCount = deckCards.filter(c => c.state && c.state.repetitions > 0 && isDue(c)).length;
+    // Same rule as Study: reviewed cards due by the end of today
+    const dueCount = deckCards.filter(c => c.state && c.state.repetitions > 0 && isDueToday(c)).length;
     const newCount = deckCards.filter(c => !c.state || c.state.repetitions === 0).length;
     return {
       total: deckCards.length,
@@ -753,57 +784,72 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
       )}
       </div>
 
-      {/* ──── Player Stats & Leveling Card ──── */}
+      {/* ──── Today: what's due, one-tap study, streak & level ──── */}
       {(() => {
+        const today = getTodaySummary(Cards);
         const xp = settings.xp || 0;
         const level = Math.floor(xp / 100) + 1;
-        const xpInCurrentLevel = xp % 100;
-        const xpPercentage = (xpInCurrentLevel / 100) * 100;
+        const xpInLevel = xp % 100;
         const streak = settings.streak || 0;
+        const canStudy = today.sessionCount > 0 && settings.deviceMode !== 'mac';
 
         return (
-          <div className="glass-panel animate-fade-in player-profile">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                <Trophy size={20} style={{ color: '#fbbf24' }} />
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-                  Player Profile (Level {level})
-                </h3>
-                {settings.relaxedMode && (
-                  <span className="badge animate-float" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', fontSize: '0.7rem', padding: '0.2rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                    🧘 Relaxed Mode
-                  </span>
-                )}
-                {settings.stressMode && (
-                  <span className="badge animate-float" style={{ background: 'rgba(236, 72, 153, 0.15)', color: '#f472b6', border: '1px solid rgba(236, 72, 153, 0.3)', fontSize: '0.7rem', padding: '0.2rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                    🌸 Gentle AI
-                  </span>
-                )}
-              </div>
-
-              {/* Progress bar and XP details */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  <span>Progress to Level {level + 1}</span>
-                  <span>{xpInCurrentLevel} / 100 XP (Total: {xp} XP)</span>
-                </div>
-                <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '999px', overflow: 'hidden' }}>
-                  <div style={{ width: `${xpPercentage}%`, height: '100%', background: 'linear-gradient(90deg, #c084fc, #f472b6)', borderRadius: '999px', transition: 'width 0.5s ease-out' }} />
-                </div>
-              </div>
+          <section className="today-panel glass-panel" aria-label="Today">
+            <div className="today-main">
+              <span className="eyebrow">Today</span>
+              {today.sessionCount > 0 ? (
+                <>
+                  <h2 className="today-headline">
+                    {today.dueCount > 0 && <><strong>{today.dueCount}</strong> to review</>}
+                    {today.dueCount > 0 && today.newCount > 0 && <span className="today-sep"> · </span>}
+                    {today.newCount > 0 && <><strong>{today.newCount}</strong> new</>}
+                  </h2>
+                  <p className="today-sub">
+                    About {today.estMinutes} min{today.deckCount > 1 ? ` across ${today.deckCount} decks` : ''}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2 className="today-headline">All caught up 🎉</h2>
+                  <p className="today-sub">
+                    {today.nextDueAt
+                      ? `Next review ${describeNextDue(today.nextDueAt)}.`
+                      : Cards.length === 0 ? 'Create a deck and add cards to get started.' : 'Nothing scheduled yet.'}
+                  </p>
+                </>
+              )}
+              {canStudy && (
+                <button
+                  className="btn btn-primary today-cta"
+                  onClick={() => onStartStudy(ALL_DECKS, { filter: 'due', type: 'all' })}
+                >
+                  <Play size={18} /> Study all due
+                </button>
+              )}
             </div>
 
-            {/* Streak Column */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(249, 115, 22, 0.06)', border: '1px solid rgba(249, 115, 22, 0.15)', padding: '0.75rem 1.5rem', borderRadius: '16px', minWidth: '150px', justifyContent: 'center' }}>
-              <Flame size={28} fill={streak > 0 ? '#f97316' : 'none'} color={streak > 0 ? '#f97316' : 'var(--text-muted)'} />
-              <div style={{ textAlign: 'left' }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Study Streak</span>
-                <span style={{ fontSize: '1.25rem', fontWeight: 800, color: streak > 0 ? '#f97316' : 'var(--text-secondary)' }}>
-                  {streak} {streak === 1 ? 'Day' : 'Days'}
-                </span>
+            <div className="today-side">
+              <div className={`streak-chip${streak > 0 ? ' active' : ''}`} title="Study streak">
+                <Flame size={20} fill={streak > 0 ? '#f97316' : 'none'} aria-hidden="true" />
+                <span><strong>{streak}</strong> day{streak === 1 ? '' : 's'} streak</span>
               </div>
+              <div className="level-block" title={`${xp} XP total`}>
+                <div className="level-row">
+                  <span><Trophy size={14} aria-hidden="true" /> Level {level}</span>
+                  <span className="level-xp">{xpInLevel}/100 XP</span>
+                </div>
+                <div className="xp-track" aria-hidden="true">
+                  <div className="xp-bar" style={{ width: `${xpInLevel}%` }} />
+                </div>
+              </div>
+              {(settings.relaxedMode || settings.stressMode) && (
+                <div className="mode-chips">
+                  {settings.relaxedMode && <span className="mode-chip relaxed">🧘 Relaxed</span>}
+                  {settings.stressMode && <span className="mode-chip gentle">🌸 Gentle AI</span>}
+                </div>
+              )}
             </div>
-          </div>
+          </section>
         );
       })()}
 
@@ -1086,22 +1132,9 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   const est = getEstimatedStudyTime(deck.id);
                   if (!est) return null;
                   return (
-                    <div style={{ 
-                      fontSize: '0.75rem', 
-                      color: 'var(--text-secondary)', 
-                      background: 'rgba(255, 255, 255, 0.02)', 
-                      border: '1px solid var(--border-light)', 
-                      borderRadius: '6px', 
-                      padding: '0.4rem 0.6rem', 
-                      marginTop: '-0.75rem', 
-                      marginBottom: '1rem',
-                      display: 'flex', 
-                      justifyContent: 'space-between',
-                      alignItems: 'center' 
-                    }}>
-                      <span>Estimated: <strong style={{ color: 'var(--accent-primary)' }}>{est.total}</strong></span>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Avg: {est.avg} (+{est.buffer} buffer)</span>
-                    </div>
+                    <p className="deck-estimate" title={`Average ${est.avg} per card plus ${est.buffer} for grading`}>
+                      ⏱ About <strong>{est.total}</strong> to review
+                    </p>
                   );
                 })()}
 
@@ -1161,7 +1194,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
             {Files.map(file => {
               const fileDecks = (file.deckIds || []).map(id => Decks.find(d => d.id === id)).filter(Boolean);
               const fileTotalCards = fileDecks.reduce((sum, d) => sum + Cards.filter(c => c.deckId === d.id).length, 0);
-              const fileDueCards = fileDecks.reduce((sum, d) => sum + Cards.filter(c => c.deckId === d.id && c.state && c.state.repetitions > 0 && isDue(c)).length, 0);
+              const fileDueCards = fileDecks.reduce((sum, d) => sum + Cards.filter(c => c.deckId === d.id && c.state && c.state.repetitions > 0 && isDueToday(c)).length, 0);
 
               return (
                 <div key={file.id} className="file-section" style={{ marginBottom: '1.5rem' }}>
@@ -1188,7 +1221,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                       setDragOverDeckId(null);
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <div className="file-header-title" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                       {file.isCollapsed ? <ChevronRight size={18} style={{ color: file.color }} /> : <ChevronDown size={18} style={{ color: file.color }} />}
                       <span style={{ fontSize: '0.75rem', color: file.color }}>📁</span>
                       {editingFileId === file.id ? (
@@ -1217,12 +1250,12 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                       ) : (
                         <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem' }}>{file.name}</span>
                       )}
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                      <span className="file-meta" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>
                         {fileDecks.length} deck{fileDecks.length !== 1 ? 's' : ''} · {fileTotalCards} cards · {fileDueCards} due
                       </span>
                     </div>
                     {settings.deviceMode !== 'mac' && (
-                      <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                      <div className="file-header-tools" style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => { setEditingFileId(file.id); setEditFileName(file.name); }}
                           style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.25rem' }}
@@ -1231,7 +1264,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                           <Edit3 size={14} />
                         </button>
                         {/* Color picker */}
-                        <div style={{ display: 'flex', gap: '2px' }}>
+                        <div className="file-colors" style={{ display: 'flex', gap: '2px' }}>
                           {FILE_COLORS.map(c => (
                             <button
                               key={c}
@@ -1803,6 +1836,25 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                 )}
               </div>
 
+              {/* Filters stay folded away until asked for — the search box covers most needs */}
+              <div className="filter-toggle-row">
+                <button
+                  type="button"
+                  className={`btn btn-secondary btn-sm${showFilters ? ' is-active' : ''}`}
+                  onClick={() => setShowFilters(v => !v)}
+                  aria-expanded={showFilters}
+                >
+                  <Filter size={14} /> Filters &amp; sort
+                  {activeFilterCount > 0 && <span className="count-pill">{activeFilterCount}</span>}
+                  {showFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+                {activeFilterCount > 0 && (
+                  <button type="button" className="link-btn" onClick={clearCardFilters}>Clear all</button>
+                )}
+              </div>
+
+              {showFilters && (
+              <>
               <div className="filter-grid">
                 {/* Difficulty Filter */}
                 <div className="filter-item">
@@ -1937,6 +1989,8 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   </select>
                 </div>
               </div>
+              </>
+              )}
             </div>
 
             {/* Selection Toolbar */}
@@ -2652,8 +2706,6 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
           onUpdateCard={(updated) => {
             if (typeof onUpdateCards === 'function') {
               onUpdateCards([updated]);
-            } else if (typeof onUpdateCard === 'function') {
-              onUpdateCard(updated);
             }
             setActiveCardDetails(updated);
           }}

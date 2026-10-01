@@ -12,6 +12,7 @@ import { generateWeeklyCoachReport } from '../utils/gemini';
  */
 export default function AnalyticsDashboard({ Cards, Decks, settings, apiKey, model, onClose }) {
   const canvasRef = useRef(null);
+  const heatmapScrollRef = useRef(null);
   const [coachReport, setCoachReport] = useState(null);
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState(null);
@@ -171,6 +172,9 @@ export default function AnalyticsDashboard({ Cards, Decks, settings, apiKey, mod
 
   useEffect(() => {
     drawHeatmap();
+    // On narrow screens the heatmap scrolls; start at the most recent weeks
+    const scroller = heatmapScrollRef.current;
+    if (scroller) scroller.scrollLeft = scroller.scrollWidth;
   }, [drawHeatmap]);
 
   // ─── Weekly AI Coach ───
@@ -250,7 +254,7 @@ export default function AnalyticsDashboard({ Cards, Decks, settings, apiKey, mod
         <h3 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '0.75rem', fontWeight: 600 }}>
           📈 Review Activity (6 months)
         </h3>
-        <div style={{ overflowX: 'auto', paddingBottom: '0.5rem' }}>
+        <div ref={heatmapScrollRef} style={{ overflowX: 'auto', paddingBottom: '0.5rem' }}>
           <canvas ref={canvasRef} style={{ display: 'block' }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', justifyContent: 'flex-end' }}>

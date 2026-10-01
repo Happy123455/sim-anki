@@ -1815,3 +1815,16 @@ Return ONLY a JSON object matching this schema:
   const rawHtmlText = layer2Data.candidates?.[0]?.content?.parts?.[0]?.text;
   return cleanAndParseJson(rawHtmlText);
 }
+
+/** Turn low-level fetch/API failures into something a learner can act on. */
+export function friendlyAiError(err) {
+  const msg = String(err?.message || err || '');
+  const lower = msg.toLowerCase();
+  if (lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('load failed') || lower.includes('network request failed')) {
+    return "Couldn't reach the AI grader. Check your internet connection and try again.";
+  }
+  if (lower.includes('429') || lower.includes('resource_exhausted') || lower.includes('quota')) {
+    return 'The AI is rate-limited right now (free-tier quota). Wait a minute, then try again.';
+  }
+  return msg || 'Failed to grade your answer. Check your connection or API key.';
+}

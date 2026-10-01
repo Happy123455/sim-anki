@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, X, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
-import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation, generateDetailedMemoryAnchor, generateAnswerNudge, generateMCQOptions, generateMCQCanvasSimulation } from '../utils/gemini';
+import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation, generateDetailedMemoryAnchor, generateAnswerNudge, generateMCQOptions, generateMCQCanvasSimulation, friendlyAiError } from '../utils/gemini';
 import { getFriendlyInterval, getIntradayIntervalMs, getIntervalCategory } from '../utils/srs';
 import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
@@ -623,6 +623,11 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
   const [step, setStep] = useState('question'); // 'question' | 'grading' | 'simulation' | 'completed'
   const [userAnswer, setUserAnswer] = useState('');
+  // Declared up here: handleMCQSimulationResult (below) lists these as deps,
+  // and reading them before declaration crashed the session on open
+  const [elapsedTime, setElapsedTime] = useState(0);
+  const timerRef = useRef(null);
+  const [evaluation, setEvaluation] = useState(null);
   const [confidence, setConfidence] = useState(3);
   const [hoverConfidence, setHoverConfidence] = useState(null);
   const [showHint, setShowHint] = useState(false);
@@ -1341,14 +1346,10 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [isMnemonicLoading, setIsMnemonicLoading] = useState(false);
   const [mnemonicError, setMnemonicError] = useState(null);
   
-  // Timer State
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const timerRef = useRef(null);
 
   // AI Response States
   const [isGradingLoading, setIsGradingLoading] = useState(false);
   const [gradingError, setGradingError] = useState(null);
-  const [evaluation, setEvaluation] = useState(null);
   const [gradingStatus, setGradingStatus] = useState('');
 
   // Interactive Puzzle States
@@ -1506,9 +1507,8 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       }
     } catch (err) {
       console.error(err);
-      const errMsg = err.message || 'Failed to grade your answer. Check your connection or API key.';
-      setGradingError(errMsg);
-      alert(`Grading Error:\n\n${errMsg}`);
+      // Shown inline under the answer; the Submit button stays available to retry
+      setGradingError(friendlyAiError(err));
     } finally {
       setIsGradingLoading(false);
     }
@@ -1964,46 +1964,37 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
       <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', maxWidth: '900px', margin: '0 auto' }}>
       
-      {/* Active Session Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-glass)', border: '1px solid var(--border-light)', padding: '0.75rem 1.25rem', borderRadius: '12px', flexWrap: 'wrap', gap: '0.5rem' }}>
-        <div>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Reviewing Deck: </span>
-          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{Deck.title}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {/* Hearts Display */}
+      {/* Active Session Header: exit · progress · hearts, then deck + position */}
+      <div className="study-header">
+        <div className="study-header-row">
+          <button className="icon-btn" onClick={onClose} aria-label="End session" title="End session">
+            <X size={18} />
+          </button>
+          <div className="progress-track study-progress" role="progressbar" aria-valuemin={0} aria-valuemax={totalCards} aria-valuenow={completedCount} aria-label="Session progress">
+            <div className="progress-bar" style={{ width: `${totalCards ? Math.min(100, (completedCount / totalCards) * 100) : 0}%` }} />
+          </div>
           {heartsEnabled && (
-            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-              <div style={{ display: 'flex', gap: '0.2rem', alignItems: 'center' }}>
-                {Array.from({ length: maxHearts }).map((_, i) => (
-                  <span key={i} style={{
-                    fontSize: '1.1rem',
-                    opacity: i < hearts ? 1 : 0.2,
-                    transition: 'opacity 0.3s, transform 0.3s',
-                    animation: (heartLostAnim && i === hearts) ? 'heartPulse 0.6s ease-out' : 'none',
-                    display: 'inline-block'
-                  }}>
-                    {i < hearts ? '❤️' : '🖤'}
-                  </span>
-                ))}
-              </div>
+            <div className="study-hearts" title={`${hearts} of ${maxHearts} hearts`}>
+              <span
+                className="study-heart"
+                style={{ animation: heartLostAnim ? 'heartPulse 0.6s ease-out' : 'none' }}
+                aria-hidden="true"
+              >
+                {hearts > 0 ? '❤️' : '🖤'}
+              </span>
+              <strong>{hearts}</strong>
               {hearts < maxHearts && nextHeartTimer && (
-                <span style={{ fontSize: '0.72rem', color: '#fbbf24', fontVariantNumeric: 'tabular-nums', background: 'rgba(245,158,11,0.1)', padding: '0.1rem 0.35rem', borderRadius: '4px', border: '1px solid rgba(245,158,11,0.2)' }}>
-                  +{nextHeartTimer}
-                </span>
+                <span className="heart-timer">+{nextHeartTimer}</span>
               )}
             </div>
           )}
-          <span style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
-            Card {completedCount + 1} of {totalCards}{lapseQueue.length > 0 ? ` (+${lapseQueue.length} lapse)` : ''}
+        </div>
+        <div className="study-header-meta">
+          <span className="study-deck" title={Deck.title}>{Deck.title}</span>
+          <span className="study-count">
+            Card {Math.min(completedCount + 1, Math.max(totalCards, 1))} of {totalCards}
+            {lapseQueue.length > 0 ? ` · +${lapseQueue.length} to retry` : ''}
           </span>
-          <button 
-            className="btn-text" 
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-          >
-            <XCircle size={20} />
-          </button>
         </div>
       </div>
 
@@ -2411,6 +2402,13 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               placeholder="Start typing your explanation here..."
               value={userAnswer}
               onChange={(e) => setUserAnswer(e.target.value)}
+              onKeyDown={(e) => {
+                // Ctrl/⌘ + Enter submits without reaching for the mouse
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && userAnswer.trim() && !isGradingLoading) {
+                  e.preventDefault();
+                  handleAnswerSubmit();
+                }
+              }}
               disabled={isGradingLoading}
               style={{ minHeight: '180px', fontSize: '1rem', lineHeight: '1.5' }}
             />
@@ -2446,12 +2444,13 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
             {/* Submit Button */}
             <button
-              className="btn btn-primary"
+              className="btn btn-primary study-submit"
               onClick={handleAnswerSubmit}
               disabled={!userAnswer.trim() || isGradingLoading}
+              title="Submit (Ctrl/⌘ + Enter)"
               style={{ gap: '0.5rem', minWidth: '150px' }}
             >
-              {isGradingLoading ? 'Evaluating Answer...' : 'Submit to AI Grader'}
+              {isGradingLoading ? <><RefreshCw size={16} className="spin" /> Evaluating…</> : 'Submit to AI Grader'}
             </button>
           </div>
 
