@@ -88,4 +88,4 @@ Every push to `main` is built and published automatically by `.github/workflows/
 
 One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 
-> Don't point Pages at a source branch like `main`. That serves the uncompiled React files, and the site loads as a blank page.
+If Pages is instead set to serve a branch directly, `index.html` forwards visitors to a prebuilt copy in `live/`. Refresh that copy with `npm run build:live` and commit it whenever the app changes.
