@@ -277,9 +277,13 @@ export function mergeDecksAndCards(localDecks, localCards, cloudDecks, cloudCard
       mergedDecks.push(cloudDeck);
     } else {
       const localIdx = mergedDecks.findIndex(d => d.id === cloudDeck.id);
-      // Merge mindMap if cloud has it and local doesn't
-      if (cloudDeck.mindMap && !mergedDecks[localIdx].mindMap) {
-        mergedDecks[localIdx] = { ...mergedDecks[localIdx], mindMap: cloudDeck.mindMap };
+      const localDeck = mergedDecks[localIdx];
+      // A deck edited (renamed etc.) more recently on the other device wins
+      if ((cloudDeck.updatedAt || 0) > (localDeck.updatedAt || 0)) {
+        mergedDecks[localIdx] = { ...cloudDeck, mindMap: cloudDeck.mindMap || localDeck.mindMap };
+      } else if (cloudDeck.mindMap && !localDeck.mindMap) {
+        // Merge mindMap if cloud has it and local doesn't
+        mergedDecks[localIdx] = { ...localDeck, mindMap: cloudDeck.mindMap };
       }
     }
   });
@@ -312,28 +316,50 @@ export function mergeDecksAndCards(localDecks, localCards, cloudDecks, cloudCard
       });
 
       if (mergedHistory.length === 0) {
-        mergedCards.push({ ...localCard, state: null, history: [] });
+        // Neither side has reviews: keep whichever was edited last (content only)
+        const newest = (cloudCard.updatedAt || 0) > (localCard.updatedAt || 0) ? cloudCard : localCard;
+        mergedCards.push(newest);
       } else {
-        // Step through chronological history to reconstruct the correct final FSRS parameters
-        let tempCard = { ...localCard, state: null };
-        let currentState = null;
-        
-        mergedHistory.forEach(log => {
-          const nextState = calculateNextState(tempCard, log.rating, targetRetention, log.date);
-          currentState = nextState;
-          tempCard.state = nextState;
-        });
+        // If one side already holds every review the other has, its live-computed
+        // state is authoritative. Only replay history when both sides diverged —
+        // replaying needlessly would discard per-review settings (e.g. again steps).
+        const localDates = new Set((localCard.history || []).map(h => h.date));
+        const cloudDates = new Set((cloudCard.history || []).map(h => h.date));
+        const localHasAll = mergedHistory.every(h => localDates.has(h.date));
+        const cloudHasAll = mergedHistory.every(h => cloudDates.has(h.date));
 
-        // Decide which card is the base based on device priority and last review timestamp
+        let currentState = null;
+        if (localHasAll && localCard.state) {
+          currentState = localCard.state;
+        } else if (cloudHasAll && cloudCard.state) {
+          currentState = cloudCard.state;
+        } else {
+          // Step through chronological history to reconstruct the correct final FSRS parameters
+          let tempCard = { ...localCard, state: null };
+          mergedHistory.forEach(log => {
+            const nextState = calculateNextState(tempCard, log.rating, targetRetention, log.date);
+            currentState = nextState;
+            tempCard.state = nextState;
+          });
+        }
+
+        // Decide which card is the base: explicit edit time first, then device
+        // priority, then last review timestamp
         let baseCard;
-        if (localDeviceMode === 'mobile' && cloudDeviceMode === 'mac') {
+        const localEdited = localCard.updatedAt || 0;
+        const cloudEdited = cloudCard.updatedAt || 0;
+        if (localEdited !== cloudEdited) {
+          baseCard = cloudEdited > localEdited ? cloudCard : localCard;
+        } else if (localDeviceMode === 'mobile' && cloudDeviceMode === 'mac') {
           baseCard = localCard;
         } else if (cloudDeviceMode === 'mobile' && localDeviceMode === 'mac') {
           baseCard = cloudCard;
         } else {
-          const localLastReview = localCard.state?.lastReview ? new Date(localCard.state.lastReview).getTime() : 0;
-          const cloudLastReview = cloudCard.state?.lastReview ? new Date(cloudCard.state.lastReview).getTime() : 0;
-          baseCard = cloudLastReview > localLastReview ? cloudCard : localCard;
+          const lastReviewOf = (c) => {
+            const d = c.state?.lastReviewDate || c.state?.lastReview;
+            return d ? new Date(d).getTime() : 0;
+          };
+          baseCard = lastReviewOf(cloudCard) > lastReviewOf(localCard) ? cloudCard : localCard;
         }
 
         // Merge simulation lists without duplicating identical HTML structures
@@ -366,15 +392,15 @@ export function mergeDecksAndCards(localDecks, localCards, cloudDecks, cloudCard
           }
         });
 
-        mergedCards.push({
-          ...baseCard,
-          simulationHtml: baseCard.simulationHtml || cloudCard.simulationHtml || localCard.simulationHtml,
-          simulationHtmlList: mergedSims,
-          questionSvgs: mergedQS,
-          answerSvgs: mergedAS,
-          state: currentState,
-          history: mergedHistory
-        });
+        // Only add media fields that one side actually has, so merging two
+        // identical cards yields an identical card (no spurious "changes")
+        const mergedCard = { ...baseCard, state: currentState, history: mergedHistory };
+        const simHtml = baseCard.simulationHtml || cloudCard.simulationHtml || localCard.simulationHtml;
+        if (simHtml) mergedCard.simulationHtml = simHtml;
+        if (localCard.simulationHtmlList || cloudCard.simulationHtmlList) mergedCard.simulationHtmlList = mergedSims;
+        if (localCard.questionSvgs || cloudCard.questionSvgs) mergedCard.questionSvgs = mergedQS;
+        if (localCard.answerSvgs || cloudCard.answerSvgs) mergedCard.answerSvgs = mergedAS;
+        mergedCards.push(mergedCard);
       }
     }
   });

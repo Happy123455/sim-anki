@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import StudySession from './components/StudySession';
@@ -9,6 +9,15 @@ import { cleanApiKey, cleanModelName } from './utils/gemini';
 import { pushToGist, pullFromGist, sanitizeToken, sanitizeGistId } from './utils/githubSync';
 import { getVal, setVal } from './utils/db';
 import { getReplenishedHearts } from './utils/hearts';
+import {
+  loadTombstones, saveTombstones, addTombstones, removeTombstones, mergeTombstones,
+  applyTombstones, mergeFiles, buildSyncPayload, mergeSyncData
+} from './utils/syncMerge';
+import { readPairLink, clearPairLink } from './utils/pairLink';
+
+const APP_VERSION = 'v2.8.0';
+// Loaded on demand: keeps PeerJS out of the initial bundle
+const SyncCenter = lazy(() => import('./components/SyncCenter'));
 
 // Pre-seeded structural engineering deck and cards
 const initialDecks = [
@@ -253,7 +262,33 @@ export default function App() {
     }
   });
 
+  // Sync Center sheet: null (closed) or { view, code, signalServer }.
+  // A scanned pairing QR (#pair=123456) opens it on the "Enter code" screen.
+  const [syncCenter, setSyncCenter] = useState(() => {
+    const link = readPairLink();
+    return link ? { view: 'join', code: link.code, signalServer: link.signalServer } : null;
+  });
+  const [lastSyncInfo, setLastSyncInfo] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('simanki_last_sync') || 'null');
+    } catch {
+      return null;
+    }
+  });
+
   const autoPushTimeoutRef = useRef(null);
+  // Latest app state for long-lived async callbacks (Nearby Sync sessions)
+  const stateRef = useRef({ decks, cards, files, settings, cloudBackups });
+  useEffect(() => {
+    stateRef.current = { decks, cards, files, settings, cloudBackups };
+  });
+
+  useEffect(() => {
+    clearPairLink();
+    // Warm the Sync Center chunk in the background so it opens instantly
+    const t = setTimeout(() => { import('./components/SyncCenter'); }, 4000);
+    return () => clearTimeout(t);
+  }, []);
 
   // Clean timeout on unmount
   useEffect(() => {
@@ -356,8 +391,17 @@ export default function App() {
     return updated;
   };
 
+  // Restored items must not be deleted again by an old deletion record
+  const forgetDeletionsFor = (restoredDecks, restoredCards) => {
+    let ts = loadTombstones();
+    ts = removeTombstones(ts, 'decks', restoredDecks.map(d => d.id));
+    ts = removeTombstones(ts, 'cards', restoredCards.map(c => c.id));
+    saveTombstones(ts);
+  };
+
   const handleRestoreBackup = (backup) => {
     if (backup && backup.decks && backup.cards) {
+      forgetDeletionsFor(backup.decks, backup.cards);
       saveDecks(backup.decks);
       saveCards(backup.cards);
       alert("Backup restored successfully!");
@@ -384,7 +428,7 @@ export default function App() {
       const localDeviceMode = localSettings.deviceMode || 'mobile';
       const cloudDeviceMode = cloudData.settings?.deviceMode || 'mobile';
 
-      const { decks: mergedDecks, cards: mergedCards } = mergeDecksAndCards(
+      const { decks: unionDecks, cards: unionCards } = mergeDecksAndCards(
         localDecks,
         localCards,
         cloudData.decks,
@@ -393,6 +437,13 @@ export default function App() {
         localDeviceMode,
         cloudDeviceMode
       );
+      // Drop anything deleted on either side, so deletions don't come back
+      const mergedTombstones = mergeTombstones(loadTombstones(), cloudData.tombstones);
+      const { decks: mergedDecks, cards: mergedCards, files: mergedFiles } = applyTombstones(
+        { decks: unionDecks, cards: unionCards, files: mergeFiles(localFiles, cloudData.files || []) },
+        mergedTombstones
+      );
+      saveTombstones(mergedTombstones);
 
       const allCloudBackups = [...(cloudData.backups || []), ...localCloudBackups];
       const seenBackupTS = new Set();
@@ -448,19 +499,6 @@ export default function App() {
         safeLocalStorageSetItem('simanki_settings', JSON.stringify(mergedSettings));
         safeLocalStorageSetItem('simanki_cloud_backups', JSON.stringify(finalCloudBackups));
 
-        // Merge files (union by ID, prefer cloud graph data)
-        const cloudFiles = cloudData.files || [];
-        const fileMap = new Map();
-        localFiles.forEach(f => fileMap.set(f.id, { ...f }));
-        cloudFiles.forEach(f => {
-          if (fileMap.has(f.id)) {
-            const local = fileMap.get(f.id);
-            fileMap.set(f.id, { ...local, ...f, knowledgeGraph: f.knowledgeGraph || local.knowledgeGraph });
-          } else {
-            fileMap.set(f.id, { ...f });
-          }
-        });
-        const mergedFiles = Array.from(fileMap.values());
         setFiles(mergedFiles);
         safeLocalStorageSetItem('simanki_files', JSON.stringify(mergedFiles));
         
@@ -483,6 +521,7 @@ export default function App() {
           settings: getSettingsPayload(mergedSettings),
           backups: finalCloudBackups,
           files: mergedFiles,
+          tombstones: mergedTombstones,
           lastModified: finalTS
         };
 
@@ -718,6 +757,7 @@ export default function App() {
             settings: getSettingsPayload(localSettings),
             backups: localCloudBackups,
             files: JSON.parse(localStorage.getItem('simanki_files') || '[]'),
+            tombstones: loadTombstones(),
             lastModified: now
           };
           const gistId = sanitizeGistId(localSettings.syncCode);
@@ -786,6 +826,7 @@ export default function App() {
           settings: getSettingsPayload(activeSettings),
           backups: activeBackups,
           files: JSON.parse(localStorage.getItem('simanki_files') || '[]'),
+          tombstones: loadTombstones(),
           lastModified: ts
         };
         await pushToGist(activeSettings.githubPAT, activeSettings.syncCode, payload);
@@ -868,7 +909,10 @@ export default function App() {
   };
 
   const handleSaveSettings = (newSettings) => {
+    // Merge over existing settings so progress fields (XP, streak, hearts)
+    // that aren't part of the form survive a save
     const cleaned = {
+      ...settings,
       ...newSettings,
       apiKey: cleanApiKey(newSettings.apiKey),
       model: cleanModelName(newSettings.model),
@@ -881,7 +925,7 @@ export default function App() {
     setLastModified(now);
     safeLocalStorageSetItem('simanki_last_modified', String(now));
     if (cleaned.syncCode) {
-      triggerAutoPush(decks, cards, cleaned, now);
+      triggerAutoPush(decks, cards, null, cleaned, now);
     }
   };
 
@@ -898,7 +942,7 @@ export default function App() {
       };
       safeLocalStorageSetItem('simanki_settings', JSON.stringify(updated));
       if (updated.syncCode) {
-        triggerAutoPush(decks, cards, updated, Date.now());
+        triggerAutoPush(decks, cards, null, updated, Date.now());
       }
       return updated;
     });
@@ -916,6 +960,7 @@ export default function App() {
   };
 
   const handleImportData = (data) => {
+    forgetDeletionsFor(data.decks, data.cards);
     saveDecks(data.decks);
     saveCards(data.cards);
   };
@@ -924,9 +969,16 @@ export default function App() {
     localStorage.removeItem('simanki_settings');
     localStorage.removeItem('simanki_decks');
     localStorage.removeItem('simanki_cards');
+    localStorage.removeItem('simanki_tombstones');
+    localStorage.removeItem('simanki_last_sync');
+    localStorage.removeItem('simanki_files');
+    // Cards live in IndexedDB first; without this they'd reload after a reset
+    setVal('simanki_cards', null);
     setSettings({ apiKey: '', model: 'gemini-3.5-flash', targetRetention: 90, customInstructions: '', voiceURI: '' });
     setDecks(initialDecks);
     setCards(initialCards);
+    setFiles([]);
+    setLastSyncInfo(null);
     setView('dashboard');
   };
 
@@ -1016,6 +1068,7 @@ export default function App() {
         settings: getSettingsPayload(updatedSettings),
         backups: cloudBackups,
         files,
+        tombstones: loadTombstones(),
         lastModified: now
       };
 
@@ -1098,15 +1151,112 @@ export default function App() {
     }
   };
 
+  // --- NEARBY / FILE / CLOUD SYNC (shared by the Sync Center) ---
+  const currentDeviceName = settings.deviceName || getDefaultDeviceName();
+
+  const recordLastSync = (info) => {
+    const entry = { ...info, at: Date.now() };
+    setLastSyncInfo(entry);
+    safeLocalStorageSetItem('simanki_last_sync', JSON.stringify(entry));
+  };
+
+  const getSyncSnapshot = (includeApiKey = false) => {
+    const cur = stateRef.current;
+    return buildSyncPayload({
+      decks: cur.decks,
+      cards: cur.cards,
+      files: cur.files,
+      settings: cur.settings,
+      tombstones: loadTombstones(),
+      deviceName: cur.settings.deviceName || getDefaultDeviceName(),
+      includeApiKey
+    });
+  };
+
+  // Merge another device's snapshot into this one; never overwrites
+  const handleMergeRemote = async (payload, meta = {}) => {
+    const cur = stateRef.current;
+    const merged = mergeSyncData(
+      { decks: cur.decks, cards: cur.cards, files: cur.files, settings: cur.settings, tombstones: loadTombstones() },
+      payload,
+      { targetRetention: cur.settings.targetRetention || 90 }
+    );
+    saveTombstones(merged.tombstones);
+
+    const progressChanged = merged.progress.xp !== (cur.settings.xp || 0)
+      || merged.progress.streak !== (cur.settings.streak || 0)
+      || merged.progress.lastStudyDate !== (cur.settings.lastStudyDate || '');
+
+    if (merged.stats.changed || progressChanged) {
+      // Keep a restore point of the pre-sync state in the local backup slots
+      saveLocalBackup(cur.decks, cur.cards);
+
+      const nextSettings = {
+        ...cur.settings,
+        ...merged.progress,
+        ...(merged.adoptApiKey ? { apiKey: cleanApiKey(merged.adoptApiKey) } : {}),
+        ...(merged.adoptModel ? { model: cleanModelName(merged.adoptModel) } : {})
+      };
+      setDecks(merged.decks);
+      setCards(merged.cards);
+      setFiles(merged.files);
+      setSettings(nextSettings);
+      stateRef.current = { ...cur, decks: merged.decks, cards: merged.cards, files: merged.files, settings: nextSettings };
+
+      safeLocalStorageSetItem('simanki_decks', JSON.stringify(merged.decks));
+      await setVal('simanki_cards', merged.cards);
+      safeLocalStorageSetItem('simanki_cards', JSON.stringify(sanitizeCardsForLocalStorage(merged.cards)));
+      safeLocalStorageSetItem('simanki_files', JSON.stringify(merged.files));
+      safeLocalStorageSetItem('simanki_settings', JSON.stringify(nextSettings));
+
+      const now = Date.now();
+      setLastModified(now);
+      safeLocalStorageSetItem('simanki_last_modified', String(now));
+      const updatedCloudBackups = createNewCloudBackup(merged.decks, merged.cards, cur.cloudBackups);
+      setCloudBackups(updatedCloudBackups);
+      // Pass the merge on to the cloud copy too, if cloud sync is set up
+      triggerAutoPush(merged.decks, merged.cards, updatedCloudBackups, nextSettings, now);
+    }
+
+    recordLastSync({ method: meta.method || 'nearby', device: meta.device || payload.deviceName || null });
+    return merged.stats;
+  };
+
+  // Two-way cloud sync on demand: pull, merge, and push back if needed
+  const handleCloudSyncNow = async () => {
+    const pat = sanitizeToken(settings.githubPAT || '');
+    const code = sanitizeGistId(settings.syncCode || '');
+    if (!pat || !code) return false;
+    setIsSyncing(true);
+    try {
+      const data = await pullFromGist(pat, code);
+      const ok = await performMergeSync(data, pat, code, Number(data.lastModified) || 0);
+      if (ok) recordLastSync({ method: 'cloud', device: 'GitHub Gist' });
+      return ok;
+    } catch (e) {
+      setSyncError(e.message);
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const openSyncCenter = () => setSyncCenter({ view: 'home', code: '', signalServer: '' });
+
   // --- DECK MANAGEMENT HANDLERS ---
   const handleUpdateDeck = (deckId, title, description) => {
     const updatedDecks = decks.map(d => {
       if (d.id === deckId) {
-        return { ...d, title, description };
+        return { ...d, title, description, updatedAt: Date.now() };
       }
       return d;
     });
     saveDecks(updatedDecks);
+  };
+
+  // Remember deletions so syncing with a device that still has them doesn't resurrect them
+  const recordDeletion = (kind, ids) => {
+    if (ids.length) saveTombstones(addTombstones(loadTombstones(), kind, ids));
   };
 
   const handleCreateDeck = (title, description) => {
@@ -1121,6 +1271,7 @@ export default function App() {
   };
 
   const handleDeleteDeck = (deckId) => {
+    recordDeletion('decks', [deckId]);
     const updatedDecks = decks.filter(d => d.id !== deckId);
     saveDecks(updatedDecks);
     // Delete all cards associated with that deck
@@ -1155,6 +1306,7 @@ export default function App() {
   };
 
   const handleDeleteFile = (fileId) => {
+    recordDeletion('files', [fileId]);
     saveFiles(files.filter(f => f.id !== fileId));
   };
 
@@ -1194,12 +1346,13 @@ export default function App() {
   };
 
   const handleUpdateCards = (updatedCards) => {
+    const editedAt = Date.now();
     setCards(prev => {
       const copy = [...prev];
       updatedCards.forEach(uc => {
         const idx = copy.findIndex(c => c.id === uc.id);
         if (idx !== -1) {
-          copy[idx] = { ...copy[idx], ...uc };
+          copy[idx] = { ...copy[idx], ...uc, updatedAt: editedAt };
         }
       });
       saveCards(copy); // Persist to local storage
@@ -1208,19 +1361,22 @@ export default function App() {
   };
 
   const handleDeleteCard = (cardId) => {
+    recordDeletion('cards', [cardId]);
     const updatedCards = cards.filter(c => c.id !== cardId);
     saveCards(updatedCards);
   };
 
   const handleBulkDeleteCards = (cardIds) => {
+    recordDeletion('cards', cardIds);
     const updatedCards = cards.filter(c => !cardIds.includes(c.id));
     saveCards(updatedCards);
   };
 
   const handleMoveCards = (cardIds, targetDeckId) => {
+    const movedAt = Date.now();
     const updatedCards = cards.map(c => {
       if (cardIds.includes(c.id)) {
-        return { ...c, deckId: targetDeckId };
+        return { ...c, deckId: targetDeckId, updatedAt: movedAt };
       }
       return c;
     });
@@ -1240,7 +1396,8 @@ export default function App() {
           ...parentCard,
           question: refactoredData.simplifiedCard.question,
           concept: refactoredData.simplifiedCard.concept,
-          mcqOptions: null
+          mcqOptions: null,
+          updatedAt: Date.now()
         };
         copy[parentIdx] = updatedCard;
         saveCards(copy);
@@ -1483,6 +1640,19 @@ export default function App() {
     return 'Waiting...';
   };
 
+  const cloudConfigured = !!(settings.syncCode && settings.githubPAT);
+  const getHeaderSyncStatus = () => {
+    if (isSyncing) return { state: 'syncing', label: 'Syncing…' };
+    if (cloudConfigured && syncError) return { state: 'error', label: 'Sync issue' };
+    if (cloudConfigured) return { state: 'ok', label: getSyncStatusText() };
+    if (lastSyncInfo?.at) {
+      const mins = Math.round((Date.now() - lastSyncInfo.at) / 60000);
+      const ago = mins < 1 ? 'just now' : mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.round(mins / 60)}h ago` : `${Math.round(mins / 1440)}d ago`;
+      return { state: 'ok', label: `Synced ${ago}` };
+    }
+    return { state: 'off', label: 'Sync' };
+  };
+
   const useMobileSimulator = settings.deviceMode === 'mac' && previewMode === 'mobile';
 
   return (
@@ -1568,31 +1738,8 @@ export default function App() {
         flexDirection: 'column',
         flex: 1
       }}>
-      {/* 🏷️ Top Corner Version Indicator */}
-      <div 
-        className="version-badge"
-        style={{
-          position: 'fixed',
-          top: '12px',
-          left: '12px',
-          background: '#8b5cf6',
-          border: '1px solid #c084fc',
-          borderRadius: '6px',
-          padding: '0.35rem 0.7rem',
-          fontSize: '0.82rem',
-          fontWeight: 'bold',
-          color: '#ffffff',
-          zIndex: 999999,
-          boxShadow: '0 4px 16px rgba(139, 92, 246, 0.45)',
-          pointerEvents: 'none',
-          userSelect: 'none',
-          fontFamily: 'monospace'
-        }}
-      >
-        v2.7.2
-      </div>
-      {/* Floating Auto-Sync Status Indicator */}
-      {settings.syncCode && settings.githubPAT && (
+      {/* Floating Auto-Sync Status Indicator (the dashboard header shows it instead) */}
+      {settings.syncCode && settings.githubPAT && view !== 'dashboard' && view !== 'study' && (
         <div
           title={syncError ? `Error: ${syncError}` : lastSyncTime ? `Last synced: ${lastSyncTime.toLocaleTimeString()}` : 'Auto-sync enabled'}
           onClick={() => {
@@ -1637,35 +1784,27 @@ export default function App() {
           <span>{getSyncStatusText()}</span>
         </div>
       )}
-      {/* Settings warning header (if no key is saved) */}
+      {/* Setup banner (if no key is saved) */}
       {view === 'dashboard' && !settings.apiKey && (
-        <div 
-          className="glass-panel" 
-          style={{ 
-            padding: '0.85rem 1.25rem', 
-            background: 'rgba(245, 158, 11, 0.08)', 
-            border: '1px solid rgba(245, 158, 11, 0.3)', 
-            borderRadius: '10px',
-            color: '#fcd34d',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '1rem',
-            textAlign: 'left',
-            fontSize: '0.9rem'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <ShieldAlert size={18} />
-            <span><strong>Gemini API Key missing.</strong> Enter your key in Settings to enable AI grading and custom simulations.</span>
+        <div className="setup-banner" role="status">
+          <ShieldAlert size={18} aria-hidden="true" />
+          <p>
+            <strong>Add your Gemini API key</strong> to turn on AI grading and simulations.
+          </p>
+          <div className="setup-banner-actions">
+            <button
+              className="btn btn-sm setup-banner-btn"
+              onClick={() => {
+                safeLocalStorageSetItem('simanki_settings_tab', 'ai');
+                setView('settings');
+              }}
+            >
+              Add key
+            </button>
+            <button className="btn btn-sm btn-secondary" onClick={openSyncCenter}>
+              Copy from my other device
+            </button>
           </div>
-          <button 
-            className="btn btn-secondary" 
-            onClick={() => setView('settings')} 
-            style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)', color: '#fcd34d' }}
-          >
-            Configure Now
-          </button>
         </div>
       )}
 
@@ -1684,6 +1823,8 @@ export default function App() {
           onStartStudy={handleStartStudy}
           onOpenSettings={() => setView('settings')}
           onOpenAnalytics={() => setView('analytics')}
+          onOpenSync={openSyncCenter}
+          syncStatus={getHeaderSyncStatus()}
           onImportCards={handleImportAnkiCards}
           onBulkDeleteCards={handleBulkDeleteCards}
           onMoveCards={handleMoveCards}
@@ -1714,7 +1855,39 @@ export default function App() {
           isSyncing={isSyncing}
           onRestoreBackup={handleRestoreBackup}
           cloudBackups={cloudBackups}
+          onOpenSync={openSyncCenter}
+          appVersion={APP_VERSION}
+          defaultDeviceName={getDefaultDeviceName()}
         />
+      )}
+
+      {syncCenter && (
+        <Suspense fallback={null}>
+        <SyncCenter
+          onClose={() => setSyncCenter(null)}
+          initialView={syncCenter.view}
+          initialCode={syncCenter.code}
+          initialSignalServer={syncCenter.signalServer}
+          deviceName={currentDeviceName}
+          hasApiKey={!!settings.apiKey}
+          signalServer={settings.syncSignalServer || ''}
+          getSnapshot={getSyncSnapshot}
+          onMergeRemote={handleMergeRemote}
+          cloud={{
+            configured: cloudConfigured,
+            isSyncing,
+            error: syncError,
+            lastSyncLabel: cloudConfigured ? getSyncStatusText() : ''
+          }}
+          onCloudSyncNow={handleCloudSyncNow}
+          onOpenCloudSettings={() => {
+            safeLocalStorageSetItem('simanki_settings_tab', 'sync');
+            setSyncCenter(null);
+            setView('settings');
+          }}
+          lastSync={lastSyncInfo}
+        />
+        </Suspense>
       )}
 
       {view === 'analytics' && (

@@ -59,6 +59,9 @@ SimAnki is a next-generation, local-first spaced repetition system (SRS) web app
 * [`src/components/StudySession.jsx`](file:///Users/happypipaliya/.gemini/antigravity/scratch/sim-anki/src/components/StudySession.jsx) - Core study flow interface, answer inputs, card timers, audio synth, speech synthesis, gap analysis, and Interactive Tutor.
 * [`src/components/Settings.jsx`](file:///Users/happypipaliya/.gemini/antigravity/scratch/sim-anki/src/components/Settings.jsx) - API key config, FSRS target retention sliders, Gist cloud sync settings, and Veteran Mode toggles.
 * [`src/utils/gemini.js`](file:///Users/happypipaliya/.gemini/antigravity/scratch/sim-anki/src/utils/gemini.js) - AI prompt building, structured output schemas, response validation, and automatic categorization.
+* `src/components/SyncCenter.jsx` - Sync sheet (Nearby code/QR pairing, sync-file send/merge, cloud "sync now"). Lazy-loaded so PeerJS stays out of the main bundle.
+* `src/utils/syncMerge.js` - Transport-agnostic sync payloads, merge (`mergeSyncData`), and deletion tombstones (`simanki_tombstones`). All sync paths, Gist included, must apply tombstones so deletions don't resurrect.
+* `src/utils/nearbySync.js` / `src/utils/pairLink.js` - WebRTC (PeerJS) device-to-device session protocol; pairing-code and `#pair=` link helpers (no PeerJS import).
 * [`src/utils/gamification.js`](file:///Users/happypipaliya/.gemini/antigravity/scratch/sim-anki/src/utils/gamification.js) - Progress unlocks and level calculation logic.
 * [`deploy.sh`](file:///Users/happypipaliya/.gemini/antigravity/scratch/sim-anki/deploy.sh) - Production deployment automation. Builds the Vite project, pushes source code to `main` branch, and pushes compiled files to `gh-pages` branch.
 
