@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Plus, Trash2, Edit3, Settings, BookOpen, Layers, X, Calendar, AlertTriangle, TrendingUp, Upload, Image, Search, Filter, BarChart3, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Download, Trophy, Flame, Sparkles, BrainCircuit, Cloud, CloudOff, RefreshCw } from 'lucide-react';
 import { isDue, isDueToday, getTodaySummary, describeNextDue, ALL_DECKS } from '../utils/srs';
+import { isAutopilotOn, dailyNewLimit } from '../utils/autopilot';
 import CardProgressDetails from './CardProgressDetails';
 
 import ImportModal from './ImportModal';
@@ -786,7 +787,8 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
 
       {/* ──── Today: what's due, one-tap study, streak & level ──── */}
       {(() => {
-        const today = getTodaySummary(Cards);
+        // Autopilot paces new cards; the panel shows exactly what Study will run
+        const today = getTodaySummary(Cards, { newLimit: isAutopilotOn(settings) ? dailyNewLimit(Cards) : Infinity });
         const xp = settings.xp || 0;
         const level = Math.floor(xp / 100) + 1;
         const xpInLevel = xp % 100;
@@ -806,6 +808,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   </h2>
                   <p className="today-sub">
                     About {today.estMinutes} min{today.deckCount > 1 ? ` across ${today.deckCount} decks` : ''}
+                    {today.newWaiting > 0 && ` · ${today.newWaiting} more new on later days`}
                   </p>
                 </>
               ) : (
@@ -842,7 +845,7 @@ export default function Dashboard({ Decks, Cards, settings = {}, onCreateDeck, o
                   <div className="xp-bar" style={{ width: `${xpInLevel}%` }} />
                 </div>
               </div>
-              {(settings.relaxedMode || settings.stressMode) && (
+              {!isAutopilotOn(settings) && (settings.relaxedMode || settings.stressMode) && (
                 <div className="mode-chips">
                   {settings.relaxedMode && <span className="mode-chip relaxed">🧘 Relaxed</span>}
                   {settings.stressMode && <span className="mode-chip gentle">🌸 Gentle AI</span>}

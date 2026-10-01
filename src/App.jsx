@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import Dashboard from './components/Dashboard';
 import Settings from './components/Settings';
 import StudySession from './components/StudySession';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import ErrorBoundary from './components/ErrorBoundary';
-import { calculateNextState, mergeDecksAndCards, ALL_DECKS } from './utils/srs';
+import { calculateNextState, mergeDecksAndCards, ALL_DECKS, setActiveWeights, getActiveWeights } from './utils/srs';
+import { isAutopilotOn, autoRetention, dailyNewLimit, dailyCapacity, planSession, answerTimeBaselines } from './utils/autopilot';
+import { replayCardState } from './utils/memoryModel';
 import { ShieldAlert, BookOpen, Layers, CloudOff, Cloud, RefreshCw } from 'lucide-react';
 import { cleanApiKey, cleanModelName } from './utils/gemini';
 import { pushToGist, pullFromGist, sanitizeToken, sanitizeGistId } from './utils/githubSync';
@@ -211,7 +213,8 @@ const getSettingsPayload = (s) => {
     unlockAllFeatures: s.unlockAllFeatures ?? true,
     maxHardCardsPer5Min: s.maxHardCardsPer5Min ?? 2,
     againStepMin: s.againStepMin || 10,
-    deviceMode: s.deviceMode || 'mobile'
+    deviceMode: s.deviceMode || 'mobile',
+    autopilot: s.autopilot !== false
   };
 };
 
@@ -276,6 +279,16 @@ export default function App() {
       return null;
     }
   });
+
+  // Personal memory model trained in the background (see utils/memoryModel.js)
+  const [memoryModel, setMemoryModel] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('simanki_memory_model') || 'null');
+    } catch {
+      return null;
+    }
+  });
+  const trainingRef = useRef(false);
 
   const autoPushTimeoutRef = useRef(null);
   // Latest app state for long-lived async callbacks (Nearby Sync sessions)
@@ -1152,6 +1165,100 @@ export default function App() {
     }
   };
 
+  // --- AUTOPILOT: personal memory model & study context ---
+  const autopilotOn = isAutopilotOn(settings);
+
+  // Schedule with the learner's own weights only while Autopilot is on and
+  // they've been shown to predict recall better than the standard ones
+  useEffect(() => {
+    setActiveWeights(autopilotOn && memoryModel?.status === 'personal' ? memoryModel.weights : null);
+  }, [autopilotOn, memoryModel]);
+
+  const applyTrainedModel = (result, reviewsAtTraining) => {
+    let previous = null;
+    try {
+      previous = JSON.parse(localStorage.getItem('simanki_memory_model') || 'null');
+    } catch {
+      previous = null;
+    }
+    const record = { ...result, totalReviews: reviewsAtTraining };
+    safeLocalStorageSetItem('simanki_memory_model', JSON.stringify(record));
+    setMemoryModel(record);
+
+    const before = previous?.status === 'personal' ? previous.weights : null;
+    const after = record.status === 'personal' ? record.weights : null;
+    if (JSON.stringify(before) === JSON.stringify(after)) return;
+
+    // New model: recompute each reviewed card's memory state under it. Due
+    // dates stay put, so switching never dumps a pile of reviews on today.
+    setActiveWeights(after);
+    const weights = getActiveWeights();
+    const cur = stateRef.current;
+    const updated = cur.cards.map(c => (c.state && c.history?.length ? { ...c, state: replayCardState(c, weights) } : c));
+    setCards(updated);
+    stateRef.current = { ...cur, cards: updated };
+    setVal('simanki_cards', updated);
+    safeLocalStorageSetItem('simanki_cards', JSON.stringify(sanitizeCardsForLocalStorage(updated)));
+    const now = Date.now();
+    setLastModified(now);
+    safeLocalStorageSetItem('simanki_last_modified', String(now));
+    triggerAutoPush(cur.decks, updated, cur.cloudBackups, cur.settings, now);
+  };
+  const applyModelRef = useRef(null);
+  useEffect(() => {
+    applyModelRef.current = applyTrainedModel;
+  });
+
+  // Retrain in a background worker after a quiet moment: daily, or after 40
+  // more reviews. Nothing to click; the result shows in Settings → Study.
+  const totalReviews = useMemo(() => cards.reduce((n, c) => n + (c.history?.length || 0), 0), [cards]);
+  useEffect(() => {
+    if (!autopilotOn || trainingRef.current || totalReviews < 20 || typeof Worker === 'undefined') return;
+    const stale = !memoryModel
+      || Date.now() - (memoryModel.trainedAt || 0) > 86400000
+      || totalReviews - (memoryModel.totalReviews || 0) >= 40;
+    if (!stale) return;
+    const timer = setTimeout(() => {
+      let worker;
+      try {
+        worker = new Worker(new URL('./workers/memoryModel.worker.js', import.meta.url), { type: 'module' });
+      } catch (e) {
+        console.warn('[Autopilot] Could not start model training:', e);
+        return;
+      }
+      trainingRef.current = true;
+      const finish = () => {
+        worker.terminate();
+        trainingRef.current = false;
+      };
+      worker.onmessage = (event) => {
+        finish();
+        if (event.data?.ok) applyModelRef.current?.(event.data.result, totalReviews);
+        else console.warn('[Autopilot] Model training failed:', event.data?.error);
+      };
+      worker.onerror = (event) => {
+        finish();
+        console.warn('[Autopilot] Model training failed:', event.message);
+      };
+      // Only what the model needs: review dates, ratings and scores
+      const payload = stateRef.current.cards.map(c => ({
+        history: (c.history || []).map(h => ({ date: h.date, rating: h.rating, score: h.score }))
+      }));
+      worker.postMessage({ cards: payload, now: Date.now() });
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [autopilotOn, totalReviews, memoryModel]);
+
+  // What the study session needs from Autopilot (null = manual settings)
+  const autopilotContext = useMemo(
+    () => (autopilotOn ? { on: true, baselines: answerTimeBaselines(cards) } : null),
+    [autopilotOn, cards]
+  );
+  const effectiveRetention = useMemo(
+    () => (autopilotOn ? autoRetention(cards) : settings.targetRetention),
+    [autopilotOn, cards, settings.targetRetention]
+  );
+
   // --- NEARBY / FILE / CLOUD SYNC (shared by the Sync Center) ---
   const currentDeviceName = settings.deviceName || getDefaultDeviceName();
 
@@ -1474,8 +1581,11 @@ export default function App() {
       filtered = filtered.filter(c => (c.cardType || 'default') === options.type);
     }
 
-    // Across all decks, review overdue cards before introducing new ones
-    if (deckId === ALL_DECKS) {
+    if (options.filter === 'due' && isAutopilotOn(settings)) {
+      // Autopilot: most-at-risk reviews first, today's share of new cards woven in
+      filtered = planSession(filtered, { newLimit: dailyNewLimit(cards) }).queue;
+    } else if (deckId === ALL_DECKS) {
+      // Across all decks, review overdue cards before introducing new ones
       filtered = [...filtered.filter(c => c.state?.dueDate), ...filtered.filter(c => !c.state?.dueDate)];
     }
     
@@ -1488,10 +1598,14 @@ export default function App() {
       // Outlier filtering: ignore readings over 120 seconds
       const finalTimeSpent = timeSpent > 120 ? 0 : timeSpent;
 
+      // Under Autopilot the study session already chose the rating
+      const autopilot = isAutopilotOn(settings);
       let finalRating = rating;
-      if (settings.relaxedMode && rating === 'again') {
+      if (!autopilot && settings.relaxedMode && rating === 'again') {
         finalRating = 'hard';
       }
+      const againStep = autopilot ? 10 : (settings.againStepMin || 10);
+      const retentionFor = (card) => (autopilot ? autoRetention(cards, card) : settings.targetRetention);
 
       // Calculate XP Gain
       let xpGain = 5; // Fail gets +5 XP for effort
@@ -1531,7 +1645,7 @@ export default function App() {
 
       const updatedCards = cards.map(card => {
         if (card.id === cardId) {
-          const nextState = calculateNextState(card, finalRating, settings.targetRetention, null, settings.againStepMin || 10);
+          const nextState = calculateNextState(card, finalRating, retentionFor(card), null, againStep);
                 // Log history entry
           const historyEntry = {
             date: new Date().toISOString(),
@@ -1568,7 +1682,7 @@ export default function App() {
       // Update local sessionCards to keep stable indices
       setSessionCards(prev => prev.map(c => {
         if (c.id === cardId) {
-          const nextState = calculateNextState(c, finalRating, settings.targetRetention, null, settings.againStepMin || 10);
+          const nextState = calculateNextState(c, finalRating, retentionFor(c), null, againStep);
           const historyEntry = {
             date: new Date().toISOString(),
             userAnswer: userAnswer || '',
@@ -1865,6 +1979,12 @@ export default function App() {
           onOpenSync={openSyncCenter}
           appVersion={APP_VERSION}
           defaultDeviceName={getDefaultDeviceName()}
+          autopilotStatus={{
+            model: memoryModel,
+            retention: autoRetention(cards),
+            newLimit: dailyNewLimit(cards),
+            capacity: dailyCapacity(cards)
+          }}
         />
       )}
 
@@ -1949,7 +2069,8 @@ export default function App() {
               DueCards={sessionCards}
               apiKey={settings.apiKey}
               model={settings.model}
-              targetRetention={settings.targetRetention}
+              targetRetention={effectiveRetention}
+              autopilot={autopilotContext}
               customInstructions={settings.customInstructions || ''}
               voiceURI={settings.voiceURI || ''}
               onRateCard={handleRateCard}

@@ -3,7 +3,7 @@
  */
 
 // FSRS 6.0 Default Weights (21 parameters)
-const w = [
+export const DEFAULT_WEIGHTS = Object.freeze([
   0.212, 1.2931, 2.3065, 8.2956, // w[0..3]: initial stability for rating 1..4 (Again, Hard, Good, Easy)
   6.4133, 0.8334,                // w[4..5]: initial difficulty parameters
   3.0194, 0.001,                 // w[6..7]: difficulty updating parameters
@@ -11,7 +11,21 @@ const w = [
   1.4835, 0.0614, 0.2629, 1.6483, // w[11..14]: stability updating parameters (lapse/failure)
   0.6014, 1.8729,                // w[15..16]: stability updating parameters (hard penalty, easy bound)
   0.5425, 0.0912, 0.0658, 0.1542  // w[17..20]: short term stability parameters & decay
-];
+]);
+
+// Weights used for scheduling. Autopilot swaps in weights fitted to the
+// learner's own history once they're shown to predict recall better.
+let activeWeights = DEFAULT_WEIGHTS;
+
+export function setActiveWeights(weights) {
+  const valid = Array.isArray(weights) && weights.length === DEFAULT_WEIGHTS.length && weights.every(Number.isFinite);
+  activeWeights = valid ? Object.freeze([...weights]) : DEFAULT_WEIGHTS;
+  return valid;
+}
+
+export function getActiveWeights() {
+  return activeWeights;
+}
 
 /**
  * Computes decay and factor variables for forgetting curve calculations.
@@ -30,7 +44,7 @@ function computeDecayFactor(weights) {
  * 
  * R(t, S) = (1 + factor * t / S) ^ decay
  */
-function forgettingCurve(t, s, weights) {
+export function forgettingCurve(t, s, weights = activeWeights) {
   const { decay, factor } = computeDecayFactor(weights);
   const safeS = Math.max(s, 0.001);
   return Math.pow(1.0 + (factor * t) / safeS, decay);
@@ -112,6 +126,34 @@ function computeNextForgetStability(d, s, r, weights) {
 }
 
 /**
+ * One FSRS-6 memory update: stability & difficulty after a review with grade
+ * G (1 again … 4 easy) taken `elapsedDays` after the previous one. Shared by
+ * the live scheduler and the personal-model trainer so they can't drift apart.
+ */
+export function nextMemoryState(stability, difficulty, elapsedDays, G, weights = activeWeights) {
+  if (!stability) {
+    return { stability: initStability(G, weights), difficulty: initDifficulty(G, weights) };
+  }
+  const nextDifficulty = computeNextDifficulty(difficulty, G, weights);
+  let nextStability;
+  if (elapsedDays === 0) {
+    nextStability = computeNextShortTermStability(stability, G, weights);
+  } else {
+    const R = forgettingCurve(elapsedDays, stability, weights);
+    nextStability = G === 1
+      ? computeNextForgetStability(difficulty, stability, R, weights)
+      : computeNextRecallStability(difficulty, stability, R, G, weights);
+  }
+  return { stability: nextStability, difficulty: nextDifficulty };
+}
+
+/** Days until recall probability falls to `retention` (0–1) for a given stability. */
+export function intervalForRetention(stability, retention, weights = activeWeights) {
+  const days = stability * calculateIntervalModifier(retention, weights);
+  return Number.isFinite(days) ? Math.max(1, Math.round(days)) : 1;
+}
+
+/**
  * Calculates the next FSRS state variables for a card.
  * 
  * @param {Object} card - The current card object.
@@ -120,6 +162,7 @@ function computeNextForgetStability(d, s, r, weights) {
  * @returns {Object} Updated FSRS state properties for the card.
  */
 export function calculateNextState(card, ratingStr, targetRetention = 90, reviewDate = null, againStepMin = 10) {
+  const w = activeWeights;
   const ratingMap = { again: 1, hard: 2, good: 3, easy: 4 };
   const normalizedRating = String(ratingStr || 'good').toLowerCase();
   const G = ratingMap[normalizedRating] || 3;
@@ -149,34 +192,19 @@ export function calculateNextState(card, ratingStr, targetRetention = 90, review
     t = Math.max(0, Math.round(elapsedMs / (1000 * 60 * 60 * 24)));
   }
 
-  let nextStability = 0;
-  let nextDifficultyValue = 0;
+  const next = nextMemoryState(stability, difficulty, t, G, w);
+  const nextStability = next.stability;
+  const nextDifficultyValue = next.difficulty;
 
   if (stability === 0) {
-    // Card is New: initialize stability and difficulty
-    nextStability = initStability(G, w);
-    nextDifficultyValue = initDifficulty(G, w);
     repetitions = G === 1 ? 0 : 1;
     consecutiveFails = G === 1 ? 1 : 0;
-  } else {
-    // Card is Review: apply FSRS transition formulas
-    const R = forgettingCurve(t, stability, w); // Retrievability
-    
-    // 1. Update difficulty
-    nextDifficultyValue = computeNextDifficulty(difficulty, G, w);
-    
-    // 2. Update stability
-    if (t === 0) {
-      nextStability = computeNextShortTermStability(stability, G, w);
-    } else if (G === 1) {
-      nextStability = computeNextForgetStability(difficulty, stability, R, w);
-      repetitions = 0;
-      consecutiveFails += 1;
-    } else {
-      nextStability = computeNextRecallStability(difficulty, stability, R, G, w);
-      repetitions += 1;
-      consecutiveFails = 0;
-    }
+  } else if (t > 0 && G === 1) {
+    repetitions = 0;
+    consecutiveFails += 1;
+  } else if (t > 0) {
+    repetitions += 1;
+    consecutiveFails = 0;
   }
 
   // Calculate interval in days based on custom target retrievability
@@ -217,6 +245,17 @@ export function isDue(card) {
   const now = new Date();
   
   return due <= now;
+}
+
+/**
+ * Probability (0–1) the learner recalls a reviewed card right now, from the
+ * active memory model. New cards return null.
+ */
+export function predictRecall(card, now = new Date()) {
+  const st = card?.state;
+  if (!st || !st.stability || !st.lastReviewDate) return null;
+  const days = Math.max(0, (new Date(now) - new Date(st.lastReviewDate)) / 86400000);
+  return forgettingCurve(days, st.stability);
 }
 
 /**
@@ -435,10 +474,11 @@ export function isDueToday(card, now = new Date()) {
  * Summary for the dashboard "Today" panel: what a "Study all due" session
  * would contain, a time estimate, and when the next review falls otherwise.
  */
-export function getTodaySummary(cards, now = new Date()) {
+export function getTodaySummary(cards, { now = new Date(), newLimit = Infinity } = {}) {
   const active = cards.filter(c => !c.paused && !c.suspended);
   const due = active.filter(c => isDueToday(c, now));
-  const fresh = active.filter(c => !c.state?.dueDate);
+  const allFresh = active.filter(c => !c.state?.dueDate);
+  const fresh = allFresh.slice(0, Math.max(0, newLimit));
   const session = [...due, ...fresh];
 
   // Past answer time per card (ignoring >2 min outliers), else 20s; +8s for grading
@@ -456,6 +496,7 @@ export function getTodaySummary(cards, now = new Date()) {
   return {
     dueCount: due.length,
     newCount: fresh.length,
+    newWaiting: allFresh.length - fresh.length,
     sessionCount: session.length,
     deckCount: new Set(session.map(c => c.deckId)).size,
     estMinutes: Math.max(1, Math.round(estSeconds / 60)),

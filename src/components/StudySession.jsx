@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Clock, Star, BrainCircuit, CheckCircle, AlertTriangle, ArrowRight, BookOpen, RotateCcw, XCircle, X, Activity, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trophy, Flame } from 'lucide-react';
 import { evaluateAnswer, chatTutorStep, generateMnemonic, refactorHardCard, getDetailedAnalysis, generate3DVisualAnimation, simplifyQuestion, generateCanvasSimulation, generateDetailedMemoryAnchor, generateAnswerNudge, generateMCQOptions, generateMCQCanvasSimulation, friendlyAiError } from '../utils/gemini';
 import { getFriendlyInterval, getIntradayIntervalMs, getIntervalCategory } from '../utils/srs';
+import { gradeAnswer, relearnDelayMs, createCoach, coachRecord, assessMood, chooseNextIndex, baselineFor, GENTLE_TONE } from '../utils/autopilot';
 import { hasFeatureUnlocked } from '../utils/gamification';
 import HighlightingTTS from './HighlightingTTS';
 import InlineTTSButton from './InlineTTSButton';
@@ -550,7 +551,10 @@ function NumericalGuessSlider({ actualValue, userGuess, valueUnit, history }) {
   );
 }
 
-export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {}, onRefactorCard, onUpdateCard, onUpdateHearts }) {
+export default function StudySession({ Deck, DueCards, apiKey, model, targetRetention = 90, customInstructions = "", voiceURI = "", onRateCard, onClose, settings = {}, onRefactorCard, onUpdateCard, onUpdateHearts, autopilot = null }) {
+  // Autopilot context from App (answer-time baselines); null = manual settings
+  const auto = autopilot?.on ? autopilot : null;
+  const autoOn = !!auto; // stable primitive for effect dependencies
   // ─── Priority Queue Engine ───
   const [mainQueue, setMainQueue] = useState(() => [...(DueCards || [])]);
   const [lapseQueue, setLapseQueue] = useState([]);  // { card, dueAt }
@@ -634,8 +638,14 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
   const [hardCardTimestamps, setHardCardTimestamps] = useState([]);
   const [pacingNotice, setPacingNotice] = useState('');
 
+  // ─── Autopilot session coach: reads how the session is going ───
+  const [coach, setCoach] = useState(() => createCoach());
+  const [mood, setMood] = useState({ mood: 'warming-up', label: '' });
+  const [wrapUpDismissed, setWrapUpDismissed] = useState(false);
+
   // ─── Priority Queue: getNextCard ───
-  const getNextCard = useCallback(() => {
+  // `pickIndex(upcoming)` lets Autopilot pull a later card forward.
+  const getNextCard = useCallback((pickIndex) => {
     // 1. Check lapse queue for any due card
     const now = Date.now();
     const dueIdx = lapseQueue.findIndex(l => now >= l.dueAt);
@@ -648,7 +658,13 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
     // 2. If main queue has cards, take next
     if (mainQueueIndex < mainQueue.length) {
-      const card = mainQueue[mainQueueIndex];
+      const upcoming = mainQueue.slice(mainQueueIndex);
+      const k = pickIndex ? Math.min(Math.max(0, pickIndex(upcoming) || 0), upcoming.length - 1) : 0;
+      const card = upcoming[k];
+      if (k > 0) {
+        // Keep the rest of the plan in order behind the card that moved up
+        setMainQueue([...mainQueue.slice(0, mainQueueIndex), card, ...upcoming.slice(0, k), ...upcoming.slice(k + 1)]);
+      }
       setMainQueueIndex(prev => prev + 1);
       setWaitingForLapse(false);
       return card;
@@ -1307,8 +1323,9 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     }
   }, [DueCards]);
 
-  // Throttling / Pacing Engine logic
+  // Throttling / Pacing Engine logic (Autopilot's coach replaces this)
   useEffect(() => {
+    if (autoOn) return;
     if (sessionQueue.length === 0 || currentIndex >= sessionQueue.length) return;
     
     const card = sessionQueue[currentIndex];
@@ -1339,7 +1356,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       
       setHardCardTimestamps([...last5Min, now]);
     }
-  }, [currentIndex, sessionQueue, settings.maxHardCardsPer5Min]);
+  }, [currentIndex, sessionQueue, settings.maxHardCardsPer5Min, autoOn]);
   
   // Mnemonic assistance states
   const [mnemonicText, setMnemonicText] = useState('');
@@ -1379,16 +1396,21 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
   const [showBurnoutWarning, setShowBurnoutWarning] = useState(false);
 
-  // Start timer on question load
+  // Latest answer length for the timer tick, without restarting the timer
+  const answerLengthRef = useRef(0);
+  useEffect(() => { answerLengthRef.current = userAnswer.length; }, [userAnswer.length]);
+
+  // Start timer on question load. It must run for the whole card: it used to
+  // restart on every keystroke, so "time spent" only measured the last pause.
   useEffect(() => {
     if (step === 'question' && currentCard) {
       setElapsedTime(0);
-      setShowHint(settings.relaxedMode && (!currentCard.history || currentCard.history.length === 0));
+      setShowHint((autoOn ? mood.mood === 'struggling' : settings.relaxedMode) && (!currentCard.history || currentCard.history.length === 0));
       setShowBurnoutWarning(false);
       setShowSimplification(false);
       timerRef.current = setInterval(() => {
         setElapsedTime(prev => {
-          if (prev >= 45 && userAnswer.length < 5) {
+          if (prev >= 45 && answerLengthRef.current < 5) {
             setShowBurnoutWarning(true);
           }
           return prev + 1;
@@ -1396,7 +1418,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       }, 1000);
     }
     return () => clearInterval(timerRef.current);
-  }, [step, currentIndex, currentCard, userAnswer.length, settings.relaxedMode]);
+  }, [step, currentIndex, currentCard, settings.relaxedMode, autoOn, mood.mood]);
 
   // Clean timer on unmount
   useEffect(() => {
@@ -1424,9 +1446,12 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
     setEvaluation(null);
     setGradingStatus('Initializing grading request...');
 
-    // Custom instructions for Gentle AI / Stress Mode
+    // Custom instructions for Gentle AI / Stress Mode. Under Autopilot the
+    // tone softens by itself when the session is going badly.
     let finalCustomInstructions = customInstructions;
-    if (settings.stressMode) {
+    if (auto && (mood.mood === 'struggling' || mood.mood === 'tired')) {
+      finalCustomInstructions = GENTLE_TONE + (customInstructions ? `\n` + customInstructions : '');
+    } else if (!auto && settings.stressMode) {
       finalCustomInstructions = `[GENTLE AI MODE ACTIVE]: The student is feeling burnt out or stressed. 
 1. Use an extremely comforting, warm, encouraging, and supportive tone.
 2. Keep the Concept Correction & Explanation ("correctExplanation") ultra-brief (under 40 words total) with a simple real-world analogy.
@@ -1698,6 +1723,16 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
         evaluation
       );
 
+      // ─── Autopilot: update the session read ───
+      let currentMood = mood.mood;
+      if (auto) {
+        const nextCoach = coachRecord(coach, { score: evaluation.score, seconds: elapsedTime, baseline: baselineFor(auto.baselines, currentCard) });
+        const assessed = assessMood(nextCoach);
+        setCoach(nextCoach);
+        setMood(assessed);
+        currentMood = assessed.mood;
+      }
+
       // ─── Hearts system: lose a heart on 'again' ───
       const isFailed = rating === 'again';
       if (isFailed && heartsEnabled) {
@@ -1716,13 +1751,15 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
 
       // ─── Next-Review Visualizer popup ───
       try {
-        const intervalCat = getIntervalCategory(currentCard, rating, targetRetention, settings.againStepMin || 10);
+        const intervalCat = getIntervalCategory(currentCard, rating, targetRetention, auto ? 10 : (settings.againStepMin || 10));
         setReviewVisualizer(intervalCat);
         setTimeout(() => setReviewVisualizer(null), 1200);
       } catch(e) { /* non-critical */ }
 
       // ─── Priority Queue: re-insert failed/hard cards with timed delay ───
-      const intradayMs = getIntradayIntervalMs(rating, settings.intradayStepMin || 1);
+      const intradayMs = auto
+        ? relearnDelayMs(rating, evaluation.score)
+        : getIntradayIntervalMs(rating, settings.intradayStepMin || 1);
       if (intradayMs > 0) {
         setLapseQueue(prev => [...prev, { card: currentCard, dueAt: Date.now() + intradayMs }]);
       }
@@ -1742,7 +1779,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
       setEditingCodeSim(null);
 
       // ─── Advance to next card via priority queue ───
-      const next = getNextCard();
+      const next = getNextCard(auto ? (upcoming) => chooseNextIndex(upcoming, currentMood) : undefined);
       if (next === 'DONE') {
         setCurrentCard(null);
         setStep('completed');
@@ -1781,7 +1818,7 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
               Session Complete!
             </h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', marginTop: '0.5rem' }}>
-              Amazing effort! You completed all the due cards in this deck.
+              Amazing effort! {completedCount} card{completedCount === 1 ? '' : 's'} reviewed, and your progress is saved.
             </p>
           </div>
 
@@ -1996,7 +2033,23 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
             {lapseQueue.length > 0 ? ` · +${lapseQueue.length} to retry` : ''}
           </span>
         </div>
+        {auto && mood.label && <div className="study-mood" aria-live="polite">{mood.label}</div>}
       </div>
+
+      {/* Autopilot: offer a natural stopping point when energy is dipping */}
+      {auto && mood.mood === 'tired' && !wrapUpDismissed && step === 'question' && (
+        <div className="wrapup-banner" role="status">
+          <p>🌙 You've been going a while and your answers are slowing down. Your progress is saved, so this is a good place to stop.</p>
+          <div className="wrapup-actions">
+            <button className="btn btn-primary btn-sm" onClick={() => { setStep('completed'); playSimWin(); }}>
+              Finish session
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setWrapUpDismissed(true)}>
+              Keep going
+            </button>
+          </div>
+        </div>
+      )}
 
       {pacingNotice && (
         <div style={{
@@ -3650,17 +3703,25 @@ export default function StudySession({ Deck, DueCards, apiKey, model, targetRete
           {/* FSRS Auto-Scheduling Summary & Save Button */}
           {isTutoringComplete && (() => {
             const suggestedRating = String(evaluation.suggestedRating || 'good').toLowerCase();
-            const finalRating = (settings.relaxedMode && suggestedRating === 'again') ? 'hard' : suggestedRating;
+            // Autopilot weighs speed and confidence alongside the AI's correctness score
+            const autoGrade = auto
+              ? gradeAnswer({ score: evaluation.score, seconds: elapsedTime, confidence, baseline: baselineFor(auto.baselines, currentCard), mood: mood.mood })
+              : null;
+            const finalRating = autoGrade
+              ? autoGrade.rating
+              : (settings.relaxedMode && suggestedRating === 'again') ? 'hard' : suggestedRating;
             
             return (
               <div className="glass-panel" style={{ padding: '1.5rem 2rem', display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', marginTop: '1rem' }}>
                 <div style={{ textAlign: 'center' }}>
                   <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>FSRS Auto-Scheduled Interval</span>
                   <h4 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-primary)', marginTop: '0.15rem' }}>
-                    Next Review: {getFriendlyInterval(currentCard, finalRating, targetRetention, settings.againStepMin || 10)}
+                    Next Review: {getFriendlyInterval(currentCard, finalRating, targetRetention, auto ? 10 : (settings.againStepMin || 10))}
                   </h4>
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                    {settings.relaxedMode && suggestedRating === 'again' ? (
+                    {autoGrade ? (
+                      `${autoGrade.reason} (${finalRating.toUpperCase()}).`
+                    ) : settings.relaxedMode && suggestedRating === 'again' ? (
                       <span style={{ color: '#34d399', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontWeight: 600 }}>
                         <Sparkles size={12} /> 🧘 Relaxed Mode Active: Rescheduled as HARD to prevent penalty.
                       </span>

@@ -35,7 +35,25 @@ It is designed to help students master complex physical, quantitative, and conce
 * **No Cloud / Local First:** All your decks, cards, configurations, and detailed card history graphs are saved securely in your browser's local storage.
 * **Backup Export/Import:** Export a single JSON file of all decks, cards, and histories to back up your progress or transfer it between devices.
 
-### 5. Sync Between Your Devices
+### 5. Autopilot: it adapts so you don't have to tune anything
+Autopilot is on by default (Settings → Study). It makes these decisions for you:
+
+* **A memory model fitted to you.** Standard FSRS-6 uses 21 weights fitted to millions of other people's reviews. In a background worker, Autopilot re-fits those weights to *your* history. It checks the fit on your most recent reviews, which the fit never saw. It switches only when the personal weights predict your recall consistently better (a paired test across three time windows). When it switches, it recomputes each card's memory state but keeps today's due dates, so nothing piles up.
+* **Fairer grading.** The AI scores correctness. Autopilot also weighs how fast you answered compared with your own usual speed, and your confidence. *Easy* is for quick, sure recall; correct but laboured is *hard*.
+* **Reads the session.** Two misses in a row: easier cards come next, AI feedback turns gentler, and near misses (40–49%) count as *hard*. Fast and accurate: harder cards. Long session with slowing answers or falling accuracy: it offers a natural stopping point.
+* **Steady workload.** New cards per day follow how much you usually study. Target recall dips to 85–87% while a backlog clears and rises to 92% on light days. Reviews are ordered most-at-risk first, with new cards woven in.
+
+How the memory model was validated (simulated learners, `npm test` and `tests/`):
+
+| Learner | Standard FSRS-6, next 90 days | Autopilot |
+| --- | --- | --- |
+| Forgets faster than average | real recall 86% (target 90%) | 89.5%, more remembered at the end |
+| Remembers better than average | 97% recall, 198 reviews | 98% recall with 19% fewer reviews |
+| Average | – | identical (correctly stays on standard) |
+
+It does **not** beat FSRS for everyone: for an average learner the standard weights are already right, and Autopilot leaves them alone. The gain comes from fitting *you*, and it needs a few weeks of reviews (60+ spaced reviews) before it can tell.
+
+### 6. Sync Between Your Devices
 Tap **Sync** in the top bar. There are three ways to sync, and none of them overwrite anything: both devices **merge**, keeping every review, new card and deck, and any deletions are carried across.
 
 | Method | Best for | What you need |

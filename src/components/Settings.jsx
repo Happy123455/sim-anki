@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Eye, EyeOff, ShieldAlert, ArrowLeft, RefreshCw, Download, Upload, Layers,
-  Bot, Brain, Cloud, Database, Wifi, ChevronRight, Check
+  Bot, Brain, Cloud, Database, Wifi, ChevronRight, Check, Compass
 } from 'lucide-react';
 import { checkApiKey } from '../utils/gemini';
 import { sanitizeToken } from '../utils/githubSync';
@@ -55,7 +55,8 @@ const toForm = (s) => ({
   heartsEnabled: s.heartsEnabled !== false,
   maxHearts: s.maxHearts || 5,
   intradayStepMin: s.intradayStepMin || 1,
-  syncSignalServer: s.syncSignalServer || ''
+  syncSignalServer: s.syncSignalServer || '',
+  autopilot: s.autopilot !== false
 });
 
 function Section({ title, description, icon: Icon, tone, children }) {
@@ -119,6 +120,54 @@ function SecretInput({ id, value, onChange, placeholder }) {
   );
 }
 
+function timeAgo(ts) {
+  if (!ts) return '';
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 2) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  return hrs < 36 ? `${hrs} h ago` : `${Math.round(hrs / 24)} days ago`;
+}
+
+/** What Autopilot is doing right now, in plain words. */
+function AutopilotStatus({ status }) {
+  const { model, retention, newLimit, capacity } = status;
+  let modelTitle = 'Standard FSRS-6';
+  let modelDetail = 'Starts learning your memory after a few days of reviews.';
+  if (model?.status === 'learning') {
+    modelDetail = `Learning your memory: ${model.samples} of ${model.needed} spaced-out reviews so far.`;
+  } else if (model?.status === 'standard') {
+    modelDetail = `Checked against ${model.testSamples} of your reviews: a personal fit wasn't clearly better yet, so the proven standard stays. Re-checked as you study.`;
+  } else if (model?.status === 'personal') {
+    modelTitle = 'Personalised to you';
+    modelDetail = `Fitted to ${model.samples} of your spaced-out reviews. Predicts your recall with ${(model.improvement * 100).toFixed(1)}% less error than standard FSRS-6 on reviews it wasn't trained on.`;
+  }
+  const retentionDetail = retention >= 92
+    ? 'Light day, so aiming a little higher'
+    : retention <= 87
+      ? 'Reviews have piled up, so easing off until they clear'
+      : 'Normal pace';
+  return (
+    <div className="autopilot-status">
+      <div className="ap-stat">
+        <span>Memory model</span>
+        <strong>{modelTitle}</strong>
+        <small>{modelDetail}{model?.trainedAt ? ` Last checked ${timeAgo(model.trainedAt)}.` : ''}</small>
+      </div>
+      <div className="ap-stat">
+        <span>Target recall today</span>
+        <strong>{retention}%</strong>
+        <small>{retentionDetail}</small>
+      </div>
+      <div className="ap-stat">
+        <span>New cards today</span>
+        <strong>{newLimit}</strong>
+        <small>Paced to your usual ~{capacity} reviews a day</small>
+      </div>
+    </div>
+  );
+}
+
 function BackupRow({ title, backup, onRestore }) {
   return (
     <div className="backup-row">
@@ -133,7 +182,7 @@ function BackupRow({ title, backup, onRestore }) {
   );
 }
 
-export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData, onImportAnkiCards, onPushSync, onPullSync, isSyncing, onRestoreBackup, cloudBackups, onOpenSync, appVersion, defaultDeviceName }) {
+export default function Settings({ settings, onSaveSettings, onBack, onExportData, onImportData, onClearData, onImportAnkiCards, onPushSync, onPullSync, isSyncing, onRestoreBackup, cloudBackups, onOpenSync, appVersion, defaultDeviceName, autopilotStatus }) {
   const [tab, setTab] = useState(readInitialTab);
   // Only the fields the user touched; everything else tracks live settings
   const [edits, setEdits] = useState({});
@@ -351,7 +400,50 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
 
         {tab === 'study' && (
           <>
-            <Section title="Scheduling" description="How often cards come back.">
+            <Section title="Autopilot" icon={Compass} tone="accent">
+              <Toggle
+                id="autopilotToggle"
+                checked={form.autopilot}
+                onChange={set('autopilot')}
+                label="Let SimAnki run my study plan (recommended)"
+                description="Picks review timing, new cards per day, grading and card order for you, and adapts to how each session is going."
+              />
+              {form.autopilot && autopilotStatus && <AutopilotStatus status={autopilotStatus} />}
+              {form.autopilot && (
+                <ul className="autopilot-list">
+                  <li><strong>Learns your memory.</strong> Tunes the FSRS model to your own reviews and switches only once it predicts you better than the standard model.</li>
+                  <li><strong>Grades fairly.</strong> Correct and quick counts as easy; correct but laboured counts as hard, judged against your usual answer speed.</li>
+                  <li><strong>Reads the session.</strong> Missing a few? Easier cards come next and feedback gets gentler. Flying? Tougher ones. Flagging after a long run? It offers a good stopping point.</li>
+                  <li><strong>Keeps the load steady.</strong> Fewer new cards and a slightly lower target when reviews pile up; more when things are quiet.</li>
+                </ul>
+              )}
+            </Section>
+
+            <Section title="Just for fun">
+              <Toggle
+                id="heartsToggle"
+                checked={form.heartsEnabled}
+                onChange={set('heartsEnabled')}
+                label="❤️ Hearts"
+                description="Lose a heart per wrong answer; the session pauses at zero and hearts refill over time."
+              />
+              {form.heartsEnabled && (
+                <Field label="Max hearts" htmlFor="maxHearts" aside={<span className="value-badge">{form.maxHearts}</span>}>
+                  <input id="maxHearts" type="range" min="3" max="10" value={form.maxHearts} onChange={(e) => set('maxHearts')(Number(e.target.value))} />
+                </Field>
+              )}
+              <Toggle
+                id="unlockAllFeaturesToggle"
+                checked={form.unlockAllFeatures}
+                onChange={set('unlockAllFeatures')}
+                label="🏅 Unlock all features"
+                description="Skip the streak-based unlocks and get every feature now."
+              />
+            </Section>
+
+            <details className="settings-section advanced">
+              <summary>Manual controls{form.autopilot ? ' (only used when Autopilot is off)' : ''}</summary>
+              <div className={`manual-controls${form.autopilot ? ' is-inactive' : ''}`}>
               <Field
                 label="Target retention"
                 htmlFor="targetRetention"
@@ -423,21 +515,6 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
                   <option value={999}>Off (no limit)</option>
                 </select>
               </Field>
-            </Section>
-
-            <Section title="Comfort" description="Make sessions gentler when you need it.">
-              <Toggle
-                id="heartsToggle"
-                checked={form.heartsEnabled}
-                onChange={set('heartsEnabled')}
-                label="❤️ Hearts"
-                description="Lose a heart per wrong answer; the session pauses at zero and hearts refill over time."
-              />
-              {form.heartsEnabled && (
-                <Field label="Max hearts" htmlFor="maxHearts" aside={<span className="value-badge">{form.maxHearts}</span>}>
-                  <input id="maxHearts" type="range" min="3" max="10" value={form.maxHearts} onChange={(e) => set('maxHearts')(Number(e.target.value))} />
-                </Field>
-              )}
               <Toggle
                 id="relaxedModeToggle"
                 checked={form.relaxedMode}
@@ -452,14 +529,8 @@ export default function Settings({ settings, onSaveSettings, onBack, onExportDat
                 label="🌸 Gentle AI"
                 description="Very short, reassuring explanations with simple number analogies."
               />
-              <Toggle
-                id="unlockAllFeaturesToggle"
-                checked={form.unlockAllFeatures}
-                onChange={set('unlockAllFeatures')}
-                label="🏅 Unlock all features"
-                description="Skip the streak-based unlocks and get every feature now."
-              />
-            </Section>
+              </div>
+            </details>
           </>
         )}
 
